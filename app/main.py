@@ -1,27 +1,14 @@
 import os
 
-import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
-
-# Load all environment variables from .env uploaded_file
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import RedirectResponse
-from starlette.staticfiles import StaticFiles
 
 from app.api import domain_api
 
-# from api.contracts import contracts_api
-# from api.document import doc_api
-# from api.users import users_api
-# from api.web import web_api
-# from common.util import env_to_list
-
+# Load all environment variables from .env uploaded_file
 load_dotenv()
-
-SERVER_HOST = os.environ.get('SERVER_HOST', 'localhost')
-SERVER_PORT = int(os.environ.get('SERVER_PORT', '50051'))
 
 app = FastAPI()
 app.include_router(domain_api)

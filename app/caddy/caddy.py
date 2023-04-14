@@ -2,18 +2,20 @@ import json
 import os
 
 import httpx
+from dotenv import load_dotenv
 from fastapi import HTTPException
 
 from app.caddy.reverse_proxy import reverse_proxy_config
 
 HTTPS_PORT = 443
 
+load_dotenv()
 
 class Caddy:
 
     def __init__(self):
         self.admin_url = os.environ.get('CADDY_ADMIN_URL', 'http://localhost:2019')
-        self.config_json_file = os.environ.get('CADDY_CONFIG_JSON_FILE', 'caddy-init.json')
+        self.config_json_file = os.environ.get('CADDY_CONFIG_JSON_FILE', 'domains/caddy.json')
         self.main_domain_host = os.environ.get('CADDY_MAIN_DOMAIN_HOST', 'caddyserver.com')
         self.main_domain_port = os.environ.get('CADDY_MAIN_DOMAIN_PORT', '443')
 
@@ -26,6 +28,7 @@ class Caddy:
                 file_content = caddy_file.read()
                 if file_content:
                     self.config = json.loads(file_content)
+        self.deploy_config()
 
     @staticmethod
     def default_config():
@@ -43,7 +46,7 @@ class Caddy:
         site_name = f"{domain}:{port}"
         self.config['apps']['http']['servers'][site_name] = config
 
-        success = self.load_new_config()
+        success = self.deploy_config()
 
         with open(self.config_json_file, 'w') as outfile:
             outfile.write(json.dumps(self.config, indent=True))
@@ -54,7 +57,7 @@ class Caddy:
         site_name = f"{domain}:{port}"
         del self.config['apps']['http']['servers'][site_name]
 
-    def load_new_config(self):
+    def deploy_config(self):
         headers = {'Content-Type': 'application/json'}
         load_url = f"{self.admin_url}/load"
         response = self.do_post_request(load_url, headers=headers, content=json.dumps(self.config))

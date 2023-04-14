@@ -1,20 +1,19 @@
-version: "3.8"
+version: "3.7"
 
 services:
-  caddy:
-    image: caddy:latest
-    restart: unless-stopped
+  https:
+    restart: always
+    image: git.sireto.io:5050/https/https:latest
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
-      - "8080:8080"
+      - "9000:9000"
     volumes:
-      - $PWD/Caddyfile:/etc/caddy/Caddyfile
-      - $PWD/site:/srv
-      - caddy_data:/data
-      - caddy_config:/config
-
-volumes:
-  caddy_data:
-  caddy_config:
+      - ./domains:/app/domains
+    env_file:
+      - .env
+    environment:
+      CADDY_CONFIG_JSON_FILE: domains/caddy.json
+      CADDY_MAIN_DOMAIN_HOST: bettercollected.com
+      CADDY_MAIN_DOMAIN_PORT: 443
