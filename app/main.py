@@ -1,19 +1,26 @@
+import logging
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.models import APIKey
 from fastapi.openapi.utils import get_openapi
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import RedirectResponse, JSONResponse
 
 from app.api import domain_api
+from app.caddy.caddy import caddy_server
+from app.security import API_KEY_NAME, COOKIE_DOMAIN, get_api_key
 
 # Load all environment variables from .env uploaded_file
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 app.include_router(domain_api)
 
-
+# CORS support
 ALLOWED_ORIGINS = os.environ.get('ALLOWED_ORIGINS', '*')
 ALLOWED_METHODS = os.environ.get('ALLOWED_METHODS', '*')
 ALLOWED_HEADERS = os.environ.get('ALLOWED_HEADERS', '*')
@@ -27,31 +34,40 @@ app.add_middleware(
 )
 
 
-# Open API /docs or /redoc page customization
-def custom_openapi():
-    if app.openapi_schema:
-        return app.openapi_schema
-    openapi_schema = get_openapi(
-        title="SaaS HTTPS API",
-        version="1.0.0",
-        description="Open API spec of HTTPS API",
-        routes=app.routes,
+@app.get("/logout", tags=["default"])
+async def logout_and_remove_cookie():
+    response = RedirectResponse(url="/")
+    response.delete_cookie(API_KEY_NAME, domain=COOKIE_DOMAIN)
+    return response
+
+
+@app.get("/openapi.json", tags=["default"])
+async def get_open_api_endpoint(api_key: APIKey = Depends(get_api_key)):
+    response = JSONResponse(
+        get_openapi(title="SaaS HTTPS API", version='1.0.0', routes=app.routes)
     )
-    openapi_schema["info"]["x-logo"] = {
-        "url": "https://s3.eu-central-1.wasabisys.com/eu.delta.sireto.io/assets/images/logo.png"
-    }
-    app.openapi_schema = openapi_schema
-    return app.openapi_schema
+    return response
 
 
-app.openapi = custom_openapi
+@app.get("/docs", tags=["default"])
+async def get_documentation(api_key: APIKey = Depends(get_api_key)):
+    response = get_swagger_ui_html(openapi_url="/openapi.json", title="docs")
+    response.set_cookie(
+        API_KEY_NAME,
+        value=api_key,
+        domain=COOKIE_DOMAIN,
+        httponly=True,
+        max_age=1800,
+        expires=1800,
+    )
+    return response
 
 
 @app.on_event("startup")
 async def startup():
-    print("app started")
+    logger.info("App started")
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    print("app is shutting down")
+    logger.info("App is shutting down")

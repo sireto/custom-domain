@@ -1,102 +1,58 @@
-import json
 import os
 
-import httpx
 from dotenv import load_dotenv
 from fastapi import HTTPException
+import validators
 
-from app.caddy.reverse_proxy import reverse_proxy_config
+from app.caddy.caddy_config import CaddyAPIConfigurator
 
 HTTPS_PORT = 443
 
+DEFAULT_ADMIN_URL = 'http://localhost:2019'
+DEFAULT_CADDY_FILE = "config.json"
+DEFAULT_SAAS_HOST = "caddyserver.com"
+DEFAULT_SAAS_PORT = f"{HTTPS_PORT}"
+DEFAULT_CADDY_EMAIL = "info@example.com"
+
 load_dotenv()
+
 
 class Caddy:
 
     def __init__(self):
-        self.admin_url = os.environ.get('CADDY_ADMIN_URL', 'http://localhost:2019')
-        self.config_json_file = os.environ.get('CADDY_CONFIG_JSON_FILE', 'domains/caddy.json')
-        self.main_domain_host = os.environ.get('CADDY_MAIN_DOMAIN_HOST', 'caddyserver.com')
-        self.main_domain_port = os.environ.get('CADDY_MAIN_DOMAIN_PORT', '443')
+        self.admin_url = os.environ.get('CADDY_ADMIN_URL', DEFAULT_ADMIN_URL)
+        self.email = os.environ.get('CADDY_EMAIL', DEFAULT_CADDY_EMAIL)
+        self.config_json_file = os.environ.get('CADDY_CONFIG_FILE', DEFAULT_CADDY_FILE)
+        self.saas_host = os.environ.get('SAAS_HOST', DEFAULT_SAAS_HOST)
+        self.saas_port = os.environ.get('SAAS_PORT', DEFAULT_SAAS_PORT)
 
-        self.config = Caddy.default_config()
-        self.load_config_file()
+        self.configurator = CaddyAPIConfigurator(self.admin_url, self.email, self.saas_host, self.saas_port)
+        if not self.configurator.load_config_file(self.config_json_file):
+            self.configurator.init_config()
 
-    def load_config_file(self):
-        if os.path.exists(self.config_json_file):
-            with open(self.config_json_file, 'r') as caddy_file:
-                file_content = caddy_file.read()
-                if file_content:
-                    self.config = json.loads(file_content)
-        self.deploy_config()
+    def add_custom_domain(self, domain):
+        if not validators.domain(domain):
+            raise HTTPException(status_code=400, detail=f"{domain} is not a valid domain")
 
-    @staticmethod
-    def default_config():
-        return {
-            "apps": {
-                "http": {
-                    "servers": {}
-                }
-            }
-        }
+        if not self.configurator.add_domain(domain):
+            raise HTTPException(status_code=400, detail=f"Failed to add domain: {domain}")
 
-    def add_custom_domain(self, domain, port=HTTPS_PORT):
-        config = reverse_proxy_config(domain, port, self.main_domain_host, self.main_domain_port)
+        self.configurator.save_config(self.config_json_file)
 
-        site_name = f"{domain}:{port}"
-        self.config['apps']['http']['servers'][site_name] = config
+    def remove_custom_domain(self, domain):
+        if not validators.domain(domain):
+            raise HTTPException(status_code=400, detail=f"{domain} is not a valid domain")
 
-        success = self.deploy_config()
+        if not self.configurator.delete_domain(domain):
+            raise HTTPException(status_code=400, detail=f"Failed to remove domain: {domain}. Might not be exist.")
 
-        with open(self.config_json_file, 'w') as outfile:
-            outfile.write(json.dumps(self.config, indent=True))
-
-        return success
-
-    def remove_custom_domain(self, domain, port=HTTPS_PORT):
-        site_name = f"{domain}:{port}"
-        del self.config['apps']['http']['servers'][site_name]
-
-    def deploy_config(self):
-        headers = {'Content-Type': 'application/json'}
-        load_url = f"{self.admin_url}/load"
-        response = self.do_post_request(load_url, headers=headers, content=json.dumps(self.config))
-
-        if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail=str(response.text))
-        return response.text
+        self.configurator.save_config(self.config_json_file)
 
     def deployed_config(self):
-        config_url = f"{self.admin_url}/config/"
-        response = self.do_get_request(config_url)
-        if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail=str(response.text))
-        return response.json()
+        return self.configurator.config
 
-    def domain_config(self, host, port):
-        id_url = f"{self.admin_url}/id/{host}:{port}"
-        response = self.do_get_request(id_url)
-        if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail=str(response.text))
-        return response.json()
-
-    def do_get_request(self, url, **kwargs):
-        try:
-            return httpx.get(url, **kwargs)
-        except Exception as ex:
-            status_code = 500
-            if hasattr(ex, 'status_code'):
-                status_code = ex.status_code
-            raise HTTPException(status_code=status_code, detail=str(ex))
-
-    def do_post_request(self, url, **kwargs):
-        try:
-            return httpx.post(url, **kwargs)
-        except Exception as ex:
-            status_code = 500
-            if hasattr(ex, 'status_code'):
-                status_code = ex.status_code
-            raise HTTPException(status_code=status_code, detail=str(ex))
+    def list_domains(self):
+        return self.configurator.list_domains()
 
 
 caddy_server = Caddy()
