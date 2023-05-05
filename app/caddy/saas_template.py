@@ -1,15 +1,19 @@
-def https_template(upstream):
+from typing import Dict, List
+
+HTTPS_PORT = 443
+
+
+def https_template(port=HTTPS_PORT, disable_https=False):
     return {
         "apps": {
             "http": {
                 "servers": {
-                    "srv0": {
+                    f"{port}": {
                         "listen": [
-                            ":443"
+                            f":{port}"
                         ],
-                        "routes": [
-                            sub_route_template(upstream)
-                        ]
+                        "automatic_https": {"disable": disable_https},
+                        "routes": []
                     }
                 }
             }
@@ -17,7 +21,60 @@ def https_template(upstream):
     }
 
 
-def sub_route_template(upstream):
+class DomainAlreadyExists(ValueError):
+    pass
+
+
+class DomainDoesNotExist(ValueError):
+    pass
+
+
+def add_https_domain(domain, upstream, port=HTTPS_PORT, template=None, replace=True, disable_https=False):
+    if not template or not isinstance(template, dict):
+        template = {}
+    else:
+        template = template.copy()
+
+    apps = template.get("apps", None)
+    if not apps:
+        apps = {}
+        template["apps"] = apps
+
+    http = apps.get("http", None)
+    if not http:
+        http = {}
+        apps["http"] = http
+
+    servers = http.get("servers", None)
+    if not servers:
+        servers = {}
+        http["servers"] = servers
+
+    https_server = servers.get(f"{port}", None)
+    if not https_server:
+        https_server = {"listen": [f":{port}"], "routes": []}
+        servers[f"{port}"] = https_server
+
+    routes: List[Dict] = https_server.get("routes", [])
+    expected_route = route_template(domain, upstream, disable_https=disable_https)
+    exists = False
+    for route in routes:
+        for match in route.get("match", []):
+            if domain in match.get("host", []):
+                exists = True
+                if replace:
+                    # replace the handle with expected route handle
+                    route["handle"] = expected_route["handle"]
+                    break
+                raise DomainAlreadyExists(f"{domain} already exists")
+
+    if not exists:
+        routes.append(expected_route)
+
+    return template
+
+
+def route_template(domain, upstream, disable_https=False):
     return {
         "handle": [
             {
@@ -25,7 +82,7 @@ def sub_route_template(upstream):
                 "routes": [
                     {
                         "handle": [
-                            reverse_proxy_handle_template(upstream)
+                            reverse_proxy_handle_template(upstream, disable_https=disable_https)
                         ]
                     }
                 ]
@@ -33,16 +90,18 @@ def sub_route_template(upstream):
         ],
         "match": [
             {
-                "host": []
+                "host": [domain]
             }
         ],
         "terminal": True
     }
 
 
-def reverse_proxy_handle_template(upstream):
-    return {
-        "@id": upstream,
+def reverse_proxy_handle_template(upstream, disable_https=False, handle_id=None):
+    if ":" not in upstream:
+        upstream = f"{upstream}:{HTTPS_PORT}"
+
+    handle = {
         "handler": "reverse_proxy",
         "headers": {
             "request": {
@@ -67,47 +126,50 @@ def reverse_proxy_handle_template(upstream):
         ]
     }
 
+    if disable_https:
+        del handle["transport"]["tls"]
 
-def add_domains(template, domains):
+    if handle_id:
+        handle["@id"] = handle_id
+
+    return handle
+
+
+def delete_https_domain(domain, template, port=HTTPS_PORT):
     try:
-        match_config = template["apps"]["http"]["servers"]["srv0"]["routes"][0]["match"]
-        if match_config:
-            match_hosts = match_config[0].get("host", [])
-            for domain in domains:
-                if domain not in match_hosts:
-                    match_hosts.append(domain)
-            match_config[0]["host"] = match_hosts
-            template["apps"]["http"]["servers"]["srv0"]["routes"][0]["match"] = match_config
-            return template
+        template = template.copy()
+        routes = template["apps"]["http"]["servers"][f"{port}"]["routes"]
+
+        removed = False
+        for route in routes.copy():
+            for match in route.get("match", []):
+                if domain in match.get("host", []):
+                    routes.remove(route)
+                    removed = True
+
+        if not removed:
+            raise DomainDoesNotExist(f"{domain} does not exist")
+
+        template["apps"]["http"]["servers"][f"{port}"]["routes"] = routes
+        return template
+
     except KeyError:
         raise
     except IndexError:
         raise
 
 
-def delete_domains(template, domains):
+def list_domains(template, port=HTTPS_PORT):
     try:
-        match_config = template["apps"]["http"]["servers"]["srv0"]["routes"][0]["match"]
-        if match_config:
-            match_hosts = match_config[0].get("host", [])
-            for domain in domains:
-                if domain in match_hosts:
-                    match_hosts.remove(domain)
-            match_config[0]["host"] = match_hosts
-            template["apps"]["http"]["servers"]["srv0"]["routes"][0]["match"] = match_config
-            return template
-    except KeyError:
-        raise
-    except IndexError:
-        raise
+        domains = []
 
+        routes = template["apps"]["http"]["servers"][f"{port}"]["routes"]
+        for route in routes:
+            for match in route.get("match", []):
+                for host in match.get("host", []):
+                    domains.append(host)
 
-def list_domains(template):
-    try:
-        match_config = template["apps"]["http"]["servers"]["srv0"]["routes"][0]["match"]
-        if match_config:
-            match_hosts = match_config[0].get("host", [])
-            return match_hosts
+        return domains
     except KeyError:
         return []
     except IndexError:

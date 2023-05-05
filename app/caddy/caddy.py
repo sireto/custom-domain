@@ -9,9 +9,10 @@ from app.caddy.caddy_config import CaddyAPIConfigurator
 HTTPS_PORT = 443
 
 DEFAULT_ADMIN_URL = 'http://localhost:2019'
-DEFAULT_CADDY_FILE = "config.json"
-DEFAULT_SAAS_HOST = "caddyserver.com"
+DEFAULT_CADDY_FILE = "caddy.json"
+DEFAULT_SAAS_HOST = "example.com"
 DEFAULT_SAAS_PORT = f"{HTTPS_PORT}"
+DEFAULT_LOCAL_PORT = f"{HTTPS_PORT}"
 DEFAULT_CADDY_EMAIL = "info@example.com"
 
 load_dotenv()
@@ -25,16 +26,23 @@ class Caddy:
         self.config_json_file = os.environ.get('CADDY_CONFIG_FILE', DEFAULT_CADDY_FILE)
         self.saas_host = os.environ.get('SAAS_HOST', DEFAULT_SAAS_HOST)
         self.saas_port = os.environ.get('SAAS_PORT', DEFAULT_SAAS_PORT)
+        self.local_port = os.environ.get('LOCAL_PORT', DEFAULT_LOCAL_PORT)
+        self.disable_https = os.environ.get('DISABLE_HTTPS', 'False').upper() == "TRUE"
 
-        self.configurator = CaddyAPIConfigurator(self.admin_url, self.email, self.saas_host, self.saas_port)
+        self.configurator = CaddyAPIConfigurator(
+            self.admin_url,
+            https_port=self.local_port,
+            disable_https=self.disable_https
+        )
         if not self.configurator.load_config_file(self.config_json_file):
             self.configurator.init_config()
 
-    def add_custom_domain(self, domain):
+    def add_custom_domain(self, domain, upstream):
         if not validators.domain(domain):
             raise HTTPException(status_code=400, detail=f"{domain} is not a valid domain")
 
-        if not self.configurator.add_domain(domain):
+        upstream = upstream or f"{self.saas_host}:{self.saas_port}"
+        if not self.configurator.add_domain(domain, upstream):
             raise HTTPException(status_code=400, detail=f"Failed to add domain: {domain}")
 
         self.configurator.save_config(self.config_json_file)
