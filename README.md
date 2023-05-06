@@ -15,10 +15,8 @@ API_KEY=0df05a6c-d4c6-4ee4-a55d-de1409e82cee
 
 ## 2. Create docker volumes to persist data (eg. certificates, domains etc.)
 ```bash
-docker volume create https_config
 docker volume create https_data
 docker volume create https_domains
-docker volume create https_site
 ```
 
 ## 3. Docker Compose file
