@@ -34,7 +34,7 @@ app.add_middleware(
 )
 
 # Trusted Hosts
-trusted_hosts = os.environ.get('TRUSTED_HOSTS', 'localhost')
+trusted_hosts = os.environ.get('TRUSTED_HOSTS', None)
 if trusted_hosts:
     trusted_hosts = [host.strip() for host in trusted_hosts.split(",")]
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
