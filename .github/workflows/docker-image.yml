@@ -13,7 +13,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Build the Docker image
-      run: docker build -t ${DOCKER_REGISTRY}/{IMAGE}:latest .
+      run: docker build -t ${DOCKER_REGISTRY}/${IMAGE}:latest .
       env:
         DOCKER_REGISTRY: docker.io
         IMAGE: sireto/custom-domain
@@ -22,7 +22,7 @@ jobs:
       env:
         DOCKER_REGISTRY: docker.io
     - name: Push the Docker image
-      run: docker push ${DOCKER_REGISTRY}/{IMAGE}:latest
+      run: docker push ${DOCKER_REGISTRY}/${IMAGE}:latest
       env:
         DOCKER_REGISTRY: docker.io
         IMAGE: sireto/custom-domain
