@@ -39,16 +39,10 @@ services:
       - .env
     volumes:
       - https_domains:/app/domains
-      - https_site:/srv
-      - https_data:/data
-      - https_config:/config
+      - https_data:/root/.local/share
 
 volumes:
   https_data:
-    external: true
-  https_config:
-    external: true
-  https_site:
     external: true
   https_domains:
     external: true
