@@ -9,7 +9,7 @@ from app.caddy.caddy_config import CaddyAPIConfigurator
 HTTPS_PORT = 443
 
 DEFAULT_ADMIN_URL = 'http://localhost:2019'
-DEFAULT_CADDY_FILE = "caddy.json"
+DEFAULT_CADDY_FILE = "domains/caddy.json"
 DEFAULT_SAAS_UPSTREAM = "example.com:443"
 DEFAULT_LOCAL_PORT = f"{HTTPS_PORT}"
 
