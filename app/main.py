@@ -7,10 +7,10 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.models import APIKey
 from fastapi.openapi.utils import get_openapi
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import RedirectResponse, JSONResponse
 
 from app.api import domain_api
-from app.caddy.caddy import caddy_server
 from app.security import API_KEY_NAME, COOKIE_DOMAIN, get_api_key
 
 # Load all environment variables from .env uploaded_file
@@ -32,6 +32,12 @@ app.add_middleware(
     allow_methods=ALLOWED_METHODS,
     allow_headers=ALLOWED_HEADERS,
 )
+
+# Trusted Hosts
+trusted_hosts = os.environ.get('TRUSTED_HOSTS', 'localhost')
+if trusted_hosts:
+    trusted_hosts = [host.strip() for host in trusted_hosts.split(",")]
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
 
 
 @app.get("/logout", tags=["default"])
