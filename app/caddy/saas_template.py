@@ -109,6 +109,9 @@ def reverse_proxy_handle_template(upstream, disable_https=False, handle_id=None)
                     "Host": [
                         "{http.reverse_proxy.upstream.host}"
                     ],
+                    "X-Real-Host": [
+                        "{http.reverse_proxy.upstream.host}"
+                    ],
                     "X-Real-Ip": [
                         "{http.reverse-proxy.upstream.address}"
                     ]
