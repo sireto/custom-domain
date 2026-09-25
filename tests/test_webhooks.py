@@ -217,8 +217,9 @@ def receiver():
 
 
 def test_worker_delivers_signed_payload_over_http(
-    session, session_factory, make_application, receiver
+    session, session_factory, make_application, receiver, monkeypatch
 ):
+    monkeypatch.setenv("ORIGIN_ALLOW_PRIVATE", "true")  # the receiver is plain HTTP on loopback
     acme = make_application("acme")
     subscription, secret = _subscribe(session, acme, url=receiver.url)
     domain = claim_domain(session, acme, "forms.customer.example", "ws_1")
@@ -502,7 +503,7 @@ def test_delivery_refuses_private_addresses_on_each_attempt(
     assert attempt_delivery(session_factory, delivery.id, sender=http_sender) == "retry"
     session.commit()
     session.expire_all()
-    assert "non-public" in delivery.last_error and receiver.received == []
+    assert "InvalidWebhook" in delivery.last_error and receiver.received == []
 
     # A trusted self-hosted deployment may deliver to private addresses.
     monkeypatch.setenv("ORIGIN_ALLOW_PRIVATE", "true")
