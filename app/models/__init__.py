@@ -11,6 +11,7 @@ from app.models.enums import (
     EventType,
     OriginStatus,
 )
+from app.models.idempotency import IdempotencyKey
 
 __all__ = [
     "ApiCredential",
@@ -24,6 +25,7 @@ __all__ = [
     "DomainEvent",
     "DomainStatus",
     "EventType",
+    "IdempotencyKey",
     "OriginStatus",
     "OwnershipClaim",
     "VerifiedOrigin",

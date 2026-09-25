@@ -50,3 +50,4 @@ class EventType(StrEnum):
     CHECK_UPDATED = "domain.check_updated"
     STATUS_CHANGED = "domain.status_changed"
     DOMAIN_DELETED = "domain.deleted"
+    RECHECK_REQUESTED = "domain.recheck_requested"

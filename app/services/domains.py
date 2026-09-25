@@ -480,6 +480,29 @@ def delete_domain(
     return domain
 
 
+def request_recheck(
+    session: Session,
+    application: Application,
+    domain_id: uuid.UUID,
+    *,
+    now: datetime | None = None,
+) -> Domain:
+    """Ask the lifecycle worker to re-run every check at the next opportunity.
+
+    Sets ``next_check_at`` on all checks and records an event. Rate limiting
+    of manual rechecks is applied by the API layer (#6, #12).
+    """
+    now = now or utcnow()
+    domain = get_domain(session, application, domain_id)
+    if domain.status == DomainStatus.DELETING:
+        raise InvalidStatusTransition("Deleted domains are not rechecked")
+    for check in domain.checks:
+        check.next_check_at = now
+    session.flush()
+    record_event(session, domain, EventType.RECHECK_REQUESTED, {"requested_by": "api"}, now=now)
+    return domain
+
+
 def purge_tombstones(session: Session, *, now: datetime | None = None) -> int:
     """Hard-delete tombstones past retention. Children go with them via FK cascade."""
     now = now or utcnow()
