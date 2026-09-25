@@ -137,7 +137,7 @@ The API returns the exact records for each hostname:
 - a CNAME record for `<hostname>` pointing at the application's edge target.
 
 The domain is checked automatically (and on request through
-`POST /v1/domains/{id}/recheck`); every failing check carries a stable error
+`POST /v1/domains/{id}/checks`); every failing check carries a stable error
 code and a message the application can show to the customer.
 
 ## Documentation
