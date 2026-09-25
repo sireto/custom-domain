@@ -85,21 +85,24 @@ def test_config_routes_only_serveable_hostnames_per_application(session, fleet):
     server = config["apps"]["http"]["servers"]["edge"]
     assert server["listen"] == [":443"]
     assert "storage" not in config
-    assert [route["@id"] for route in server["routes"]] == ["edge-health", "app-acme", "app-globex"]
+    assert [route["@id"] for route in server["routes"]] == [
+        "edge-health",
+        "app-acme",
+        "app-globex",
+        "edge-unmatched",
+    ]
 
-    _health, acme_route, globex_route = server["routes"]
+    _health, acme_route, globex_route, _unmatched = server["routes"]
     assert acme_route["match"] == [{"host": ["a.customer.example", "b.customer.example"]}]
     assert acme_route["terminal"] is True
-    assert acme_route["handle"] == [
-        {
-            "handler": "reverse_proxy",
-            "upstreams": [{"dial": "app.acme.example:443"}],
-            "transport": {"protocol": "http", "tls": {}},
-        }
-    ]
+    strip, assert_step, proxy = acme_route["handle"]
+    assert strip["handler"] == "headers" and assert_step["rewrite"]["uri"].endswith("/assert")
+    assert proxy["handler"] == "reverse_proxy"
+    assert proxy["upstreams"] == [{"dial": "app.acme.example:443"}]
+    assert proxy["transport"] == {"protocol": "http", "tls": {"server_name": "app.acme.example"}}
     assert globex_route["match"] == [{"host": ["one.globex-customer.example"]}]
-    assert "transport" not in globex_route["handle"][0]
-    assert globex_route["handle"][0]["upstreams"] == [{"dial": "globex.internal:8080"}]
+    assert "transport" not in globex_route["handle"][-1]
+    assert globex_route["handle"][-1]["upstreams"] == [{"dial": "globex.internal:8080"}]
     assert hostnames_in(config) == {
         "a.customer.example",
         "b.customer.example",
@@ -217,12 +220,15 @@ def test_bootstrap_holds_admin_and_storage_and_apps_holds_routes(session, fleet)
     assert bootstrap["admin"] == {"listen": "127.0.0.1:2019"}
     assert bootstrap["storage"]["password"] == "pw"
     assert [r["@id"] for r in bootstrap["apps"]["http"]["servers"]["edge"]["routes"]] == [
-        "edge-health"
+        "edge-health",
+        "edge-unmatched",
     ]
 
     apps = build_apps(session, settings)
     assert "storage" not in apps and "admin" not in apps
-    assert len(apps["http"]["servers"]["edge"]["routes"]) == 3  # health route plus two applications
+    assert (
+        len(apps["http"]["servers"]["edge"]["routes"]) == 4
+    )  # health, two applications, unmatched
     full = build_caddy_config(session, settings)
     assert full["storage"] == bootstrap["storage"] and full["apps"] == apps
 
@@ -230,7 +236,8 @@ def test_bootstrap_holds_admin_and_storage_and_apps_holds_routes(session, fleet)
 def test_empty_database_yields_a_valid_empty_server(session):
     config = build_caddy_config(session, SETTINGS)
     assert [r["@id"] for r in config["apps"]["http"]["servers"]["edge"]["routes"]] == [
-        "edge-health"
+        "edge-health",
+        "edge-unmatched",
     ]
 
 
@@ -242,7 +249,9 @@ def test_settings_defaults_and_legacy_conflict():
     assert settings.legacy_api_enabled and not settings.reconcile_enabled
     assert settings.storage == "file" and settings.storage_config() is None
 
-    settings = EdgeSettings.from_env({"ENABLE_LEGACY_API": "false"})
+    settings = EdgeSettings.from_env(
+        {"ENABLE_LEGACY_API": "false", "EDGE_ASSERTION_KEYS": "1:" + "k" * 32}
+    )
     assert settings.reconcile_enabled
 
     with pytest.raises(EdgeConfigurationError, match="cannot both be true"):
@@ -268,13 +277,16 @@ def test_settings_defaults_and_legacy_conflict():
 )
 def test_settings_validation(env, match):
     with pytest.raises(EdgeConfigurationError, match=match):
-        EdgeSettings.from_env({"ENABLE_LEGACY_API": "false", **env})
+        EdgeSettings.from_env(
+            {"ENABLE_LEGACY_API": "false", "EDGE_ASSERTION_KEYS": "1:" + "k" * 32, **env}
+        )
 
 
 def test_settings_redis_from_env():
     settings = EdgeSettings.from_env(
         {
             "ENABLE_LEGACY_API": "false",
+            "EDGE_ASSERTION_KEYS": "1:" + "k" * 32,
             "CADDY_STORAGE": "redis",
             "CADDY_REDIS_ADDRESS": "redis:6379",
             "CADDY_REDIS_PASSWORD": "pw",

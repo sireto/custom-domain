@@ -35,7 +35,7 @@ accepted in the query string or in cookies.
 | --- | --- |
 | `id` | Stable UUID. |
 | `hostname` | Canonical form: lowercase, punycode, no trailing dot. |
-| `reference` | Opaque workspace identifier supplied by the application; returned verbatim and forwarded to the origin as tenant context (#8). |
+| `reference` | Opaque workspace identifier supplied by the application; returned verbatim and delivered to the origin inside the signed assertion on every request ([edge-routing.md](edge-routing.md)). |
 | `status` | `pending_dns`, `provisioning`, `ready`, `attention_required`, `suspended`, `deleting`. |
 | `dns_records` | Records the customer must publish: one `TXT` (`purpose: ownership`) and one `CNAME` (`purpose: routing`), each with `name`, `type`, `value` and `help`. Empty once the domain is deleted. |
 | `checks` | One entry per check: `ownership`, `routing`, `certificate`, `origin`, each `pending`, `passing` or `failing` with `error_code`, `message`, `observed_at` and `next_check_at`. |

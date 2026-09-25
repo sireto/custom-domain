@@ -207,6 +207,7 @@ def test_edge_settings_probe_options():
     settings = EdgeSettings.from_env(
         {
             "ENABLE_LEGACY_API": "false",
+            "EDGE_ASSERTION_KEYS": "1:" + "k" * 32,
             "EDGE_ASK_URL": "http://api:9000/internal/tls/ask",
             "EDGE_ASK_TRUSTED_HOSTS": "10.0.0.5, 10.0.0.6",
             "EDGE_PROBE_ADDRESS": "edge.internal:8443",
@@ -220,4 +221,10 @@ def test_edge_settings_probe_options():
     from app.edge.settings import EdgeConfigurationError
 
     with pytest.raises(EdgeConfigurationError, match="host:port"):
-        EdgeSettings.from_env({"ENABLE_LEGACY_API": "false", "EDGE_PROBE_ADDRESS": "edge"})
+        EdgeSettings.from_env(
+            {
+                "ENABLE_LEGACY_API": "false",
+                "EDGE_ASSERTION_KEYS": "1:" + "k" * 32,
+                "EDGE_PROBE_ADDRESS": "edge",
+            }
+        )

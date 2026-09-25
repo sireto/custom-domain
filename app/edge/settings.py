@@ -18,6 +18,8 @@ DEFAULT_RECONCILE_INTERVAL = 30.0
 DEFAULT_ASK_URL = "http://localhost:9000/internal/tls/ask"
 DEFAULT_PROBE_TIMEOUT = 15.0
 HEALTH_PATH = "/.well-known/custom-domain-edge-health"
+DEFAULT_ASSERT_UPSTREAM = "localhost:9000"
+ASSERT_PATH = "/internal/edge/assert"
 REDIS_ENCRYPTION_KEY_LENGTH = 32
 
 StorageKind = Literal["file", "redis"]
@@ -32,6 +34,16 @@ def _flag(environ: Mapping[str, str], name: str, default: bool) -> bool:
     if value is None or not value.strip():
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _key_pairs(spec: str) -> tuple[tuple[str, str], ...]:
+    from app.edge.assertion import parse_keys
+
+    try:
+        parsed = parse_keys(spec)
+    except ValueError as exc:
+        raise EdgeConfigurationError(str(exc)) from exc
+    return tuple((key_id, secret.decode("utf-8")) for key_id, secret in parsed.items())
 
 
 def _csv(environ: Mapping[str, str], name: str) -> tuple[str, ...]:
@@ -64,6 +76,11 @@ class EdgeSettings:
     probe_address: str | None = None
     probe_ca_file: str | None = None
     probe_timeout: float = DEFAULT_PROBE_TIMEOUT
+    # Routing: Caddy asks this upstream for the signed assertion on every
+    # request; the keys sign it (first entry is active, others verify only).
+    assert_upstream: str = DEFAULT_ASSERT_UPSTREAM
+    assertion_keys: tuple[tuple[str, str], ...] = ()
+    assertion_ttl: int = 60
     _validated: bool = field(default=False, repr=False, compare=False)
 
     @classmethod
@@ -100,6 +117,10 @@ class EdgeSettings:
             probe_address=env.get("EDGE_PROBE_ADDRESS", "").strip() or None,
             probe_ca_file=env.get("EDGE_PROBE_CA_FILE", "").strip() or None,
             probe_timeout=float(env.get("EDGE_PROBE_TIMEOUT", DEFAULT_PROBE_TIMEOUT)),
+            assert_upstream=env.get("EDGE_ASSERT_UPSTREAM", DEFAULT_ASSERT_UPSTREAM).strip()
+            or DEFAULT_ASSERT_UPSTREAM,
+            assertion_keys=_key_pairs(env.get("EDGE_ASSERTION_KEYS", "")),
+            assertion_ttl=int(env.get("EDGE_ASSERTION_TTL", "60")),
         )
         settings.validate()
         return settings
@@ -128,6 +149,20 @@ class EdgeSettings:
             raise EdgeConfigurationError("EDGE_PROBE_TIMEOUT must be at least 1 second")
         if self.probe_address and ":" not in self.probe_address:
             raise EdgeConfigurationError("EDGE_PROBE_ADDRESS must be host:port")
+        if self.reconcile_enabled and not self.assertion_keys:
+            raise EdgeConfigurationError(
+                "EDGE_ASSERTION_KEYS is required when the edge is enabled: routing signs every "
+                "proxied request (docs/edge-routing.md)"
+            )
+        if not 5 <= self.assertion_ttl <= 600:
+            raise EdgeConfigurationError("EDGE_ASSERTION_TTL must be between 5 and 600 seconds")
+
+    def signing_keys(self) -> dict[str, bytes]:
+        return {key_id: secret.encode("utf-8") for key_id, secret in self.assertion_keys}
+
+    def active_key(self) -> tuple[str, bytes]:
+        key_id, secret = self.assertion_keys[0]
+        return key_id, secret.encode("utf-8")
 
     def storage_config(self) -> dict[str, Any] | None:
         """The Caddy ``storage`` block, or None for Caddy's default file storage."""

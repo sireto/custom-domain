@@ -22,13 +22,26 @@ from urllib.parse import urlparse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.edge.settings import HEALTH_PATH, EdgeSettings
+from app.edge.assertion import HEADER as ASSERTION_HEADER
+from app.edge.settings import ASSERT_PATH, HEALTH_PATH, EdgeSettings
 from app.models import Application, ApplicationStatus, Domain, DomainStatus, VerifiedOrigin
 from app.services.domains import is_serveable
 
 SERVER_NAME = "edge"
 EDGE_HEALTH_HEADER = "X-Custom-Domain-Edge"
 EDGE_HEALTH_VALUE = "1"
+EDGE_HOST_HEADER = "X-Custom-Domain-Edge-Host"
+EDGE_SNI_HEADER = "X-Custom-Domain-Edge-Sni"
+EDGE_REQUEST_ID_HEADER = "X-Custom-Domain-Edge-Request-Id"
+# Headers a client must never be able to smuggle to an origin.
+STRIPPED_REQUEST_HEADERS = (
+    ASSERTION_HEADER,
+    EDGE_HOST_HEADER,
+    EDGE_SNI_HEADER,
+    EDGE_REQUEST_ID_HEADER,
+    "X-Custom-Domain-Reference",
+    "X-Custom-Domain-Application",
+)
 
 
 @dataclass(frozen=True)
@@ -80,17 +93,84 @@ def serveable_route_groups(session: Session) -> list[RouteGroup]:
     return groups
 
 
-def _route(group: RouteGroup) -> dict[str, Any]:
+def assertion_subrequest(settings: EdgeSettings) -> dict[str, Any]:
+    """Forward-auth style subrequest: the API signs the assertion for this request.
+
+    A 2xx answer copies the assertion header onto the request and continues to
+    the origin; anything else is returned to the client as-is (403), so no
+    request reaches an origin without an assertion.
+    """
+    return {
+        "handler": "reverse_proxy",
+        "upstreams": [{"dial": settings.assert_upstream}],
+        "rewrite": {"method": "GET", "uri": ASSERT_PATH},
+        "headers": {
+            "request": {
+                "set": {
+                    EDGE_HOST_HEADER: ["{http.request.host}"],
+                    EDGE_SNI_HEADER: ["{http.request.tls.server_name}"],
+                    EDGE_REQUEST_ID_HEADER: ["{http.request.uuid}"],
+                    "X-Forwarded-Method": ["{http.request.method}"],
+                    "X-Forwarded-Uri": ["{http.request.uri}"],
+                }
+            }
+        },
+        "handle_response": [
+            {
+                "match": {"status_code": [2]},
+                "routes": [
+                    {
+                        "handle": [
+                            {
+                                "handler": "headers",
+                                "request": {
+                                    "set": {
+                                        ASSERTION_HEADER: [
+                                            "{http.reverse_proxy.header." + ASSERTION_HEADER + "}"
+                                        ]
+                                    }
+                                },
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _origin_proxy(group: RouteGroup) -> dict[str, Any]:
     handler: dict[str, Any] = {
         "handler": "reverse_proxy",
         "upstreams": [{"dial": group.origin}],
+        # The origin sees the customer-facing host; X-Forwarded-* say how it arrived.
+        "headers": {
+            "request": {
+                "set": {
+                    "Host": ["{http.request.host}"],
+                    "X-Forwarded-Host": ["{http.request.host}"],
+                    "X-Forwarded-Proto": ["{http.request.scheme}"],
+                }
+            }
+        },
     }
     if group.origin_tls:
-        handler["transport"] = {"protocol": "http", "tls": {}}
+        handler["transport"] = {
+            "protocol": "http",
+            "tls": {"server_name": group.origin.rsplit(":", 1)[0]},
+        }
+    return handler
+
+
+def _route(group: RouteGroup, settings: EdgeSettings) -> dict[str, Any]:
     return {
         "@id": f"app-{group.application_slug}",
         "match": [{"host": list(group.hostnames)}],
-        "handle": [handler],
+        "handle": [
+            {"handler": "headers", "request": {"delete": list(STRIPPED_REQUEST_HEADERS)}},
+            assertion_subrequest(settings),
+            _origin_proxy(group),
+        ],
         "terminal": True,
     }
 
@@ -111,13 +191,26 @@ def health_route() -> dict[str, Any]:
     }
 
 
+def unmatched_route() -> dict[str, Any]:
+    """Explicit refusal for hostnames no application route matched (no catch-all proxy)."""
+    return {
+        "@id": "edge-unmatched",
+        "handle": [{"handler": "static_response", "status_code": 404}],
+        "terminal": True,
+    }
+
+
 def _server(settings: EdgeSettings, routes: list[dict[str, Any]]) -> dict[str, Any]:
     server: dict[str, Any] = {
         "listen": [f":{settings.https_port}"],
-        "routes": [health_route(), *routes],
+        "routes": [health_route(), *routes, unmatched_route()],
     }
     if settings.disable_https:
         server["automatic_https"] = {"disable": True}
+    else:
+        # A request whose Host differs from the TLS SNI is refused (421), so
+        # the certificate, the route and the assertion always name one host.
+        server["strict_sni_host"] = True
     return server
 
 
@@ -125,7 +218,7 @@ def build_apps(session: Session, settings: EdgeSettings) -> dict[str, Any]:
     """The ``apps`` subtree the reconciler manages: routing and TLS automation."""
     groups = serveable_route_groups(session)
     apps: dict[str, Any] = {
-        "http": {"servers": {SERVER_NAME: _server(settings, [_route(g) for g in groups])}}
+        "http": {"servers": {SERVER_NAME: _server(settings, [_route(g, settings) for g in groups])}}
     }
     if not settings.disable_https:
         issuer: dict[str, Any] = {"module": "acme"}
