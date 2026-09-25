@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import uuid
 from datetime import timedelta
@@ -208,6 +209,41 @@ def _build_parser() -> argparse.ArgumentParser:
     worker_run.add_argument("--interval", type=float, help="seconds between passes")
     worker_run.set_defaults(func=_worker_run)
 
+    dev = sub.add_parser("dev", help="local development helpers").add_subparsers(dest="dev_command")
+    demo = dev.add_parser(
+        "demo",
+        help="set up the sample application, its origin, a credential and two workspace "
+        "domains on this instance (deploy/compose.local.yml)",
+    )
+    demo.add_argument("--slug", default="sample", help="application slug (created if missing)")
+    demo.add_argument("--name", default="Sample SaaS")
+    demo.add_argument("--cname-target", default="sample.localtest.me")
+    demo.add_argument("--origin-host", default="sample-saas")
+    demo.add_argument("--origin-port", type=int, default=8000)
+    demo.add_argument("--origin-scheme", default="http", choices=["http", "https"])
+    demo.add_argument(
+        "--domain",
+        action="append",
+        metavar="HOSTNAME=REFERENCE",
+        help="workspace domain to register; repeatable (default: alpha and beta under "
+        "sample.localtest.me)",
+    )
+    demo.add_argument(
+        "--write-env",
+        type=Path,
+        default=os.environ.get("CUSTOM_DOMAIN_DEMO_ENV") or None,
+        help="write APPLICATION_ID, EDGE_ASSERTION_KEYS and ORIGIN_VERIFICATION_TOKEN here "
+        "for the sample origin to read (default: $CUSTOM_DOMAIN_DEMO_ENV)",
+    )
+    demo.add_argument(
+        "--wait",
+        type=float,
+        default=120,
+        help="seconds to wait for the origin to answer and the domains to become ready "
+        "(0: do not wait)",
+    )
+    demo.set_defaults(func=_dev_demo)
+
     openapi = sub.add_parser("openapi", help="API contract").add_subparsers(dest="openapi_command")
     export = openapi.add_parser("export", help="write the OpenAPI document as JSON")
     export.add_argument("--output", default="-", help="file path, or - for stdout")
@@ -304,6 +340,183 @@ def _worker_run(args) -> int:
             stop.wait(3600)
     except KeyboardInterrupt:
         stop.set()
+    return 0
+
+
+DEFAULT_DEMO_DOMAINS = ("alpha.sample.localtest.me=ws_alpha", "beta.sample.localtest.me=ws_beta")
+LOCAL_CA_ROOT = Path("caddy/pki/authorities/local/root.crt")
+
+
+def _dev_demo(args) -> int:
+    """Walk the sample application through onboarding on a local instance."""
+    import os
+    import time
+
+    from app.dns.settings import DnsSettings
+    from app.edge.settings import EdgeSettings
+    from app.models import DomainStatus
+    from app.services.origin_verification import (
+        OriginVerificationFailed,
+        allow_private_from_env,
+        verify_origin,
+    )
+
+    settings = EdgeSettings.from_env()
+    dns_settings = DnsSettings.from_env()
+    if dns_settings.verification_mode != "local":
+        print(
+            "note: DNS_VERIFICATION_MODE is not 'local', so the domains below become ready "
+            "only once their TXT and CNAME records exist in public DNS",
+            file=sys.stderr,
+        )
+    keys = os.environ.get("EDGE_ASSERTION_KEYS", "").strip()
+    if not keys:
+        print("error: EDGE_ASSERTION_KEYS must be set (the sample origin verifies with it)")
+        return 2
+    deadline = time.monotonic() + max(0.0, args.wait)
+
+    # The readiness probe trusts the edge's private CA through EDGE_PROBE_CA_FILE.
+    # With Caddy's internal issuer the root certificate lives in Caddy's own
+    # directory, unreadable to the API user; publish a copy at the configured path.
+    if settings.tls_issuer == "internal" and settings.probe_ca_file:
+        target = Path(settings.probe_ca_file)
+        if not target.exists():
+            data_home = Path(os.environ.get("XDG_DATA_HOME", "/var/lib/custom-domain"))
+            root = data_home / LOCAL_CA_ROOT
+            while not root.exists() and time.monotonic() < deadline:
+                time.sleep(1)
+            if root.exists():
+                target.write_bytes(root.read_bytes())
+                target.chmod(0o644)
+                print(f"edge CA root published at {target} (trust it to browse over HTTPS)")
+            else:
+                print(f"warning: {root} not found yet; the certificate check will retry")
+
+    with get_session_factory()() as session:
+        try:
+            application = app_service.get_application_by_slug(session, args.slug)
+            print(f"application {application.slug} exists ({application.id})")
+        except ServiceError:
+            application = app_service.create_application(
+                session, slug=args.slug, name=args.name, cname_target=args.cname_target
+            )
+            session.commit()
+            print(f"created application {application.slug} ({application.id})")
+
+        origin = next(
+            (
+                o
+                for o in application.origins
+                if o.host == args.origin_host and o.port == args.origin_port
+            ),
+            None,
+        )
+        if origin is None:
+            origin = app_service.register_origin(
+                session,
+                application,
+                host=args.origin_host,
+                scheme=args.origin_scheme,
+                port=args.origin_port,
+            )
+            session.commit()
+            print(f"registered origin {origin.url}")
+        if args.write_env is not None:
+            args.write_env.parent.mkdir(parents=True, exist_ok=True)
+            args.write_env.write_text(
+                f"APPLICATION_ID={application.id}\n"
+                f"EDGE_ASSERTION_KEYS={keys}\n"
+                f"ORIGIN_VERIFICATION_TOKEN={origin.verification_token}\n"
+            )
+            print(f"sample origin configuration written to {args.write_env}")
+
+        if not origin.is_active:
+            allow_private = allow_private_from_env()
+            waiting = False
+            while True:
+                try:
+                    verify_origin(session, origin, allow_private=allow_private)
+                    session.commit()
+                    break
+                except OriginVerificationFailed as exc:
+                    session.commit()  # the failure is recorded on the origin
+                    # The sample origin may still be starting or picking up its
+                    # token; keep trying until the deadline. An address policy
+                    # failure will not change by waiting.
+                    if exc.code != "private_address_blocked" and time.monotonic() < deadline:
+                        if not waiting:
+                            print(f"waiting for {origin.url} to serve its verification token")
+                            waiting = True
+                        time.sleep(2)
+                        continue
+                    print(f"error: origin verification failed: {exc.code}: {exc.message}")
+                    if exc.code == "private_address_blocked":
+                        print("hint: set ORIGIN_ALLOW_PRIVATE=true for a local origin")
+                    return 3
+            app_service.activate_origin(session, origin)
+            session.commit()
+            print(f"origin {origin.url} verified and active")
+
+        credential, secret = app_service.issue_credential(session, application, label="demo")
+        session.commit()
+
+        wanted = args.domain or list(DEFAULT_DEMO_DOMAINS)
+        domains = []
+        for item in wanted:
+            hostname, sep, reference = item.partition("=")
+            if not sep:
+                print(f"error: --domain expects HOSTNAME=REFERENCE, got {item!r}")
+                return 2
+            existing = domain_service.find_live_by_hostname(session, hostname)
+            if existing is not None and existing.application_id == application.id:
+                domains.append(existing)
+                continue
+            domain = domain_service.claim_domain(session, application, hostname, reference)
+            session.commit()
+            domains.append(domain)
+            print(f"registered {domain.hostname} for workspace {reference}")
+
+        print()
+        print("API credential for the SDK (shown once):")
+        print(f"  {secret}")
+        print()
+        if args.wait > 0:
+            print("waiting for the domains to become ready (the worker checks every few seconds)")
+            seen: dict[str, str] = {}
+            while time.monotonic() < deadline:
+                session.expire_all()
+                statuses = {
+                    d.hostname: domain_service.get_domain(session, application, d.id).status
+                    for d in domains
+                }
+                for hostname, status in statuses.items():
+                    if seen.get(hostname) != status.value:
+                        print(f"  {hostname}: {status.value}")
+                        seen[hostname] = status.value
+                if all(s == DomainStatus.READY for s in statuses.values()):
+                    break
+                session.commit()
+                time.sleep(2)
+            session.expire_all()
+        ready = True
+        for d in domains:
+            fresh = domain_service.get_domain(session, application, d.id)
+            ready = ready and fresh.status == DomainStatus.READY
+            failing = [
+                f"{c.check_type.value}: {c.error_code}" for c in fresh.checks if c.error_code
+            ]
+            note = f" ({'; '.join(failing)})" if failing else ""
+            print(f"{fresh.hostname}: {fresh.status.value}{note}")
+        scheme = "http" if settings.disable_https else "https"
+        print()
+        print("open:")
+        for d in domains:
+            print(f"  {scheme}://{d.hostname}/")
+        if scheme == "https" and settings.probe_ca_file:
+            print(f"the edge certificate is signed by the local CA at {settings.probe_ca_file}")
+    if not ready and args.wait > 0:
+        print("not every domain is ready yet; the worker keeps checking", file=sys.stderr)
+        return 3
     return 0
 
 
@@ -622,11 +835,11 @@ def _edge_reconcile(args) -> int:
 
 
 def _resolver():
-    from app.dns.resolver import SystemResolver
+    from app.dns.resolver import make_resolver
     from app.dns.settings import DnsSettings
+    from app.edge.settings import EdgeSettings
 
-    settings = DnsSettings.from_env()
-    return SystemResolver(settings.nameservers or None, timeout=settings.timeout)
+    return make_resolver(DnsSettings.from_env(), EdgeSettings.from_env(), get_session_factory())
 
 
 def _edge_prober():

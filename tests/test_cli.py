@@ -315,3 +315,87 @@ def test_cli_origin_verify_activate_and_credential_rotate(cli_env, capsys, monke
     assert "new credential id" in out and "expires at" in out
     assert _run("credential", "list", "--application", "acme") == 0
     assert capsys.readouterr().out.count("backend") == 2
+
+
+def test_cli_dev_demo_onboards_the_sample_application(cli_env, capsys, monkeypatch, tmp_path):
+    """The demo creates the application, verifies the origin for real and registers domains."""
+    import threading
+
+    from tests.test_origin_verification import TokenServer
+
+    env_file = tmp_path / "sample.env"
+    server = TokenServer()
+
+    # The origin serves whatever token the demo wrote for it, like the sample container.
+    def serve_written_token():
+        import time
+
+        for _ in range(100):
+            if env_file.exists():
+                for line in env_file.read_text().splitlines():
+                    if line.startswith("ORIGIN_VERIFICATION_TOKEN="):
+                        server.body = line.split("=", 1)[1].encode()
+                return
+            time.sleep(0.1)
+
+    threading.Thread(target=serve_written_token, daemon=True).start()
+    monkeypatch.setenv("ENABLE_LEGACY_API", "true")  # reconciler off; no Caddy here
+    monkeypatch.setenv("DISABLE_HTTPS", "true")
+    monkeypatch.setenv("DNS_VERIFICATION_MODE", "local")
+    monkeypatch.setenv("ORIGIN_ALLOW_PRIVATE", "true")
+    monkeypatch.setenv("EDGE_ASSERTION_KEYS", "1:local-development-only-key-0000000000000000")
+    try:
+        code = _run(
+            "dev",
+            "demo",
+            "--origin-host",
+            "localhost",
+            "--origin-port",
+            str(server.port),
+            "--write-env",
+            str(env_file),
+            "--wait",
+            "10",
+        )
+    finally:
+        server.close()
+    out = capsys.readouterr().out
+    assert code == 3, out  # no worker ran, so the domains are registered but not ready
+    assert "created application sample" in out and "verified and active" in out
+    assert "registered alpha.sample.localtest.me for workspace ws_alpha" in out
+    assert "cd_" in out and "http://alpha.sample.localtest.me/" in out
+    written = dict(line.split("=", 1) for line in env_file.read_text().splitlines())
+    assert set(written) == {"APPLICATION_ID", "EDGE_ASSERTION_KEYS", "ORIGIN_VERIFICATION_TOKEN"}
+
+    # Running it again reuses the application, origin and domains.
+    assert (
+        _run(
+            "dev",
+            "demo",
+            "--origin-host",
+            "localhost",
+            "--origin-port",
+            str(server.port),
+            "--wait",
+            "0",
+        )
+        == 0
+    )
+    again = capsys.readouterr().out
+    assert "application sample exists" in again and "registered alpha" not in again
+
+    # The worker, with the local resolver, takes the domains to provisioning
+    # (no edge here, so not further).
+    monkeypatch.setenv("EDGE_RECONCILE_ENABLED", "false")
+    assert _run("checks", "run") == 0
+    assert _run("application", "list") == 0
+    capsys.readouterr()
+    from app.models import DomainStatus
+    from app.services import applications as app_service
+    from app.services.domains import find_live_by_hostname
+
+    with cli.get_session_factory()() as s:
+        acme = app_service.get_application_by_slug(s, "sample")
+        alpha = find_live_by_hostname(s, "alpha.sample.localtest.me")
+        assert alpha.application_id == acme.id
+        assert alpha.status == DomainStatus.PROVISIONING

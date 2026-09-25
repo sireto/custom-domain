@@ -94,3 +94,16 @@ pass both checks again before it can return to service.
 | `DNS_WORKER_BATCH` | `50` | Domains per batch. |
 | `DNS_RESOLVERS` | system | Nameserver IPs to query. |
 | `DNS_TIMEOUT` | `5` | Seconds per lookup. |
+| `DNS_VERIFICATION_MODE` | `public` | `local` answers the ownership and routing checks from the records the service issued (see below). |
+
+### Local mode
+
+`DNS_VERIFICATION_MODE=local` replaces the resolver with one that answers
+each check from the service's own records: every live domain is treated as
+if its customer had published the TXT and CNAME records exactly as
+instructed. Everything else is unchanged, so a local instance runs the real
+lifecycle (verification, certificate, workspace probe, webhooks) for
+invented hostnames. Revoked claims are not answered, so a re-issued claim
+still resets the domain. The mode is refused unless the edge is local as
+well (`DISABLE_HTTPS=true` or `EDGE_TLS_ISSUER=internal`): a publicly
+trusted edge must verify real DNS. `deploy/compose.local.yml` uses it.

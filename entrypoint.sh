@@ -40,6 +40,9 @@ start_caddy() {
 
 # exec cannot call a shell function, so the privilege drop is spelled out on
 # each exec line: run as app with the Redis credentials removed.
+# The API must see the address of whoever connects to it, never one taken
+# from X-Forwarded-For: the internal endpoints trust the edge by its address,
+# and Caddy forwards the browser's address on every assert subrequest.
 AS_APP=(setpriv --reuid=app --regid=app --init-groups env
         -u CADDY_REDIS_PASSWORD -u CADDY_REDIS_USERNAME -u CADDY_REDIS_ENCRYPTION_KEY
         -u CADDY_REDIS_TLS_SERVER_CERTS_PEM HOME=/app)
@@ -51,14 +54,14 @@ case "$ROLE" in
   all)
     start_caddy
     exec "${AS_APP[@]}" bash -c \
-        'custom-domain db upgrade && exec uvicorn app.main:app --host 0.0.0.0 --port 9000'
+        'custom-domain db upgrade && exec uvicorn app.main:app --host 0.0.0.0 --port 9000 --no-proxy-headers'
     ;;
   api)
     export DNS_WORKER_ENABLED="${DNS_WORKER_ENABLED:-false}"
     export WEBHOOK_WORKER_ENABLED="${WEBHOOK_WORKER_ENABLED:-false}"
     export EDGE_RECONCILE_ENABLED="${EDGE_RECONCILE_ENABLED:-false}"
     exec "${AS_APP[@]}" bash -c \
-        'custom-domain db upgrade && exec uvicorn app.main:app --host 0.0.0.0 --port 9000'
+        'custom-domain db upgrade && exec uvicorn app.main:app --host 0.0.0.0 --port 9000 --no-proxy-headers'
     ;;
   worker)
     exec "${AS_APP[@]}" custom-domain worker run

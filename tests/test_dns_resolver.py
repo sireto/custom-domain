@@ -69,3 +69,86 @@ def test_dns_settings_from_env():
     assert not settings.worker_enabled
     assert settings.nameservers == ("1.1.1.1", "9.9.9.9")
     assert settings.timeout == 0.5 and settings.worker_interval == 1.0
+
+
+# --- local mode: answers from the records the service issued -----------------
+
+
+def test_issued_records_resolver_answers_the_issued_records(
+    session, session_factory, make_application
+):
+    from app.dns.resolver import DnsNameNotFound, IssuedRecordsResolver, cname_chain
+    from app.services.domains import claim_domain, delete_domain, reissue_claim
+
+    acme = make_application("acme", cname_target="acme.edge.example.net")
+    domain = claim_domain(session, acme, "forms.customer.example", "w")
+    session.commit()
+    claim = domain.active_claim
+    resolver = IssuedRecordsResolver(session_factory)
+
+    assert resolver.txt(claim.txt_record_name) == [claim.txt_record_value]
+    assert resolver.txt(claim.txt_record_name.upper() + ".") == [claim.txt_record_value]
+    assert resolver.cname("forms.customer.example") == "acme.edge.example.net"
+    assert cname_chain(resolver, "forms.customer.example", stop_at="acme.edge.example.net") == [
+        "acme.edge.example.net"
+    ]
+    assert resolver.has_address("forms.customer.example") is False
+    with pytest.raises(DnsNameNotFound):
+        resolver.txt("_custom-domain-challenge.nobody.example")
+    with pytest.raises(DnsNameNotFound):
+        resolver.cname("nobody.example")
+
+    # A re-issued claim: the old value is no longer answered, the new one is.
+    old_value = claim.txt_record_value
+    reissue_claim(session, acme, domain.id)
+    session.commit()
+    session.expire_all()
+    fresh = domain.active_claim
+    assert resolver.txt(fresh.txt_record_name) == [fresh.txt_record_value]
+    assert old_value not in resolver.txt(fresh.txt_record_name)
+
+    # A deleted domain has no records.
+    delete_domain(session, acme, domain.id)
+    session.commit()
+    with pytest.raises(DnsNameNotFound):
+        resolver.txt(fresh.txt_record_name)
+    with pytest.raises(DnsNameNotFound):
+        resolver.cname("forms.customer.example")
+
+
+def test_issued_records_resolver_drives_the_dns_checks(session, session_factory, make_application):
+    from app.dns.resolver import IssuedRecordsResolver
+    from app.models import ClaimStatus, DomainStatus
+    from app.services.dns_checks import run_dns_checks
+    from app.services.domains import claim_domain
+
+    acme = make_application("acme")
+    domain = claim_domain(session, acme, "forms.customer.example", "w")
+    session.commit()
+    run_dns_checks(session, domain, IssuedRecordsResolver(session_factory))
+    session.commit()
+    assert domain.status == DomainStatus.PROVISIONING
+    assert domain.active_claim.status == ClaimStatus.VERIFIED
+
+
+def test_local_mode_requires_a_local_edge(session_factory):
+    from app.dns.resolver import IssuedRecordsResolver, SystemResolver, make_resolver
+    from app.dns.settings import DnsSettings
+    from app.edge.settings import EdgeConfigurationError, EdgeSettings
+
+    local = DnsSettings.from_env({"DNS_VERIFICATION_MODE": "local"})
+    assert local.verification_mode == "local"
+    with pytest.raises(EdgeConfigurationError):
+        make_resolver(local, EdgeSettings(), session_factory)
+    assert isinstance(
+        make_resolver(local, EdgeSettings(disable_https=True), session_factory),
+        IssuedRecordsResolver,
+    )
+    assert isinstance(
+        make_resolver(local, EdgeSettings(tls_issuer="internal"), session_factory),
+        IssuedRecordsResolver,
+    )
+    public = DnsSettings.from_env({})
+    assert isinstance(make_resolver(public, EdgeSettings(), session_factory), SystemResolver)
+    with pytest.raises(ValueError):
+        DnsSettings.from_env({"DNS_VERIFICATION_MODE": "trust-me"})
