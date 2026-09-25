@@ -225,6 +225,7 @@ version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
+    { name = "dnspython" },
     { name = "fastapi", extra = ["standard"] },
     { name = "httpx" },
     { name = "idna" },
@@ -245,6 +246,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.20.0" },
+    { name = "dnspython", specifier = ">=2.8.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.141.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "idna", specifier = ">=3.20" },

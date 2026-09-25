@@ -169,6 +169,7 @@ def test_cli_legacy_import_is_all_or_nothing_unless_acknowledged(cli_env, capsys
 
 def test_cli_edge_config_and_dry_run(cli_env, capsys, monkeypatch):
     monkeypatch.setenv("ENABLE_LEGACY_API", "false")
+    monkeypatch.setenv("EDGE_ASSERTION_KEYS", "1:" + "k" * 32)
     monkeypatch.setenv("CADDY_STORAGE", "redis")
     monkeypatch.setenv("CADDY_REDIS_ADDRESS", "redis:6379")
     monkeypatch.setenv("CADDY_REDIS_PASSWORD", "topsecret")
@@ -202,7 +203,10 @@ def test_cli_bootstrap_and_libpq_url(cli_env, capsys, monkeypatch, tmp_path):
     document = json.loads(target.read_text())
     assert document["storage"]["password"] == "topsecret"
     assert document["admin"] == {"listen": "localhost:2019"}
-    assert document["apps"]["http"]["servers"]["edge"]["routes"] == []
+    assert [r["@id"] for r in document["apps"]["http"]["servers"]["edge"]["routes"]] == [
+        "edge-health",
+        "edge-unmatched",
+    ]
     assert oct(target.stat().st_mode & 0o777) == "0o600"
     capsys.readouterr()
 

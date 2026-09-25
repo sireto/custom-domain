@@ -168,6 +168,21 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     bootstrap.set_defaults(func=_edge_bootstrap)
 
+    checks = sub.add_parser("checks", help="lifecycle checks").add_subparsers(dest="checks_command")
+    run_checks = checks.add_parser("run", help="run all due DNS checks once")
+    run_checks.add_argument("--limit", type=int, default=50)
+    run_checks.set_defaults(func=_checks_run)
+    dns_check = checks.add_parser("dns", help="run the DNS checks for one domain now")
+    dns_check.add_argument("--application", required=True)
+    dns_check.add_argument("--hostname", required=True)
+    dns_check.set_defaults(func=_checks_dns)
+    edge_check = checks.add_parser(
+        "edge", help="run the certificate and origin checks for one domain now"
+    )
+    edge_check.add_argument("--application", required=True)
+    edge_check.add_argument("--hostname", required=True)
+    edge_check.set_defaults(func=_checks_edge)
+
     openapi = sub.add_parser("openapi", help="API contract").add_subparsers(dest="openapi_command")
     export = openapi.add_parser("export", help="write the OpenAPI document as JSON")
     export.add_argument("--output", default="-", help="file path, or - for stdout")
@@ -455,7 +470,7 @@ def _edge_config(args) -> int:
 
 def _edge_reconcile(args) -> int:
     from app.edge.caddy_client import CaddyClient
-    from app.edge.config import build_apps, config_digest, hostnames_in
+    from app.edge.config import app_route_count, build_apps, config_digest, hostnames_in
     from app.edge.reconcile import Reconciler
 
     settings = _edge_settings()
@@ -464,7 +479,7 @@ def _edge_reconcile(args) -> int:
     if args.dry_run:
         with get_session_factory()() as session:
             apps = build_apps(session, settings)
-        routes = len(apps["http"]["servers"]["edge"]["routes"])
+        routes = app_route_count(apps)
         print(
             f"dry run: {routes} route(s), {len(hostnames_in({'apps': apps}))} hostname(s), "
             f"digest {config_digest(apps)}; Caddy not contacted"
@@ -488,6 +503,101 @@ def _edge_reconcile(args) -> int:
         f"digest {result.desired_digest}"
     )
     return 0
+
+
+def _resolver():
+    from app.dns.resolver import SystemResolver
+    from app.dns.settings import DnsSettings
+
+    settings = DnsSettings.from_env()
+    return SystemResolver(settings.nameservers or None, timeout=settings.timeout)
+
+
+def _edge_prober():
+    from app.services.edge_checks import SystemEdgeProber
+
+    settings = _edge_settings()
+    if settings is None:
+        raise SystemExit(2)
+    return SystemEdgeProber(settings), settings
+
+
+def _checks_run(args) -> int:
+    from app.dns.worker import run_due_checks
+
+    prober, settings = _edge_prober()
+    result = run_due_checks(
+        get_session_factory(), _resolver(), prober=prober, settings=settings, limit=args.limit
+    )
+    print(f"processed {result.processed} domain(s), {result.failed} failed")
+    return 0 if result.failed == 0 else 3
+
+
+def _checks_dns(args) -> int:
+    from app.hostname import canonicalize
+    from app.models import Domain
+    from app.services.dns_checks import run_dns_checks
+    from app.services.domains import _domain_query
+
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        domain = session.scalar(
+            _domain_query(include_deleted=False).where(
+                Domain.application_id == application.id,
+                Domain.hostname == canonicalize(args.hostname),
+            )
+        )
+        if domain is None:
+            print("error [domain_not_found]: no live domain with that hostname", file=sys.stderr)
+            return 2
+        ownership, routing = run_dns_checks(session, domain, _resolver())
+        session.commit()
+        for check in (ownership, routing):
+            line = f"{check.check_type.value}\t{check.status.value}"
+            if check.error_code:
+                line += f"\t{check.error_code}\t{check.message}"
+            print(line)
+        print(f"status\t{domain.status.value}\tnext check {ownership.next_check_at.isoformat()}")
+        failing = any(c.status.value == "failing" for c in (ownership, routing))
+    return 3 if failing else 0
+
+
+def _checks_edge(args) -> int:
+    from app.hostname import canonicalize
+    from app.models import Domain
+    from app.services.domains import _domain_query
+    from app.services.edge_checks import eligible_for_edge_checks, run_edge_checks
+
+    prober, settings = _edge_prober()
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        domain = session.scalar(
+            _domain_query(include_deleted=False).where(
+                Domain.application_id == application.id,
+                Domain.hostname == canonicalize(args.hostname),
+            )
+        )
+        if domain is None:
+            print("error [domain_not_found]: no live domain with that hostname", file=sys.stderr)
+            return 2
+        if not eligible_for_edge_checks(domain):
+            print(
+                f"error [not_eligible]: domain is {domain.status.value} and its claim is "
+                f"{domain.active_claim.status.value if domain.active_claim else 'missing'}; "
+                "ownership must be verified first",
+                file=sys.stderr,
+            )
+            return 3
+        certificate, origin = run_edge_checks(session, domain, prober, settings)
+        session.commit()
+        for check in (certificate, origin):
+            line = f"{check.check_type.value}\t{check.status.value}"
+            if check.error_code:
+                line += f"\t{check.error_code}\t{check.message}"
+            print(line)
+        print(f"status\t{domain.status.value}")
+        failing = any(c.status.value == "failing" for c in (certificate, origin))
+    return 3 if failing else 0
 
 
 def _openapi_export(args) -> int:

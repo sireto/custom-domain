@@ -73,3 +73,48 @@ def make_application(session):
         return application
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def pinned_origin_addresses(monkeypatch):
+    """Pin origin names to fixed addresses so the edge config never touches DNS.
+
+    Documentation names map to public documentation addresses, ``localhost``
+    to the loopback address the test origins listen on, and IP literals to
+    themselves. ``pinned_dial`` itself is covered by tests/test_origin_verification.py.
+    """
+    import ipaddress
+
+    from app.edge import config as edge_config
+    from app.services.origin_verification import OriginVerificationFailed
+
+    table = {
+        "app.acme.example": "203.0.113.10",
+        "app.globex.example": "203.0.113.20",
+        "globex.internal": "198.51.100.7",
+        "localhost": "127.0.0.1",
+    }
+    private_networks = [
+        ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ]
+
+    def fake_pinned_dial(host, port, *, allow_private=False):
+        address = table.get(host)
+        if address is None:
+            try:
+                address = str(ipaddress.ip_address(host))
+            except ValueError:
+                raise OriginVerificationFailed(
+                    "dns_resolution_failed", f"{host} does not resolve"
+                ) from None
+        # Documentation ranges count as non-global in ipaddress; block only the
+        # loopback and RFC 1918 networks the tests actually use for "private".
+        parsed = ipaddress.ip_address(address)
+        private = parsed.is_loopback or any(parsed in net for net in private_networks)
+        if private and not allow_private:
+            raise OriginVerificationFailed("private_address_blocked", f"{host} is private")
+        dial = f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
+        return dial, host
+
+    monkeypatch.setattr(edge_config, "pinned_dial", fake_pinned_dial)
+    return table

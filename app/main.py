@@ -22,10 +22,15 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse, RedirectResponse
 
 from app.db.session import get_session_factory
+from app.dns.resolver import SystemResolver
+from app.dns.settings import DnsSettings
+from app.dns.worker import ChecksWorker
 from app.edge.caddy_client import CaddyClient
 from app.edge.reconcile import Reconciler
 from app.edge.settings import EdgeSettings
+from app.services.edge_checks import SystemEdgeProber
 from app.v1.errors import install_error_handlers
+from app.v1.internal import router as internal_router
 from app.v1.router import router as v1_router
 from app.v1.webhooks import webhooks
 
@@ -61,6 +66,7 @@ def _csv(name: str, default: str) -> list[str]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = EdgeSettings.from_env()
+    app.state.edge_settings = settings
     stop = threading.Event()
     thread: threading.Thread | None = None
     app.state.reconciler = None
@@ -77,11 +83,33 @@ async def lifespan(app: FastAPI):
         logger.info("edge reconciler started (every %ss)", settings.reconcile_interval)
     else:
         logger.info("edge reconciler disabled; the legacy API owns the Caddy config")
+
+    dns_settings = DnsSettings.from_env()
+    dns_thread: threading.Thread | None = None
+    app.state.dns_worker = None
+    if dns_settings.worker_enabled:
+        worker = ChecksWorker(
+            get_session_factory(),
+            SystemResolver(dns_settings.nameservers or None, timeout=dns_settings.timeout),
+            prober=SystemEdgeProber(settings),
+            settings=settings,
+            batch_size=dns_settings.batch_size,
+        )
+        app.state.dns_worker = worker
+        dns_thread = threading.Thread(
+            target=worker.run_forever,
+            args=(stop, dns_settings.worker_interval),
+            name="dns-worker",
+            daemon=True,
+        )
+        dns_thread.start()
+        logger.info("dns worker started (every %ss)", dns_settings.worker_interval)
     logger.info("App started")
     yield
     stop.set()
-    if thread is not None:
-        thread.join(timeout=5)
+    for worker_thread in (thread, dns_thread):
+        if worker_thread is not None:
+            worker_thread.join(timeout=5)
     logger.info("App is shutting down")
 
 
@@ -98,6 +126,7 @@ def create_app() -> FastAPI:
     )
     install_error_handlers(app)
     app.include_router(v1_router)
+    app.include_router(internal_router)
     app.webhooks.include_router(webhooks)
 
     if _env_flag("ENABLE_LEGACY_API", True):

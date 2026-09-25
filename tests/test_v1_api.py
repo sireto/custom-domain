@@ -25,6 +25,7 @@ def make_client(session_factory, monkeypatch):
         monkeypatch.setenv(
             "EDGE_RECONCILE_ENABLED", os.environ.get("EDGE_RECONCILE_ENABLED", "false")
         )
+        monkeypatch.setenv("DNS_WORKER_ENABLED", "false")
         app = create_app()
 
         def override():
@@ -411,3 +412,35 @@ def test_legacy_api_is_deprecated_and_can_be_disabled(make_client):
         assert client.get("/docs").status_code == 404
         assert "/domains" not in client.get("/v1/openapi.json").json()["paths"]
         assert client.get("/v1/docs").status_code == 200
+
+
+def test_internal_tls_ask_follows_certificate_authorization(client, session, tenant, monkeypatch):
+    from app.services.domains import get_domain, mark_claim_verified
+
+    application, headers = tenant()
+    domain_id = client.post("/v1/domains", json=BODY, headers=headers).json()["id"]
+    ask = "/internal/tls/ask"
+    # TestClient's address is "testclient"; trust it for this test.
+    client.app.state.edge_settings = client.app.state.edge_settings.__class__(
+        **{**client.app.state.edge_settings.__dict__, "ask_trusted_hosts": ("testclient",)}
+    )
+
+    assert client.get(ask, params={"domain": "forms.customer.example"}).status_code == 403
+    domain = get_domain(session, application, uuid.UUID(domain_id))
+    mark_claim_verified(session, domain)
+    transition_status(session, domain, DomainStatus.PROVISIONING)
+    session.commit()
+    assert client.get(ask, params={"domain": "Forms.Customer.Example."}).status_code == 200
+    assert client.get(ask, params={"domain": "unknown.customer.example"}).status_code == 403
+    assert client.get(ask, params={"domain": "*.customer.example"}).status_code == 403
+    assert client.get(ask).status_code == 422
+
+    client.delete(f"/v1/domains/{domain_id}", headers=headers)
+    assert client.get(ask, params={"domain": "forms.customer.example"}).status_code == 403
+
+    # Untrusted client addresses are refused regardless of the domain.
+    client.app.state.edge_settings = client.app.state.edge_settings.__class__(
+        **{**client.app.state.edge_settings.__dict__, "ask_trusted_hosts": ("127.0.0.1",)}
+    )
+    assert client.get(ask, params={"domain": "forms.customer.example"}).status_code == 403
+    assert "/internal/tls/ask" not in client.get("/v1/openapi.json").json()["paths"]
