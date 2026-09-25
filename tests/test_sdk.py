@@ -1,5 +1,6 @@
 """SDK against the real API app, plus cross-checks with the service's own algorithms."""
 
+import json
 import time
 import uuid
 from datetime import UTC, datetime
@@ -380,11 +381,14 @@ def test_middleware_resolves_workspace_and_serves_probe():
 
 
 def test_webhook_verification_and_parsing_cross_check():
-    body = (
-        b'{"id": "e1", "type": "domain.ready", "created_at": "2026-09-25T15:00:00+00:00", "data": {"domain": '
-        + __import__("json").dumps(_domain_json(status="ready")).encode()
-        + b"}}"
-    )
+    body = json.dumps(
+        {
+            "id": "e1",
+            "type": "domain.ready",
+            "created_at": "2026-09-25T15:00:00+00:00",
+            "data": {"domain": _domain_json(status="ready")},
+        }
+    ).encode()
     header = service_sign_webhook(body, ["whsec_old", "whsec_new"], timestamp=1_000_000)
     assert verify_webhook(header, body, ["whsec_new"], now=1_000_100) == 1_000_000
     with pytest.raises(SignatureInvalid) as info:
