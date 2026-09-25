@@ -19,9 +19,18 @@ from app.services.domains import (
     claim_domain,
     delete_domain,
     find_live_by_hostname,
+    is_serveable,
+    mark_claim_verified,
+    record_check,
     reissue_claim,
+    transition_status,
 )
-from app.services.errors import ApplicationSuspended, HostnameAlreadyClaimed, InvalidReference
+from app.services.errors import (
+    ApplicationSuspended,
+    HostnameAlreadyClaimed,
+    InvalidReference,
+    InvalidStatusTransition,
+)
 
 
 def test_claim_creates_domain_claim_checks_and_events(session, make_application):
@@ -135,6 +144,64 @@ def test_reissue_claim_revokes_old_token(session, make_application):
     assert old.revoked_at is not None
     assert domain.active_claim.id == new.id
     assert [c.status for c in domain.claims] == [ClaimStatus.REVOKED, ClaimStatus.PENDING]
+
+
+def _make_ready(session, domain):
+    mark_claim_verified(session, domain)
+    for check_type in CheckType:
+        record_check(session, domain, check_type, CheckStatus.PASSING)
+    transition_status(session, domain, DomainStatus.PROVISIONING)
+    transition_status(session, domain, DomainStatus.READY)
+    session.commit()
+    assert is_serveable(domain)
+
+
+def test_reissue_on_ready_domain_resets_status_and_checks(session, make_application):
+    acme = make_application("acme")
+    domain = claim_domain(session, acme, "forms.customer.example", "ws_1")
+    _make_ready(session, domain)
+
+    new = reissue_claim(session, acme, domain.id)
+    session.commit()
+    session.refresh(domain)
+
+    assert domain.status == DomainStatus.PENDING_DNS
+    assert not is_serveable(domain)
+    assert all(c.status == CheckStatus.PENDING for c in domain.checks)
+    assert domain.active_claim.id == new.id and new.status == ClaimStatus.PENDING
+
+    # Verifying the new token alone must not restore service.
+    mark_claim_verified(session, domain)
+    session.commit()
+    assert not is_serveable(domain)
+    with pytest.raises(InvalidStatusTransition):
+        transition_status(session, domain, DomainStatus.READY)
+
+    # Only fresh passing checks and an explicit readiness transition do.
+    for check_type in CheckType:
+        record_check(session, domain, check_type, CheckStatus.PASSING)
+    transition_status(session, domain, DomainStatus.PROVISIONING)
+    transition_status(session, domain, DomainStatus.READY)
+    session.commit()
+    assert is_serveable(domain)
+
+    reasons = [
+        e.payload.get("reason") for e in domain.events if e.event_type == EventType.STATUS_CHANGED
+    ]
+    assert "claim_reissued" in reasons
+
+
+def test_reissue_on_suspended_domain_keeps_suspension(session, make_application):
+    acme = make_application("acme")
+    domain = claim_domain(session, acme, "forms.customer.example", "ws_1")
+    transition_status(session, domain, DomainStatus.SUSPENDED)
+    session.commit()
+
+    reissue_claim(session, acme, domain.id)
+    session.commit()
+    session.refresh(domain)
+    assert domain.status == DomainStatus.SUSPENDED
+    assert not is_serveable(domain)
 
 
 def test_concurrent_claims_only_one_wins(session_factory, make_application):

@@ -5,6 +5,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
 from app.models import (
+    ApplicationStatus,
     CheckStatus,
     CheckType,
     ClaimStatus,
@@ -16,6 +17,7 @@ from app.models import (
     OwnershipClaim,
 )
 from app.models.types import utcnow
+from app.services.applications import set_application_status
 from app.services.domains import (
     TOMBSTONE_RETENTION,
     claim_domain,
@@ -43,6 +45,54 @@ def domain(session, make_application):
 def _pass_all_checks(session, domain):
     for check_type in CheckType:
         record_check(session, domain, check_type, CheckStatus.PASSING)
+
+
+def _make_ready(session, domain):
+    mark_claim_verified(session, domain)
+    _pass_all_checks(session, domain)
+    transition_status(session, domain, DomainStatus.PROVISIONING)
+    transition_status(session, domain, DomainStatus.READY)
+    session.commit()
+    assert is_serveable(domain)
+
+
+def test_suspending_the_application_stops_serving_a_ready_domain(session, domain):
+    _make_ready(session, domain)
+    acme = domain.application
+
+    set_application_status(session, acme, ApplicationStatus.SUSPENDED)
+    session.commit()
+    assert domain.status == DomainStatus.READY
+    assert not is_serveable(domain)
+    assert not is_serveable(find_live_by_hostname(session, domain.hostname))
+
+    set_application_status(session, acme, ApplicationStatus.ACTIVE)
+    session.commit()
+    assert is_serveable(domain)
+
+
+@pytest.mark.parametrize("failing", list(CheckType))
+def test_failing_check_stops_serving_and_demotes_a_ready_domain(session, domain, failing):
+    _make_ready(session, domain)
+
+    record_check(session, domain, failing, CheckStatus.FAILING, error_code="probe_failed")
+    session.commit()
+
+    assert not is_serveable(domain)
+    assert domain.status == DomainStatus.ATTENTION_REQUIRED
+    assert domain.events[-1].event_type == EventType.STATUS_CHANGED
+    assert domain.events[-1].payload["reason"] == f"{failing.value}_check_failed"
+
+    # Recovery requires the check to pass and an explicit return to ready.
+    record_check(session, domain, failing, CheckStatus.PASSING)
+    assert not is_serveable(domain)
+    transition_status(session, domain, DomainStatus.READY)
+    assert is_serveable(domain)
+
+
+def test_failing_check_on_non_ready_domain_only_records(session, domain):
+    record_check(session, domain, CheckType.OWNERSHIP, CheckStatus.FAILING, error_code="x")
+    assert domain.status == DomainStatus.PENDING_DNS
 
 
 def test_ready_requires_verified_claim_and_all_checks(session, domain):

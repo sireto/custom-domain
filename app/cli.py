@@ -93,11 +93,22 @@ def _build_parser() -> argparse.ArgumentParser:
     imp.add_argument("--port", type=int, default=443)
     imp.add_argument("--reference-map", help="JSON file mapping hostname to workspace reference")
     imp.add_argument(
+        "--hostname-as-reference",
+        action="store_true",
+        help="use the hostname as the workspace reference when the map has no entry "
+        "(only for applications that resolve workspaces by hostname)",
+    )
+    imp.add_argument(
         "--grandfather",
         action="store_true",
         help="treat existing hostnames as ownership-verified by import",
     )
-    imp.add_argument("--dry-run", action="store_true")
+    imp.add_argument(
+        "--allow-skipped",
+        action="store_true",
+        help="commit a partial import even if some hostnames were skipped",
+    )
+    imp.add_argument("--dry-run", action="store_true", help="report without writing")
     imp.set_defaults(func=_legacy_import)
 
     domain = sub.add_parser("domain", help="domain maintenance").add_subparsers(
@@ -175,17 +186,22 @@ def _origin_register(args) -> int:
     return 0
 
 
+EXIT_INCOMPLETE_IMPORT = 3
+
+
 def _legacy_import(args) -> int:
     config = json.loads(Path(args.file).read_text())
     entries = parse_legacy_config(config, port=args.port)
     references = {}
     if args.reference_map:
         references = json.loads(Path(args.reference_map).read_text())
-    if args.dry_run:
-        for entry in entries:
-            print(f"{entry.hostname}\t{entry.upstream}\t{references.get(entry.hostname, '')}")
-        print(f"{len(entries)} hostname(s) found; nothing written")
-        return 0
+    elif not args.hostname_as_reference:
+        print(
+            "error: --reference-map is required unless --hostname-as-reference is given",
+            file=sys.stderr,
+        )
+        return 2
+
     with get_session_factory()() as session:
         application = app_service.get_application_by_slug(session, args.application)
         report = import_legacy_domains(
@@ -194,12 +210,34 @@ def _legacy_import(args) -> int:
             entries,
             references=references,
             grandfather=args.grandfather,
+            hostname_as_reference=args.hostname_as_reference,
         )
-        session.commit()
+        verb = "would-import" if args.dry_run else "imported"
         for domain in report.imported:
-            print(f"imported\t{domain.hostname}\t{domain.status.value}\t{domain.id}")
+            print(f"{verb}\t{domain.hostname}\t{domain.status.value}\t{domain.reference}")
+        for domain in report.existing:
+            print(f"existing\t{domain.hostname}\t{domain.status.value}\t{domain.reference}")
         for hostname, reason in report.skipped:
-            print(f"skipped\t{hostname}\t{reason}")
+            print(f"skipped\t{hostname}\t{reason}", file=sys.stderr)
+
+        summary = (
+            f"{len(report.imported)} to import, {len(report.existing)} existing, "
+            f"{len(report.skipped)} skipped"
+        )
+        if args.dry_run:
+            session.rollback()
+            print(f"dry run: {summary}; nothing written")
+            return EXIT_INCOMPLETE_IMPORT if report.skipped else 0
+        if report.skipped and not args.allow_skipped:
+            session.rollback()
+            print(
+                f"error: {summary}; nothing written. Fix the skipped hostnames or "
+                "pass --allow-skipped to commit a partial import.",
+                file=sys.stderr,
+            )
+            return EXIT_INCOMPLETE_IMPORT
+        session.commit()
+        print(f"done: {summary}")
     return 0
 
 

@@ -42,7 +42,10 @@ timestamp is stored in UTC and returned timezone-aware on both backends.
    wins and the others receive `hostname_already_claimed`. The insert runs in
    a savepoint so the caller's session stays usable.
 2. **One live ownership claim per domain.** Re-issuing instructions revokes
-   the previous claim first. Tokens are globally unique.
+   the previous claim first, resets every check to pending and moves a
+   `provisioning`, `ready` or `attention_required` domain back to
+   `pending_dns` (a `suspended` domain stays suspended). Nothing established
+   under the old token carries over. Tokens are globally unique.
 3. **One active origin per application.** Activation deactivates the previous
    origin in a separate flush so the index never sees two active rows.
 4. **Enumerations are CHECK constraints.** Unknown statuses cannot be written
@@ -84,7 +87,7 @@ Allowed transitions (`app/services/domains.py`, `ALLOWED_TRANSITIONS`):
 ```
 pending_dns        -> provisioning | attention_required | suspended | deleting
 provisioning       -> ready | pending_dns | attention_required | suspended | deleting
-ready              -> attention_required | suspended | deleting
+ready              -> pending_dns | attention_required | suspended | deleting
 attention_required -> pending_dns | provisioning | ready | suspended | deleting
 suspended          -> pending_dns | provisioning | deleting
 deleting           -> (none)
@@ -95,17 +98,30 @@ all four checks to be `passing`. Readiness is never inferred from DNS alone;
 the reconciliation worker (#9) records the HTTPS probe as the `routing` and
 `certificate` checks before it can call `transition_status(..., READY)`.
 
+Recording a `failing` check on a `ready` domain moves it to
+`attention_required` in the same unit of work, so API consumers never see
+`ready` alongside a failing check. Whether a failure recovers automatically
+or escalates to `suspended` (for example on loss of ownership) is the
+reconciliation worker's policy (#9).
+
 ## Serveability
 
 The edge (TLS authorization in #7, routing in #8) uses one rule:
 
 ```
-serveable = deleted_at IS NULL AND status = 'ready' AND live claim is verified
+serveable = application.status = 'active'
+        AND deleted_at IS NULL
+        AND status = 'ready'
+        AND live claim is verified
+        AND every check is passing
 ```
 
-`find_live_by_hostname` returns the single live row for a canonical hostname,
-and `is_serveable` applies the rule. Unknown, pending, suspended and deleted
-names are therefore denied a certificate and never routed.
+`find_live_by_hostname` returns the single live row for a canonical hostname
+with its application, claims and checks loaded, and `is_serveable` applies
+the rule from current state on every call. Unknown, pending, suspended and
+deleted names are denied a certificate and never routed, and so is a `ready`
+domain whose application was suspended or whose latest check failed, without
+waiting for a status transition.
 
 ## Deletion, tombstones and retention
 
@@ -145,7 +161,8 @@ uv run custom-domain db upgrade
 uv run custom-domain application create --slug acme --name "Acme Forms" --cname-target acme.edge.example.net
 uv run custom-domain credential issue --application acme --label backend
 uv run custom-domain origin register --application acme --host app.acme.example
-uv run custom-domain legacy import --application acme --file domains/caddy.json --grandfather --reference-map refs.json
+uv run custom-domain legacy import --application acme --file domains/caddy.json --reference-map refs.json --grandfather --dry-run
+uv run custom-domain legacy import --application acme --file domains/caddy.json --reference-map refs.json --grandfather
 uv run custom-domain domain purge-tombstones
 ```
 
@@ -168,12 +185,32 @@ staged so each step can be rolled back by redeploying the previous image.
    current `SAAS_UPSTREAM`, register and verify that origin, and issue a
    credential for the SaaS backend. Rollback: drop the rows.
 3. **Import hostnames.** Export a reference map from the SaaS
-   (`{"forms.customer.example": "<workspace id>"}`), then run `legacy import`.
-   With `--grandfather`, imported claims are marked verified by import and
-   the domain starts in `provisioning`; without it, customers must publish
-   the TXT record before service resumes through the new path. The import
-   skips hostnames that are already claimed or invalid, so it is safe to
-   re-run. Rollback: delete the imported domains; `caddy.json` is untouched.
+   (`{"forms.customer.example": "<workspace id>"}`) and run `legacy import
+   --reference-map`. The reference is the tenant context the edge will
+   forward (#8), so every hostname needs one; a hostname without a mapping
+   is skipped with `missing_reference`. `--hostname-as-reference` is the
+   explicit alternative for an application that resolves workspaces from the
+   hostname itself. With `--grandfather`, imported claims are marked verified
+   by import and the domain starts in `provisioning`; without it, customers
+   must publish the TXT record before service resumes through the new path.
+
+   The import is all-or-nothing by default: if any hostname is skipped
+   (missing reference, claimed by another application, apex, wildcard or
+   otherwise invalid) nothing is written and the command exits with status 3
+   listing the skipped names on stderr. Run `--dry-run` first; it exits 3 on
+   the same condition. Pass `--allow-skipped` only after deciding what happens
+   to each skipped hostname (see below). Hostnames already registered by the
+   same application are reported as `existing` and left untouched, so
+   re-running is safe. Rollback: delete the imported domains; `caddy.json` is
+   untouched.
+
+   **Unsupported legacy names.** Apex and wildcard hostnames are outside the
+   MVP (#3) and cannot be imported. They keep working only as long as the
+   legacy Caddy config serves them, so before stage 4 each affected customer
+   must move to an exact subdomain (registered through the new API) or be
+   told the date their hostname stops resolving. Do not switch the edge to
+   derived configuration while the last import still reports skipped names
+   you have not accounted for.
 4. **Switch the edge to derived configuration** (#7 to #9) and retire the
    legacy endpoint per the plan in #1. Only after this step does the database
    drive Caddy. Keep the `https_domains` volume until the switch has run

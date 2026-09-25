@@ -21,6 +21,7 @@ from app.models import Application, CheckStatus, CheckType, Domain, DomainStatus
 from app.models.types import utcnow
 from app.services.domains import (
     claim_domain,
+    find_live_by_hostname,
     mark_claim_verified,
     record_check,
     record_event,
@@ -29,6 +30,7 @@ from app.services.domains import (
 from app.services.errors import HostnameAlreadyClaimed
 
 LEGACY_IMPORT_METHOD = "legacy_import"
+MISSING_REFERENCE = "missing_reference"
 
 
 @dataclass(frozen=True)
@@ -39,8 +41,20 @@ class LegacyDomain:
 
 @dataclass
 class ImportReport:
+    """Outcome of one import run.
+
+    ``imported`` were created by this run; ``existing`` were already
+    registered by the same application (a re-run is a no-op for them);
+    ``skipped`` could not be imported and carry a stable reason code.
+    """
+
     imported: list[Domain] = field(default_factory=list)
+    existing: list[Domain] = field(default_factory=list)
     skipped: list[tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def complete(self) -> bool:
+        return not self.skipped
 
 
 def parse_legacy_config(config: Mapping[str, Any], *, port: int = 443) -> list[LegacyDomain]:
@@ -81,15 +95,25 @@ def import_legacy_domains(
     *,
     references: Mapping[str, str] | None = None,
     grandfather: bool = False,
+    hostname_as_reference: bool = False,
     now: datetime | None = None,
 ) -> ImportReport:
     """Register each legacy hostname under ``application``.
+
+    ``references`` maps each hostname to the application's workspace
+    reference. The reference is tenant context for routing, so a hostname
+    without a mapping is skipped with ``missing_reference`` unless
+    ``hostname_as_reference`` is set, which is only correct for applications
+    that resolve workspaces by hostname themselves.
 
     With ``grandfather`` the ownership claim is marked verified by import and
     the domain moves to ``provisioning``; routing, certificate and origin
     checks still have to pass before it becomes ``ready``. Without it the
     domain starts in ``pending_dns`` and the customer must publish the TXT
     record like any new registration.
+
+    Hostnames already registered by the same application are reported as
+    ``existing`` and left untouched, so re-running is safe.
     """
     now = now or utcnow()
     references = references or {}
@@ -100,14 +124,23 @@ def import_legacy_domains(
         except InvalidHostname as exc:
             report.skipped.append((entry.hostname, exc.code))
             continue
-        reference = references.get(hostname) or references.get(entry.hostname) or hostname
+        reference = references.get(hostname) or references.get(entry.hostname)
+        if not reference and hostname_as_reference:
+            reference = hostname
+        if not reference:
+            report.skipped.append((hostname, MISSING_REFERENCE))
+            continue
         metadata = {"legacy_upstream": entry.upstream, "imported_at": now.isoformat()}
         try:
             domain = claim_domain(
                 session, application, hostname, reference, metadata=metadata, now=now
             )
         except HostnameAlreadyClaimed:
-            report.skipped.append((hostname, HostnameAlreadyClaimed.code))
+            live = find_live_by_hostname(session, hostname)
+            if live is not None and live.application_id == application.id:
+                report.existing.append(live)
+            else:
+                report.skipped.append((hostname, HostnameAlreadyClaimed.code))
             continue
         record_event(
             session,

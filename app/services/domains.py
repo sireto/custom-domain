@@ -12,6 +12,12 @@ Rules enforced here (see docs/data-model.md):
   serveable again. Re-claiming the hostname creates a new row with a new token.
 * ``ready`` can only be entered when every check passes and the live claim is
   verified. Readiness is never inferred from DNS alone.
+* The edge authorization rule (``is_serveable``) re-evaluates the application
+  status, the claim and every check on each call, so a suspended tenant or a
+  failing check stops service without waiting for a status transition.
+* Re-issuing ownership material moves the domain back to ``pending_dns`` and
+  resets every check; the new token must be verified and all checks must pass
+  again before the domain can serve.
 """
 
 from __future__ import annotations
@@ -23,7 +29,7 @@ from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.hostname import canonicalize
 from app.models import (
@@ -74,7 +80,12 @@ ALLOWED_TRANSITIONS: dict[DomainStatus, frozenset[DomainStatus]] = {
         }
     ),
     DomainStatus.READY: frozenset(
-        {DomainStatus.ATTENTION_REQUIRED, DomainStatus.SUSPENDED, DomainStatus.DELETING}
+        {
+            DomainStatus.PENDING_DNS,
+            DomainStatus.ATTENTION_REQUIRED,
+            DomainStatus.SUSPENDED,
+            DomainStatus.DELETING,
+        }
     ),
     DomainStatus.ATTENTION_REQUIRED: frozenset(
         {
@@ -90,6 +101,11 @@ ALLOWED_TRANSITIONS: dict[DomainStatus, frozenset[DomainStatus]] = {
     ),
     DomainStatus.DELETING: frozenset(),
 }
+
+# Statuses that fall back to pending_dns when ownership material is re-issued.
+RESET_ON_REISSUE = frozenset(
+    {DomainStatus.PROVISIONING, DomainStatus.READY, DomainStatus.ATTENTION_REQUIRED}
+)
 
 
 # --- claims -----------------------------------------------------------------
@@ -184,10 +200,29 @@ def reissue_claim(
     *,
     now: datetime | None = None,
 ) -> OwnershipClaim:
-    """Revoke the live claim and issue fresh material. Old tokens never verify again."""
+    """Revoke the live claim and issue fresh material. Old tokens never verify again.
+
+    The domain leaves ``ready`` (or ``provisioning`` / ``attention_required``)
+    for ``pending_dns`` and every check is reset to pending, so nothing that
+    was established under the old claim carries over. A ``suspended`` domain
+    stays suspended; only policy lifts a suspension.
+    """
     now = now or utcnow()
     domain = get_domain(session, application, domain_id)
     _revoke_live_claim(session, domain, reason="reissued", now=now)
+    for check_type in CheckType:
+        record_check(
+            session,
+            domain,
+            check_type,
+            CheckStatus.PENDING,
+            details={"reason": "claim_reissued"},
+            observed_at=now,
+        )
+    if domain.status in RESET_ON_REISSUE:
+        transition_status(
+            session, domain, DomainStatus.PENDING_DNS, reason="claim_reissued", now=now
+        )
     claim = _issue_claim(session, domain, application.cname_target, now=now)
     session.refresh(domain)
     return claim
@@ -247,7 +282,11 @@ def _revoke_live_claim(
 
 
 def _domain_query(include_deleted: bool):
-    query = select(Domain).options(selectinload(Domain.claims), selectinload(Domain.checks))
+    query = select(Domain).options(
+        joinedload(Domain.application),
+        selectinload(Domain.claims),
+        selectinload(Domain.checks),
+    )
     if not include_deleted:
         query = query.where(Domain.deleted_at.is_(None))
     return query
@@ -297,11 +336,21 @@ def find_live_by_hostname(session: Session, hostname: str) -> Domain | None:
 
 
 def is_serveable(domain: Domain) -> bool:
-    """Whether the edge may issue a certificate for and route this hostname."""
+    """Whether the edge may issue a certificate for and route this hostname.
+
+    Evaluated on every call from current state: the owning application must
+    be active, the domain live and ``ready``, the live claim verified and all
+    four checks passing. A suspended tenant or a check that has started
+    failing therefore stops service immediately.
+    """
     if domain.is_deleted or domain.status != DomainStatus.READY:
         return False
+    if domain.application is None or domain.application.status != ApplicationStatus.ACTIVE:
+        return False
     claim = domain.active_claim
-    return claim is not None and claim.status == ClaimStatus.VERIFIED
+    if claim is None or claim.status != ClaimStatus.VERIFIED:
+        return False
+    return checks_passing(domain)
 
 
 def checks_passing(domain: Domain) -> bool:
@@ -353,6 +402,16 @@ def record_check(
         },
         now=observed_at,
     )
+    if status == CheckStatus.FAILING and domain.status == DomainStatus.READY:
+        # A ready domain with a failing check is no longer ready; the
+        # reconciliation worker (#9) decides recovery or suspension from here.
+        transition_status(
+            session,
+            domain,
+            DomainStatus.ATTENTION_REQUIRED,
+            reason=f"{check_type.value}_check_failed",
+            now=observed_at,
+        )
     return check
 
 
