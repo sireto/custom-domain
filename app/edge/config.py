@@ -208,6 +208,10 @@ def _server(settings: EdgeSettings, routes: list[dict[str, Any]]) -> dict[str, A
     if settings.disable_https:
         server["automatic_https"] = {"disable": True}
     else:
+        # Serve TLS even while no application route lists a hostname yet:
+        # Caddy otherwise treats a server without host matchers as plain HTTP,
+        # and on-demand issuance could never start for the first domain.
+        server["tls_connection_policies"] = [{}]
         # A request whose Host differs from the TLS SNI is refused (421), so
         # the certificate, the route and the assertion always name one host.
         server["strict_sni_host"] = True
@@ -217,22 +221,27 @@ def _server(settings: EdgeSettings, routes: list[dict[str, Any]]) -> dict[str, A
 def build_apps(session: Session, settings: EdgeSettings) -> dict[str, Any]:
     """The ``apps`` subtree the reconciler manages: routing and TLS automation."""
     groups = serveable_route_groups(session)
-    apps: dict[str, Any] = {
-        "http": {"servers": {SERVER_NAME: _server(settings, [_route(g, settings) for g in groups])}}
-    }
+    apps: dict[str, Any] = {"http": http_app(settings, [_route(g, settings) for g in groups])}
     if not settings.disable_https:
-        issuer: dict[str, Any] = {"module": "acme"}
-        if settings.acme_email:
-            issuer["email"] = settings.acme_email
         # Certificates are issued on demand, at the first TLS handshake for a
         # hostname, and only when the ask endpoint approves that hostname.
         apps["tls"] = {
             "automation": {
                 "on_demand": {"permission": {"module": "http", "endpoint": settings.ask_url}},
-                "policies": [{"on_demand": True, "issuers": [issuer]}],
+                "policies": [{"on_demand": True, "issuers": [settings.tls_issuer_config()]}],
             }
         }
     return apps
+
+
+def http_app(settings: EdgeSettings, routes: list[dict[str, Any]]) -> dict[str, Any]:
+    """The ``http`` app: the edge server plus the ports Caddy uses for automatic HTTPS."""
+    http: dict[str, Any] = {"servers": {SERVER_NAME: _server(settings, routes)}}
+    if settings.http_port != 80:
+        http["http_port"] = settings.http_port
+    if settings.https_port != 443:
+        http["https_port"] = settings.https_port
+    return http
 
 
 def admin_listen(settings: EdgeSettings) -> str:
@@ -247,7 +256,7 @@ def build_bootstrap(settings: EdgeSettings) -> dict[str, Any]:
     admin API by the application."""
     config: dict[str, Any] = {
         "admin": {"listen": admin_listen(settings)},
-        "apps": {"http": {"servers": {SERVER_NAME: _server(settings, [])}}},
+        "apps": {"http": http_app(settings, [])},
     }
     storage = settings.storage_config()
     if storage is not None:

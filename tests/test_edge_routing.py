@@ -2,7 +2,6 @@
 
 import json
 import os
-import shutil
 import socket
 import subprocess
 import threading
@@ -274,7 +273,10 @@ def _wait_port(port, timeout=15):
     return False
 
 
-@pytest.mark.skipif(shutil.which("caddy") is None, reason="caddy binary not installed")
+from tests.caddy_support import caddy_required  # noqa: E402
+
+
+@caddy_required()
 def test_two_applications_are_never_confused_through_real_caddy(
     session, session_factory, make_application, monkeypatch, tmp_path
 ):

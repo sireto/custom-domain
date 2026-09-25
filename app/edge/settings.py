@@ -54,8 +54,13 @@ def _csv(environ: Mapping[str, str], name: str) -> tuple[str, ...]:
 class EdgeSettings:
     admin_url: str = DEFAULT_ADMIN_URL
     https_port: int = DEFAULT_HTTPS_PORT
+    # Port for the HTTP-to-HTTPS redirect listener Caddy adds automatically.
+    http_port: int = 80
     disable_https: bool = False
     acme_email: str | None = None
+    # "acme" (public CA) or "internal" (Caddy's local CA; development and
+    # staging only, the probe must trust its root via EDGE_PROBE_CA_FILE).
+    tls_issuer: str = "acme"
     storage: StorageKind = "file"
     redis_address: tuple[str, ...] = ()
     redis_username: str | None = None
@@ -93,8 +98,10 @@ class EdgeSettings:
         settings = cls(
             admin_url=env.get("CADDY_ADMIN_URL", DEFAULT_ADMIN_URL).rstrip("/"),
             https_port=int(env.get("EDGE_HTTPS_PORT", DEFAULT_HTTPS_PORT)),
+            http_port=int(env.get("EDGE_HTTP_PORT", "80")),
             disable_https=_flag(env, "DISABLE_HTTPS", False),
             acme_email=env.get("ACME_EMAIL", "").strip() or None,
+            tls_issuer=env.get("EDGE_TLS_ISSUER", "acme").strip().lower() or "acme",
             storage=storage,  # type: ignore[arg-type]
             redis_address=_csv(env, "CADDY_REDIS_ADDRESS"),
             redis_username=env.get("CADDY_REDIS_USERNAME") or None,
@@ -145,6 +152,10 @@ class EdgeSettings:
             raise EdgeConfigurationError("EDGE_RECONCILE_INTERVAL must be at least 1 second")
         if not 0 < self.https_port < 65536:
             raise EdgeConfigurationError("EDGE_HTTPS_PORT must be between 1 and 65535")
+        if not 0 < self.http_port < 65536 or self.http_port == self.https_port:
+            raise EdgeConfigurationError("EDGE_HTTP_PORT must be a valid port different from HTTPS")
+        if self.tls_issuer not in ("acme", "internal"):
+            raise EdgeConfigurationError("EDGE_TLS_ISSUER must be 'acme' or 'internal'")
         if self.probe_timeout < 1:
             raise EdgeConfigurationError("EDGE_PROBE_TIMEOUT must be at least 1 second")
         if self.probe_address and ":" not in self.probe_address:
@@ -163,6 +174,14 @@ class EdgeSettings:
     def active_key(self) -> tuple[str, bytes]:
         key_id, secret = self.assertion_keys[0]
         return key_id, secret.encode("utf-8")
+
+    def tls_issuer_config(self) -> dict[str, Any]:
+        if self.tls_issuer == "internal":
+            return {"module": "internal"}
+        issuer: dict[str, Any] = {"module": "acme"}
+        if self.acme_email:
+            issuer["email"] = self.acme_email
+        return issuer
 
     def storage_config(self) -> dict[str, Any] | None:
         """The Caddy ``storage`` block, or None for Caddy's default file storage."""

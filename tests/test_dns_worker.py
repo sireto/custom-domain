@@ -222,3 +222,49 @@ def test_worker_skips_edge_checks_for_unverified_domains(
     assert result.processed == 1
     _refresh(session)
     assert domain.status == DomainStatus.PENDING_DNS and prober.calls == []
+
+
+def test_claim_reissued_during_queries_discards_the_results(
+    session, session_factory, make_application
+):
+    from app.models import Application, ClaimStatus
+    from app.services.domains import reissue_claim
+
+    acme = make_application("acme")
+    domain = claim_domain(session, acme, "forms.customer.example", "w")
+    session.commit()
+    old_claim_id = domain.active_claim.id
+
+    class ReissuingResolver(FakeResolver):
+        """Re-issues the claim while the worker is inside its DNS queries."""
+
+        def txt(self, name):
+            with session_factory() as s:
+                app_row = s.get(Application, acme.id)
+                s.commit()
+                reissue_claim(s, app_row, domain.id)
+                s.commit()
+            return super().txt(name)
+
+    resolver = ReissuingResolver()
+    _publish(resolver, domain)  # records for the OLD token and target
+    assert process_domain(session_factory, resolver, domain.id, **KW) is False
+
+    _refresh(session)
+    fresh = domain.active_claim
+    assert fresh.id != old_claim_id and fresh.status == ClaimStatus.PENDING
+    assert domain.status == DomainStatus.PENDING_DNS
+    for check_type in (CheckType.OWNERSHIP, CheckType.ROUTING):
+        check = domain.check(check_type)
+        # Reset by the re-issue, not evaluated by the worker's stale results.
+        assert check.status.value == "pending"
+        assert check.details.get("reason") == "claim_reissued"
+        assert check.next_check_at is not None and check.next_check_at <= utcnow()
+
+    # The next run verifies the new claim on its own records only.
+    plain = FakeResolver()
+    _publish(plain, domain)
+    assert process_domain(session_factory, plain, domain.id, **KW) is True
+    _refresh(session)
+    assert domain.active_claim.status == ClaimStatus.VERIFIED
+    assert domain.status == DomainStatus.PROVISIONING

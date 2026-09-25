@@ -29,11 +29,20 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: uv sync --frozen
+      - name: Install Caddy
+        run: |
+          curl -sSL -o /tmp/caddy.tar.gz https://github.com/caddyserver/caddy/releases/download/v2.11.4/caddy_2.11.4_linux_amd64.tar.gz
+          tar -xzf /tmp/caddy.tar.gz -C /tmp caddy
+          sudo install -m 0755 /tmp/caddy /usr/local/bin/caddy
+          caddy version
       - name: Lint
         run: uv run ruff check app tests
       - name: Test on SQLite
         run: uv run pytest
+        env:
+          REQUIRE_CADDY: "1"
       - name: Test on PostgreSQL
         run: uv run pytest
         env:
+          REQUIRE_CADDY: "1"
           TEST_DATABASE_URL: postgresql+psycopg://custom_domain:custom_domain@localhost:5432/custom_domain_test
