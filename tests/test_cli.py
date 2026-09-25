@@ -210,3 +210,84 @@ def test_cli_bootstrap_and_libpq_url(cli_env, capsys, monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@db:5432/cd")
     assert _run("db", "libpq-url") == 0
     assert capsys.readouterr().out.strip() == "postgresql://u:p@db:5432/cd"
+
+
+def test_cli_origin_verify_activate_and_credential_rotate(cli_env, capsys, monkeypatch):
+    from tests.test_origin_verification import TokenServer
+
+    server = TokenServer()
+    try:
+        _run(
+            "application",
+            "create",
+            "--slug",
+            "acme",
+            "--name",
+            "Acme",
+            "--cname-target",
+            "acme.edge.example.net",
+        )
+        assert (
+            _run(
+                "origin",
+                "register",
+                "--application",
+                "acme",
+                "--host",
+                "localhost",
+                "--scheme",
+                "http",
+                "--port",
+                str(server.port),
+            )
+            == 0
+        )
+        out = capsys.readouterr().out
+        token = [line for line in out.splitlines() if line.startswith("verification token:")][
+            0
+        ].split()[-1]
+        assert "origin verify" in out
+
+        # Blocked by default: localhost is not public.
+        assert _run("origin", "verify", "--application", "acme", "--host", "localhost") == 3
+        err = capsys.readouterr().err
+        assert "private_address_blocked" in err and "expected: GET" in err
+
+        server.body = b"wrong"
+        monkeypatch.setenv("ORIGIN_ALLOW_PRIVATE", "true")
+        assert _run("origin", "verify", "--application", "acme", "--host", "localhost") == 3
+        assert "token_mismatch" in capsys.readouterr().err
+        assert _run("origin", "list", "--application", "acme") == 0
+        assert "failed\tinactive" in capsys.readouterr().out and True
+
+        server.body = token.encode()
+        assert (
+            _run("origin", "verify", "--application", "acme", "--host", "localhost", "--activate")
+            == 0
+        )
+        assert "verified and active" in capsys.readouterr().out
+        assert _run("origin", "list", "--application", "acme") == 0
+        assert "verified\tactive" in capsys.readouterr().out
+    finally:
+        server.close()
+
+    assert _run("credential", "issue", "--application", "acme", "--label", "backend") == 0
+    lines = capsys.readouterr().out.splitlines()
+    credential_id = lines[0].split()[-1]
+    assert (
+        _run(
+            "credential",
+            "rotate",
+            "--application",
+            "acme",
+            "--id",
+            credential_id,
+            "--grace-hours",
+            "2",
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "new credential id" in out and "expires at" in out
+    assert _run("credential", "list", "--application", "acme") == 0
+    assert capsys.readouterr().out.count("backend") == 2
