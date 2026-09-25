@@ -151,6 +151,20 @@ ERRORS = {
     "domain_not_found": {
         "error": {"code": "domain_not_found", "message": "domain_not_found", "details": {}}
     },
+    "invalid_status_transition": {
+        "error": {
+            "code": "invalid_status_transition",
+            "message": "Deleted domains are not rechecked",
+            "details": {},
+        }
+    },
+    "rate_limited": {
+        "error": {
+            "code": "rate_limited",
+            "message": "This domain was rechecked less than 60 seconds ago",
+            "details": {"retry_after_seconds": 42},
+        }
+    },
     "idempotency_key_reused": {
         "error": {
             "code": "idempotency_key_reused",

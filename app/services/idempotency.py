@@ -50,7 +50,11 @@ def begin(
     """Register ``key`` for this application, or return the existing record.
 
     Returns ``(record, created)``. When ``created`` is false the caller must
-    compare ``request_hash`` and replay the original result.
+    compare ``request_hash`` and replay the original result. A record past
+    ``expires_at`` is reclaimed in place and reported as created, so keys
+    expire on read and do not depend on the purge job. The existing row is
+    locked while it is inspected so two concurrent retries cannot both
+    reclaim it.
     """
     if not key or len(key) > MAX_KEY_LENGTH:
         raise ServiceError("Idempotency key must be 1-255 characters")
@@ -69,12 +73,19 @@ def begin(
         return record, True
     except IntegrityError:
         existing = session.scalar(
-            select(IdempotencyKey).where(
-                IdempotencyKey.application_id == application.id, IdempotencyKey.key == key
-            )
+            select(IdempotencyKey)
+            .where(IdempotencyKey.application_id == application.id, IdempotencyKey.key == key)
+            .with_for_update()
         )
         if existing is None:  # pragma: no cover - the row was purged in between
             raise
+        if existing.expires_at <= now:
+            existing.request_hash = request_hash
+            existing.domain_id = None
+            existing.created_at = now
+            existing.expires_at = now + IDEMPOTENCY_TTL
+            session.flush()
+            return existing, True
         return existing, False
 
 

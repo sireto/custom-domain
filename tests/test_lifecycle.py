@@ -27,11 +27,13 @@ from app.services.domains import (
     is_serveable,
     list_domains,
     mark_claim_verified,
+    page_domains,
     purge_tombstones,
     record_check,
+    request_recheck,
     transition_status,
 )
-from app.services.errors import DomainNotFound, InvalidStatusTransition
+from app.services.errors import DomainNotFound, InvalidStatusTransition, RateLimited
 
 
 @pytest.fixture
@@ -233,3 +235,49 @@ def test_only_one_live_claim_per_domain(session, domain):
     with pytest.raises(IntegrityError):
         session.flush()
     session.rollback()
+
+
+def test_recheck_interval_per_domain_and_budget_per_application(
+    session, domain, monkeypatch, make_application
+):
+    from app.services import domains as domain_service
+
+    acme = domain.application
+    t0 = utcnow()
+    request_recheck(session, acme, domain.id, now=t0)
+    with pytest.raises(RateLimited) as info:
+        request_recheck(session, acme, domain.id, now=t0 + timedelta(seconds=30))
+    assert 29 <= info.value.retry_after <= 31
+    request_recheck(session, acme, domain.id, now=t0 + timedelta(seconds=61))
+
+    monkeypatch.setattr(domain_service, "RECHECK_MAX_PER_WINDOW", 3)
+    other = claim_domain(session, acme, "other.customer.example", "ws_2")
+    request_recheck(session, acme, other.id, now=t0 + timedelta(seconds=62))
+    third = claim_domain(session, acme, "third.customer.example", "ws_3")
+    with pytest.raises(RateLimited) as info:
+        request_recheck(session, acme, third.id, now=t0 + timedelta(seconds=63))
+    assert info.value.retry_after >= 3500
+    # The window slides: an hour after the first recheck the budget frees up.
+    request_recheck(session, acme, third.id, now=t0 + timedelta(hours=1, seconds=2))
+
+
+def test_recheck_refuses_deleted_domains(session, domain):
+    acme = domain.application
+    delete_domain(session, acme, domain.id)
+    with pytest.raises(InvalidStatusTransition):
+        request_recheck(session, acme, domain.id)
+
+
+def test_page_domains_lookahead_is_not_clamped(session, domain):
+    from app.services.domains import MAX_PAGE_SIZE
+
+    acme = domain.application
+    for index in range(MAX_PAGE_SIZE):
+        claim_domain(session, acme, f"p{index}.customer.example", "w")
+    session.commit()
+    rows, has_more = page_domains(session, acme, limit=MAX_PAGE_SIZE)
+    assert len(rows) == MAX_PAGE_SIZE and has_more
+    rows, has_more = page_domains(session, acme, limit=MAX_PAGE_SIZE, offset=MAX_PAGE_SIZE)
+    assert len(rows) == 1 and not has_more
+    rows, has_more = page_domains(session, acme, limit=MAX_PAGE_SIZE * 5)
+    assert len(rows) == MAX_PAGE_SIZE and has_more

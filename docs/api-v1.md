@@ -117,8 +117,13 @@ There is no `upstream`. Traffic goes to the application's verified origin
 
 After the customer fixes DNS, call `POST /v1/domains/{id}/checks` to bring the
 next check forward instead of waiting for the poll interval. The response is
-the domain as it is now; the outcome arrives by polling or webhook. Manual
-rechecks are rate limited (#6).
+the domain as it is now; the outcome arrives by polling or webhook.
+
+Manual rechecks are rate limited: at most one per domain every 60 seconds
+and 60 per application per hour. Over either limit the response is
+`429 rate_limited` with a `Retry-After` header (also given as
+`details.retry_after_seconds`). A deleted domain cannot be rechecked and
+returns `409 invalid_status_transition`.
 
 ### Ready
 
@@ -177,7 +182,9 @@ domain created by the first attempt with status `200` and
 `Idempotent-Replayed: true`. The same key with a different body returns
 `422 idempotency_key_reused`. A retry that arrives while the first attempt is
 still running returns `409 idempotency_request_in_progress`; retry after a
-short delay. Keys expire after 24 hours. Failed creates do not consume the key.
+short delay. Keys expire 24 hours after they were first used; after that the
+same key starts a new request, whatever its body. Failed creates do not
+consume the key.
 
 ## Pagination and filtering
 
@@ -204,7 +211,8 @@ Every error has the same body:
 | 422 | `validation_error` | Body or query does not match the schema. `details.errors` lists locations. Unknown fields such as `upstream` are rejected. |
 | 422 | `empty_hostname`, `wildcard_not_supported`, `ip_literal_not_supported`, `hostname_too_long`, `invalid_label`, `apex_not_supported`, `invalid_hostname` | The hostname cannot be registered. `details.field` is `hostname`. |
 | 422 | `invalid_reference` | The reference is empty or longer than 255 characters. |
-| 422 | `idempotency_key_reused` | The key was used with a different body. |
+| 422 | `idempotency_key_reused` | The key was used with a different body within the last 24 hours. |
+| 429 | `rate_limited` | Too many manual rechecks for this domain or application. `Retry-After` says how long to wait. |
 | 403 | `application_suspended` | The application was suspended while the request ran. |
 
 ## Webhooks

@@ -181,17 +181,16 @@ def list_domains(
     limit: Annotated[int, Query(ge=1, le=domain_service.MAX_PAGE_SIZE)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> DomainPage:
-    rows = domain_service.list_domains(
+    rows, has_more = domain_service.page_domains(
         db,
         application,
         reference=reference,
         status=domain_status,
         include_deleted=include_deleted,
-        limit=limit + 1,
+        limit=limit,
         offset=offset,
     )
-    has_more = len(rows) > limit
-    items = [domain_resource(d) for d in rows[:limit]]
+    items = [domain_resource(d) for d in rows]
     return DomainPage(
         items=items, limit=limit, offset=offset, next_offset=offset + limit if has_more else None
     )
@@ -248,12 +247,33 @@ def get_domain(
         "Asks the lifecycle worker to re-run ownership, routing, certificate and origin "
         "checks as soon as possible, for example after the customer fixed a DNS record. "
         "The response reflects the state before the recheck runs; poll the domain or "
-        "subscribe to webhooks for the outcome. Manual rechecks are rate limited."
+        "subscribe to webhooks for the outcome.\n\n"
+        "Manual rechecks are rate limited: at most one per domain every 60 seconds and "
+        "60 per application per hour. Over the limit the response is `429 rate_limited` "
+        "with a `Retry-After` header. A deleted domain cannot be rechecked and returns "
+        "`409 invalid_status_transition`."
     ),
     responses={
         202: {"content": {"application/json": {"example": examples.WAITING_FOR_DNS}}},
         404: {"model": ErrorResponse},
-        409: {"model": ErrorResponse, "description": "The domain is being deleted."},
+        409: {
+            "model": ErrorResponse,
+            "description": "The domain is deleted and cannot be rechecked.",
+            "content": {
+                "application/json": {"example": examples.ERRORS["invalid_status_transition"]}
+            },
+        },
+        429: {
+            "model": ErrorResponse,
+            "description": "Too many manual rechecks; wait for `Retry-After` seconds.",
+            "headers": {
+                "Retry-After": {
+                    "description": "Seconds to wait before retrying.",
+                    "schema": {"type": "integer"},
+                }
+            },
+            "content": {"application/json": {"example": examples.ERRORS["rate_limited"]}},
+        },
     },
 )
 def request_recheck(

@@ -21,6 +21,7 @@ from app.services.errors import (
     InvalidCredential,
     InvalidReference,
     InvalidStatusTransition,
+    RateLimited,
     ServiceError,
 )
 from app.services.idempotency import IdempotencyInProgress, IdempotencyKeyReused
@@ -57,6 +58,7 @@ SERVICE_ERROR_STATUS: list[tuple[type[ServiceError], int]] = [
     (IdempotencyInProgress, 409),
     (IdempotencyKeyReused, 422),
     (InvalidReference, 422),
+    (RateLimited, 429),
 ]
 
 
@@ -89,7 +91,11 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(ServiceError)
     async def _service_error(_request: Request, exc: ServiceError) -> JSONResponse:
-        headers = {"WWW-Authenticate": "Bearer"} if isinstance(exc, InvalidCredential) else None
+        headers: dict[str, str] | None = None
+        if isinstance(exc, InvalidCredential):
+            headers = {"WWW-Authenticate": "Bearer"}
+        elif isinstance(exc, RateLimited):
+            headers = {"Retry-After": str(exc.retry_after)}
         return error_response(_status_for(exc), exc.code, exc.message, exc.details, headers)
 
     @app.exception_handler(RequestValidationError)

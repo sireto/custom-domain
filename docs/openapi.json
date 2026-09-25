@@ -1484,7 +1484,7 @@
     },
     "/v1/domains/{domain_id}/checks": {
       "post": {
-        "description": "Asks the lifecycle worker to re-run ownership, routing, certificate and origin checks as soon as possible, for example after the customer fixed a DNS record. The response reflects the state before the recheck runs; poll the domain or subscribe to webhooks for the outcome. Manual rechecks are rate limited.",
+        "description": "Asks the lifecycle worker to re-run ownership, routing, certificate and origin checks as soon as possible, for example after the customer fixed a DNS record. The response reflects the state before the recheck runs; poll the domain or subscribe to webhooks for the outcome.\n\nManual rechecks are rate limited: at most one per domain every 60 seconds and 60 per application per hour. Over the limit the response is `429 rate_limited` with a `Retry-After` header. A deleted domain cannot be rechecked and returns `409 invalid_status_transition`.",
         "operationId": "request_recheck_v1_domains__domain_id__checks_post",
         "parameters": [
           {
@@ -1602,12 +1602,19 @@
           "409": {
             "content": {
               "application/json": {
+                "example": {
+                  "error": {
+                    "code": "invalid_status_transition",
+                    "details": {},
+                    "message": "Deleted domains are not rechecked"
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "The domain is being deleted."
+            "description": "The domain is deleted and cannot be rechecked."
           },
           "422": {
             "content": {
@@ -1618,6 +1625,33 @@
               }
             },
             "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "rate_limited",
+                    "details": {
+                      "retry_after_seconds": 42
+                    },
+                    "message": "This domain was rechecked less than 60 seconds ago"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many manual rechecks; wait for `Retry-After` seconds.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [

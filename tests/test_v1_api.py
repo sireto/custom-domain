@@ -242,7 +242,98 @@ def test_recheck_marks_checks_due_and_records_event(client, session, tenant):
 
     client.delete(f"/v1/domains/{domain_id}", headers=headers)
     response = client.post(f"/v1/domains/{domain_id}/checks", headers=headers)
-    assert response.status_code == 404
+    assert response.status_code == 409
+    assert _error(response)["code"] == "invalid_status_transition"
+
+
+def test_recheck_is_rate_limited_per_domain(client, tenant):
+    _, headers = tenant()
+    domain_id = client.post("/v1/domains", json=BODY, headers=headers).json()["id"]
+    assert client.post(f"/v1/domains/{domain_id}/checks", headers=headers).status_code == 202
+
+    limited = client.post(f"/v1/domains/{domain_id}/checks", headers=headers)
+    assert limited.status_code == 429
+    error = _error(limited)
+    assert error["code"] == "rate_limited"
+    retry_after = int(limited.headers["Retry-After"])
+    assert 1 <= retry_after <= 60
+    assert error["details"]["retry_after_seconds"] == retry_after
+
+
+def test_recheck_budget_is_application_scoped(client, monkeypatch, tenant):
+    from app.services import domains as domain_service
+
+    monkeypatch.setattr(domain_service, "RECHECK_MAX_PER_WINDOW", 2)
+    _, acme = tenant("acme")
+    _, globex = tenant("globex")
+    ids = [
+        client.post(
+            "/v1/domains",
+            json={"hostname": f"s{i}.customer.example", "reference": "w"},
+            headers=acme,
+        ).json()["id"]
+        for i in range(3)
+    ]
+    assert client.post(f"/v1/domains/{ids[0]}/checks", headers=acme).status_code == 202
+    assert client.post(f"/v1/domains/{ids[1]}/checks", headers=acme).status_code == 202
+    over = client.post(f"/v1/domains/{ids[2]}/checks", headers=acme)
+    assert over.status_code == 429 and "Retry-After" in over.headers
+
+    # Another application has its own budget.
+    other = client.post(
+        "/v1/domains", json={"hostname": "g.customer.example", "reference": "w"}, headers=globex
+    ).json()["id"]
+    assert client.post(f"/v1/domains/{other}/checks", headers=globex).status_code == 202
+
+
+def test_idempotency_key_expires_without_the_purge_job(client, session, tenant):
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from app.models import IdempotencyKey
+    from app.models.types import utcnow
+
+    _, headers = tenant()
+    keyed = {**headers, "Idempotency-Key": "expiring"}
+    first = client.post("/v1/domains", json=BODY, headers=keyed)
+    assert first.status_code == 201
+
+    row = session.scalar(select(IdempotencyKey).where(IdempotencyKey.key == "expiring"))
+    row.expires_at = utcnow() - timedelta(seconds=1)
+    session.commit()
+
+    new_body = {"hostname": "second.customer.example", "reference": "ws_2"}
+    reused = client.post("/v1/domains", json=new_body, headers=keyed)
+    assert reused.status_code == 201, reused.text
+    assert reused.json()["id"] != first.json()["id"]
+
+    replay = client.post("/v1/domains", json=new_body, headers=keyed)
+    assert replay.status_code == 200
+    assert replay.json()["id"] == reused.json()["id"]
+    stale = client.post("/v1/domains", json=BODY, headers=keyed)
+    assert stale.status_code == 422 and _error(stale)["code"] == "idempotency_key_reused"
+
+
+def test_pagination_lookahead_at_maximum_page_size(client, session, tenant):
+    from app.services.domains import MAX_PAGE_SIZE, claim_domain
+
+    application, headers = tenant()
+    for index in range(MAX_PAGE_SIZE + 1):
+        claim_domain(session, application, f"n{index}.customer.example", "w")
+    session.commit()
+
+    page = client.get("/v1/domains", headers=headers, params={"limit": MAX_PAGE_SIZE}).json()
+    assert len(page["items"]) == MAX_PAGE_SIZE
+    assert page["next_offset"] == MAX_PAGE_SIZE
+    last = client.get(
+        "/v1/domains", headers=headers, params={"limit": MAX_PAGE_SIZE, "offset": MAX_PAGE_SIZE}
+    ).json()
+    assert len(last["items"]) == 1 and last["next_offset"] is None
+    assert (
+        client.get("/v1/domains", headers=headers, params={"limit": MAX_PAGE_SIZE + 1}).status_code
+        == 422
+    )
 
 
 def test_delete_tombstones_and_frees_the_hostname(client, tenant):
