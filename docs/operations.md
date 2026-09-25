@@ -242,8 +242,11 @@ this, because an arbitrary `apps` payload can still install such a route.
 Single-instance file storage is therefore **not** protected by the user
 separation alone.
 
-Hardening requirement before production use, with either storage kind
-(tracked in #12):
+The production layout in [deployment.md](deployment.md) meets the
+requirement below: Caddy runs in its own container and only the validating
+gateway is reachable. The single-container layout (`CONTAINER_ROLE=all`)
+remains for development and small self-hosted installs, where the following
+still applies:
 
 1. Run Caddy in its own container. Its admin API must be reachable only by
    a **validating configuration gateway**, not by the API container

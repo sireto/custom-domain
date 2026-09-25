@@ -132,6 +132,9 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     load_dotenv()
+    from app.observability import install_log_redaction
+
+    install_log_redaction()
     app = FastAPI(
         title="Custom Domain API",
         version="1.0.0",

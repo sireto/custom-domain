@@ -176,6 +176,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output", default="-", help="file path (created 0600), or - for stdout"
     )
     bootstrap.set_defaults(func=_edge_bootstrap)
+    gateway = edge_sub.add_parser(
+        "gateway", help="run the validating configuration gateway in front of Caddy's admin API"
+    )
+    gateway.add_argument("--listen", default="0.0.0.0:2019", help="host:port to serve on")
+    gateway.add_argument("--caddy-admin", default="http://127.0.0.1:2020")
+    gateway.add_argument("--api-url", required=True, help="management API base URL")
+    gateway.set_defaults(func=_edge_gateway)
 
     checks = sub.add_parser("checks", help="lifecycle checks").add_subparsers(dest="checks_command")
     run_checks = checks.add_parser("run", help="run all due DNS checks once")
@@ -541,6 +548,26 @@ def _edge_bootstrap(args) -> int:
         handle.write(document)
     os.chmod(args.output, 0o600)
     print(f"wrote {args.output}")
+    return 0
+
+
+def _edge_gateway(args) -> int:
+    import os
+
+    import uvicorn
+
+    from app.edge.gateway import api_origins_provider, create_gateway_app
+
+    settings = _edge_settings()
+    if settings is None:
+        return 2
+    host, _, port = args.listen.rpartition(":")
+    app = create_gateway_app(
+        settings,
+        caddy_admin_url=args.caddy_admin,
+        origins_provider=api_origins_provider(args.api_url, os.environ.get("EDGE_TOKEN") or None),
+    )
+    uvicorn.run(app, host=host or "0.0.0.0", port=int(port), log_level="info")
     return 0
 
 

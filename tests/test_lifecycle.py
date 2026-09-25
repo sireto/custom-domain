@@ -268,9 +268,11 @@ def test_recheck_refuses_deleted_domains(session, domain):
         request_recheck(session, acme, domain.id)
 
 
-def test_page_domains_lookahead_is_not_clamped(session, domain):
+def test_page_domains_lookahead_is_not_clamped(session, domain, monkeypatch):
+    from app.services import domains as domain_service
     from app.services.domains import MAX_PAGE_SIZE
 
+    monkeypatch.setattr(domain_service, "REGISTRATION_MAX_PER_WINDOW", 10_000)
     acme = domain.application
     for index in range(MAX_PAGE_SIZE):
         claim_domain(session, acme, f"p{index}.customer.example", "w")

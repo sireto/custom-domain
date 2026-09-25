@@ -1,26 +1,22 @@
 #!/bin/bash
-# Process separation inside the container:
-#   caddy  - runs Caddy; owns the certificate store and the bootstrap config
-#            (admin listener plus storage credentials).
-#   app    - runs migrations and the API; cannot read either, and has the
-#            Redis credentials removed from its environment.
-# The API manages only the "apps" subtree of Caddy's configuration through
-# the admin API on localhost. See docs/operations.md, "Private key boundaries".
+# Container roles (CONTAINER_ROLE):
+#   all    - single container: Caddy, migrations, API with in-process workers (default,
+#            development and small single-instance deployments)
+#   api    - migrations and the API; workers disabled unless enabled explicitly
+#   worker - lifecycle checks, edge reconciliation and webhook delivery
+#   edge   - Caddy (as the caddy user) plus the validating configuration gateway;
+#            no database access. Caddy's admin API stays on localhost:2020 and only
+#            the gateway on :2019 is reachable from other containers.
+# Process separation: caddy owns the certificate store and bootstrap config,
+# app runs everything Python with the Redis credentials removed from its
+# environment. See docs/deployment.md and docs/operations.md.
 set -euo pipefail
 cd /app
 
+ROLE="${CONTAINER_ROLE:-all}"
 DATA_HOME="${XDG_DATA_HOME:-/var/lib/custom-domain}"
 CADDY_HOME="$DATA_HOME/caddy"
 BOOTSTRAP=/etc/caddy/bootstrap.json
-
-mkdir -p "$CADDY_HOME" /etc/caddy /app/data /app/domains
-chown -R caddy:caddy "$CADDY_HOME" /etc/caddy
-chmod 700 "$CADDY_HOME" /etc/caddy
-chown -R app:app /app/data /app/domains
-
-custom-domain edge bootstrap --output "$BOOTSTRAP" >/dev/null
-chown caddy:caddy "$BOOTSTRAP"
-chmod 600 "$BOOTSTRAP"
 
 run_as() {
     local user="$1"
@@ -28,10 +24,51 @@ run_as() {
     setpriv --reuid="$user" --regid="$user" --init-groups "$@"
 }
 
-run_as caddy env HOME="$CADDY_HOME" XDG_DATA_HOME="$DATA_HOME" XDG_CONFIG_HOME="$CADDY_HOME/.config" \
-    caddy start --config "$BOOTSTRAP"
+start_caddy() {
+    mkdir -p "$CADDY_HOME" /etc/caddy
+    chown -R caddy:caddy "$CADDY_HOME" /etc/caddy
+    chmod 700 "$CADDY_HOME" /etc/caddy
+    custom-domain edge bootstrap --output "$BOOTSTRAP" >/dev/null
+    chown caddy:caddy "$BOOTSTRAP"
+    chmod 600 "$BOOTSTRAP"
+    run_as caddy env HOME="$CADDY_HOME" XDG_DATA_HOME="$DATA_HOME" \
+        XDG_CONFIG_HOME="$CADDY_HOME/.config" caddy start --config "$BOOTSTRAP"
+}
 
-exec setpriv --reuid=app --regid=app --init-groups env \
-    -u CADDY_REDIS_PASSWORD -u CADDY_REDIS_USERNAME -u CADDY_REDIS_ENCRYPTION_KEY \
-    -u CADDY_REDIS_TLS_SERVER_CERTS_PEM HOME=/app \
-    bash -c 'custom-domain db upgrade && exec uvicorn app.main:app --host 0.0.0.0 --port 9000'
+scrubbed_env() {
+    env -u CADDY_REDIS_PASSWORD -u CADDY_REDIS_USERNAME -u CADDY_REDIS_ENCRYPTION_KEY \
+        -u CADDY_REDIS_TLS_SERVER_CERTS_PEM HOME=/app "$@"
+}
+
+mkdir -p /app/data /app/domains
+chown -R app:app /app/data /app/domains
+
+case "$ROLE" in
+  all)
+    start_caddy
+    exec run_as app scrubbed_env bash -c \
+        'custom-domain db upgrade && exec uvicorn app.main:app --host 0.0.0.0 --port 9000'
+    ;;
+  api)
+    export DNS_WORKER_ENABLED="${DNS_WORKER_ENABLED:-false}"
+    export WEBHOOK_WORKER_ENABLED="${WEBHOOK_WORKER_ENABLED:-false}"
+    export EDGE_RECONCILE_ENABLED="${EDGE_RECONCILE_ENABLED:-false}"
+    exec run_as app scrubbed_env bash -c \
+        'custom-domain db upgrade && exec uvicorn app.main:app --host 0.0.0.0 --port 9000'
+    ;;
+  worker)
+    exec run_as app scrubbed_env custom-domain worker run
+    ;;
+  edge)
+    # Caddy's admin API listens on 127.0.0.1:2020 in this container; the gateway
+    # on :2019 is what the reconciler talks to.
+    export CADDY_ADMIN_URL="${CADDY_ADMIN_URL:-http://127.0.0.1:2020}"
+    start_caddy
+    exec run_as app scrubbed_env custom-domain edge gateway \
+        --listen 0.0.0.0:2019 --caddy-admin "$CADDY_ADMIN_URL" --api-url "${API_URL:?set API_URL}"
+    ;;
+  *)
+    echo "unknown CONTAINER_ROLE: $ROLE" >&2
+    exit 64
+    ;;
+esac

@@ -1,0 +1,111 @@
+# Production layout: separate database, certificate store, API, worker and
+# edge containers. Secrets come from an env file that is not committed.
+# See docs/deployment.md for the walkthrough, backups and rollback.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: custom_domain
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env.production}
+      POSTGRES_DB: custom_domain
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U custom_domain"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks: [backend]
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${CADDY_REDIS_PASSWORD:?set in .env.production}"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$CADDY_REDIS_PASSWORD --no-auth-warning ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks: [edge_storage]
+
+  api:
+    image: sireto/custom-domain:latest
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      CONTAINER_ROLE: api
+      ENABLE_LEGACY_API: "false"
+      CADDY_ADMIN_URL: http://edge:2019
+      EDGE_ASK_TRUSTED_HOSTS: 10.90.0.0/16
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9000/v1/openapi.json', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+    networks: [backend, control]
+    # Not published: reach the management API through a host reverse proxy or a VPN.
+
+  worker:
+    image: sireto/custom-domain:latest
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      CONTAINER_ROLE: worker
+      ENABLE_LEGACY_API: "false"
+      CADDY_ADMIN_URL: http://edge:2019
+    depends_on:
+      db: { condition: service_healthy }
+      api: { condition: service_healthy }
+    networks: [backend, control]
+
+  edge:
+    image: sireto/custom-domain:latest
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      CONTAINER_ROLE: edge
+      ENABLE_LEGACY_API: "false"
+      API_URL: http://api:9000
+      EDGE_ASK_URL: http://api:9000/internal/tls/ask
+      EDGE_ASSERT_UPSTREAM: api:9000
+      CADDY_STORAGE: redis
+      CADDY_REDIS_ADDRESS: redis:6379
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    depends_on:
+      redis: { condition: service_healthy }
+      api: { condition: service_healthy }
+    volumes:
+      - edge_data:/var/lib/custom-domain
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:2019/config/apps', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+    networks: [control, edge_storage]
+    # For a second edge, add a service with the same definition (and a
+    # separate volume); both share Redis, so certificates are issued once.
+
+volumes:
+  db_data:
+  redis_data:
+  edge_data:
+
+networks:
+  backend:
+    driver: bridge
+    ipam:
+      config: [{ subnet: 10.91.0.0/16 }]
+  control:
+    driver: bridge
+    ipam:
+      config: [{ subnet: 10.90.0.0/16 }]
+  edge_storage:
+    driver: bridge

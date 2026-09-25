@@ -182,6 +182,9 @@ def attempt_delivery(
             delivery.next_attempt_at = now + BACKOFF[min(delivery.attempts, len(BACKOFF)) - 1]
             outcome = "retry"
         session.commit()
+        from app import observability
+
+        observability.webhook_deliveries_total.labels(outcome=outcome).inc()
         return outcome
 
 

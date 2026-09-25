@@ -126,7 +126,8 @@ port 80 are redirected to HTTPS by Caddy before any of the above.
 | `EDGE_ASSERTION_KEYS` | required when the edge is enabled | `<id>:<secret>,...`, first signs. |
 | `EDGE_ASSERTION_TTL` | `60` | Assertion lifetime in seconds (5 to 600). |
 | `EDGE_ASSERT_UPSTREAM` | `localhost:9000` | Where Caddy sends the assert subrequest. |
-| `EDGE_ASK_TRUSTED_HOSTS` | `127.0.0.1,::1` | Client addresses allowed to call the internal endpoints. |
+| `EDGE_ASK_TRUSTED_HOSTS` | `127.0.0.1,::1` | Client addresses or CIDR networks allowed to call the internal endpoints. |
+| `EDGE_TOKEN` | unset | When set, the edge sends it on the assert subrequest and the API requires it. |
 
 Generate a secret with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 

@@ -150,9 +150,12 @@ def process_domain(
         dns_due = bool(types & set(DNS_CHECK_TYPES))
         edge_due = bool(types & set(EDGE_CHECK_TYPES))
         if dns_due:
+            from app import observability
+
             queried = claim_version(domain)
-            ownership = ownership_outcome(resolver, domain)
-            routing = routing_outcome(resolver, domain)
+            with observability.dns_check_seconds.time():
+                ownership = ownership_outcome(resolver, domain)
+                routing = routing_outcome(resolver, domain)
             lock_application(session, application_id)
             # Reload from the database, not from the identity map, so a claim
             # re-issued during the queries is visible here.

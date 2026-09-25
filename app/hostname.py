@@ -12,6 +12,21 @@ import ipaddress
 import re
 
 import idna
+from publicsuffixlist import PublicSuffixList
+
+_PSL = PublicSuffixList()
+# Names that must never be customer hostnames, whatever the public suffix list says.
+RESERVED_SUFFIXES = (
+    "localhost",
+    "local",
+    "internal",
+    "arpa",
+    "onion",
+    "invalid",
+    "home",
+    "lan",
+    "corp",
+)
 
 MAX_HOSTNAME_LENGTH = 253
 MAX_LABEL_LENGTH = 63
@@ -74,12 +89,22 @@ def canonicalize(raw: str | None, *, allow_apex: bool = False) -> str:
             raise InvalidHostname("invalid_label", f"Label {label!r} is not valid")
     if labels[-1].isdigit():
         raise InvalidHostname("invalid_hostname", "Top-level label cannot be numeric")
-    if not allow_apex and len(labels) < MIN_LABELS_FOR_SUBDOMAIN:
-        raise InvalidHostname(
-            "apex_not_supported",
-            "Only subdomains such as forms.example.com are supported; "
-            "apex domains are not supported yet",
-        )
+    if not allow_apex:
+        if labels[-1] in RESERVED_SUFFIXES:
+            raise InvalidHostname(
+                "reserved_name", f"Names under .{labels[-1]} cannot be used as customer hostnames"
+            )
+        registrable = _PSL.privatesuffix(ascii_value)
+        if registrable is None:
+            raise InvalidHostname(
+                "public_suffix", f"{ascii_value} is a public suffix, not a customer hostname"
+            )
+        if registrable == ascii_value or len(labels) < MIN_LABELS_FOR_SUBDOMAIN:
+            raise InvalidHostname(
+                "apex_not_supported",
+                "Only subdomains such as forms.example.com are supported; "
+                f"{registrable} is the registrable (apex) domain",
+            )
     return ascii_value
 
 

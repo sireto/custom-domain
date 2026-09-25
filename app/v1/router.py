@@ -134,12 +134,20 @@ def create_domain(
             response.headers["Idempotent-Replayed"] = "true"
             return domain_resource(domain)
 
-    domain = domain_service.claim_domain(
-        db, application, payload.hostname, payload.reference, metadata=payload.metadata
-    )
+    from app import observability
+
+    try:
+        domain = domain_service.claim_domain(
+            db, application, payload.hostname, payload.reference, metadata=payload.metadata
+        )
+    except Exception as exc:
+        code = getattr(exc, "code", type(exc).__name__)
+        observability.registrations_total.labels(outcome=code).inc()
+        raise
     if record is not None:
         idempotency.complete(db, record, domain.id)
     db.commit()
+    observability.registrations_total.labels(outcome="created").inc()
     return domain_resource(domain)
 
 
