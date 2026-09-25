@@ -110,6 +110,12 @@ def certificate_outcome(
             {"address": probe.address},
         )
     remaining = probe.not_after - now
+    # Warn at 7 days, or at a third of the lifetime for short-lived certificates
+    # (Caddy renews at two thirds of the lifetime), so a 12-hour internal-CA
+    # certificate is not reported as expiring the moment it is issued.
+    warning = CERTIFICATE_EXPIRY_WARNING
+    if probe.not_before is not None:
+        warning = min(warning, (probe.not_after - probe.not_before) / 3)
     details = {
         "address": probe.address,
         "issuer": probe.issuer,
@@ -123,7 +129,7 @@ def certificate_outcome(
             "renewal has failed. Check Caddy's log for ACME errors, CAA records and rate limits.",
             details,
         )
-    if remaining < CERTIFICATE_EXPIRY_WARNING:
+    if remaining < warning:
         return Outcome(
             CheckStatus.FAILING,
             "certificate_expiring",

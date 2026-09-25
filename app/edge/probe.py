@@ -38,6 +38,7 @@ class EdgeProbe:
     issuer: str
     status: int
     edge_header: str | None
+    not_before: datetime | None = None
 
 
 def _issuer_name(cert: dict) -> str:
@@ -99,6 +100,11 @@ def probe_edge(
 
         cert = tls.getpeercert()
         not_after = datetime.fromtimestamp(ssl.cert_time_to_seconds(cert["notAfter"]), UTC)
+        not_before = (
+            datetime.fromtimestamp(ssl.cert_time_to_seconds(cert["notBefore"]), UTC)
+            if cert.get("notBefore")
+            else None
+        )
         connection = http.client.HTTPConnection(hostname, port, timeout=timeout)
         connection.sock = tls
         connection.request("GET", health_path, headers={"Host": hostname, "User-Agent": USER_AGENT})
@@ -110,6 +116,7 @@ def probe_edge(
             issuer=_issuer_name(cert),
             status=response.status,
             edge_header=response.getheader(EDGE_HEALTH_HEADER),
+            not_before=not_before,
         )
     except EdgeProbeFailed:
         raise
