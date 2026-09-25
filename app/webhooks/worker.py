@@ -16,7 +16,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-import httpx
 from sqlalchemy import and_, select, update
 from sqlalchemy.orm import Session
 
@@ -80,9 +79,45 @@ Sender = Callable[[str, bytes, dict[str, str]], tuple[int, str]]
 
 
 def http_sender(url: str, body: bytes, headers: dict[str, str]) -> tuple[int, str]:
-    with httpx.Client(timeout=TIMEOUT, follow_redirects=False) as client:
-        response = client.post(url, content=body, headers=headers)
-    return response.status_code, response.text[:500]
+    """POST ``body`` to ``url`` with the address policy enforced on this attempt.
+
+    The URL's host is resolved now and every address must be public (unless
+    ``ORIGIN_ALLOW_PRIVATE``); the connection is made to the resolved address
+    with the hostname as SNI and Host, so a DNS rebinding after subscription
+    cannot send a signed POST to an internal service. Redirects are not
+    followed and the body of the answer is capped.
+    """
+    import http.client
+    import socket
+    import ssl
+    from urllib.parse import urlsplit
+
+    from app.services.webhooks import InvalidWebhook, allow_private_from_env, resolve_public
+
+    parts = urlsplit(url)
+    if parts.scheme not in ("https", "http") or not parts.hostname:
+        raise InvalidWebhook("Webhook URL must be an absolute http(s) URL")
+    allow_private = allow_private_from_env()
+    if parts.scheme == "http" and not allow_private:
+        raise InvalidWebhook("Webhook URL must use https")
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    address = resolve_public(parts.hostname, port, allow_private=allow_private)[0]
+    path = parts.path or "/"
+    if parts.query:
+        path += "?" + parts.query
+
+    sock = socket.create_connection((address, port), timeout=TIMEOUT)
+    try:
+        if parts.scheme == "https":
+            sock = ssl.create_default_context().wrap_socket(sock, server_hostname=parts.hostname)
+        connection = http.client.HTTPConnection(parts.hostname, port, timeout=TIMEOUT)
+        connection.sock = sock
+        host_header = parts.hostname if port in (80, 443) else f"{parts.hostname}:{port}"
+        connection.request("POST", path, body=body, headers={"Host": host_header, **headers})
+        response = connection.getresponse()
+        return response.status, response.read(4096).decode("utf-8", "replace")[:500]
+    finally:
+        sock.close()
 
 
 def attempt_delivery(

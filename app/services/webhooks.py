@@ -80,8 +80,19 @@ def validate_url(url: str, *, allow_private: bool = False) -> str:
     return url.strip()
 
 
-def _require_public(host: str, port: int, *, allow_private: bool) -> None:
-    """Refuse hosts that resolve to non-public addresses (same rule as origin verification)."""
+def allow_private_from_env() -> bool:
+    import os
+
+    return os.environ.get("ORIGIN_ALLOW_PRIVATE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def resolve_public(host: str, port: int, *, allow_private: bool) -> list[str]:
+    """Addresses of ``host``, all of which must be public unless private is allowed.
+
+    Used both when a subscription is created and on every delivery attempt,
+    so a URL that later rebinds to a private or metadata address is refused
+    at delivery time as well.
+    """
     import ipaddress
     import socket
 
@@ -91,11 +102,14 @@ def _require_public(host: str, port: int, *, allow_private: bool) -> None:
         raise InvalidWebhook(
             f"Webhook URL is not deliverable: {host} does not resolve ({exc})"
         ) from exc
-    addresses = {info[4][0] for info in infos}
+    addresses: list[str] = []
+    for info in infos:
+        if info[4][0] not in addresses:
+            addresses.append(info[4][0])
     if not addresses:
         raise InvalidWebhook(f"Webhook URL is not deliverable: {host} has no addresses")
     if allow_private:
-        return
+        return addresses
     blocked = sorted(a for a in addresses if not ipaddress.ip_address(a).is_global)
     if blocked:
         raise InvalidWebhook(
@@ -103,6 +117,11 @@ def _require_public(host: str, port: int, *, allow_private: bool) -> None:
             f"{', '.join(blocked)}; set ORIGIN_ALLOW_PRIVATE=true only for a trusted "
             "self-hosted deployment"
         )
+    return addresses
+
+
+def _require_public(host: str, port: int, *, allow_private: bool) -> None:
+    resolve_public(host, port, allow_private=allow_private)
 
 
 def create_subscription(

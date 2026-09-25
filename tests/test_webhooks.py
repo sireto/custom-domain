@@ -484,3 +484,46 @@ def test_webhook_endpoints(session, make_application, monkeypatch):
             "/v1/webhooks" in spec["paths"] and "/v1/webhooks/{webhook_id}/replay" in spec["paths"]
         )
     assert os.environ["WEBHOOK_WORKER_ENABLED"] == "false"
+
+
+def test_delivery_refuses_private_addresses_on_each_attempt(
+    session, session_factory, make_application, receiver, monkeypatch
+):
+    from app.webhooks.worker import http_sender
+
+    acme = make_application("acme")
+    subscription, _ = _subscribe(session, acme, url=receiver.url)  # 127.0.0.1, allowed at creation
+    domain = claim_domain(session, acme, "forms.customer.example", "ws_1")
+    _make_ready(session, domain)
+    delivery = session.query(WebhookDelivery).one()
+
+    # Without the private allowance the attempt is refused before any packet is sent.
+    monkeypatch.delenv("ORIGIN_ALLOW_PRIVATE", raising=False)
+    assert attempt_delivery(session_factory, delivery.id, sender=http_sender) == "retry"
+    session.commit()
+    session.expire_all()
+    assert "non-public" in delivery.last_error and receiver.received == []
+
+    # A trusted self-hosted deployment may deliver to private addresses.
+    monkeypatch.setenv("ORIGIN_ALLOW_PRIVATE", "true")
+    replay_delivery(session, acme, subscription.id, delivery.id)
+    session.commit()
+    assert attempt_delivery(session_factory, delivery.id, sender=http_sender) == "delivered"
+    assert len(receiver.received) == 1
+    assert receiver.received[0][0]["Host"].startswith("127.0.0.1")
+
+
+def test_http_sender_rejects_rebinding_to_private(monkeypatch):
+    from app.services import webhooks as service
+    from app.webhooks.worker import http_sender
+
+    monkeypatch.delenv("ORIGIN_ALLOW_PRIVATE", raising=False)
+    monkeypatch.setattr(
+        service,
+        "resolve_public",
+        lambda host, port, allow_private: (_ for _ in ()).throw(
+            service.InvalidWebhook("non-public")
+        ),
+    )
+    with pytest.raises(service.InvalidWebhook):
+        http_sender("https://hooks.acme.example/x", b"{}", {})
