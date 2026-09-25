@@ -14,7 +14,7 @@ import os
 
 from custom_domain import CustomDomainMiddleware
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 
 WORKSPACES = {
     "ws_alpha": {"name": "Alpha Forms", "colour": "#2b6cb0"},
@@ -41,12 +41,10 @@ def create_app(keys: dict[str, str] | None = None, application_id: str | None = 
         on_missing="reject",
     )
 
-    @app.get("/.well-known/custom-domain-origin-verification")
-    def origin_verification():
-        # Serve the token given by `custom-domain origin register`.
-        return JSONResponse(
-            os.environ.get("ORIGIN_VERIFICATION_TOKEN", ""), media_type="text/plain"
-        )
+    @app.get("/.well-known/custom-domain-origin-verification", response_class=PlainTextResponse)
+    def origin_verification() -> str:
+        # Plain text, exactly the token: the verifier compares the body byte for byte.
+        return os.environ.get("ORIGIN_VERIFICATION_TOKEN", "")
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request):

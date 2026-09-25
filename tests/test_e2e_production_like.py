@@ -20,10 +20,12 @@ import ssl
 import subprocess
 import threading
 import time
+import uuid
 
 import pytest
 import uvicorn
-from custom_domain import CustomDomainMiddleware
+from custom_domain import Client, CustomDomainMiddleware
+from custom_domain.errors import AuthenticationError, ConflictError, NotFoundError
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 
@@ -34,15 +36,18 @@ from app.edge.config import build_bootstrap
 from app.edge.reconcile import Reconciler
 from app.edge.settings import EdgeSettings
 from app.main import create_app
-from app.models import DomainStatus
 from app.services.applications import (
     activate_origin,
     issue_credential,
-    record_origin_verification,
     register_origin,
 )
-from app.services.domains import claim_domain, delete_domain, get_domain, reissue_claim
+from app.services.domains import reissue_claim
 from app.services.edge_checks import SystemEdgeProber
+from app.services.origin_verification import (
+    WELL_KNOWN_PATH,
+    OriginVerificationFailed,
+    verify_origin,
+)
 from tests.test_dns_checks import FakeResolver
 
 pytestmark = pytest.mark.skipif(shutil.which("caddy") is None, reason="caddy binary not installed")
@@ -76,13 +81,19 @@ def _serve(app: FastAPI) -> tuple[uvicorn.Server, int]:
     return server, port
 
 
-def _origin_app(name: str, workspaces: dict[str, str], application_id: str) -> FastAPI:
-    """A SaaS origin using the SDK middleware; the page names the workspace."""
+def _origin_app(
+    name: str, workspaces: dict[str, str], application_id: str, origin: dict[str, str]
+) -> FastAPI:
+    """A SaaS origin using the SDK middleware; the page names the workspace.
+
+    ``origin["token"]`` is the proof-of-control token the operator publishes.
+    """
     app = FastAPI()
     app.add_middleware(
         CustomDomainMiddleware,
         keys=dict(KEYS),
         application_id=application_id,
+        workspace_lookup=workspaces.get,
         on_missing="reject",
     )
 
@@ -90,6 +101,10 @@ def _origin_app(name: str, workspaces: dict[str, str], application_id: str) -> F
     def home(request: Request):
         assertion = request.state.custom_domain
         return f"{name}: {workspaces.get(assertion.reference, 'unknown workspace')}"
+
+    @app.get(WELL_KNOWN_PATH, response_class=PlainTextResponse)
+    def origin_verification():
+        return origin.get("token", "")
 
     return app
 
@@ -121,31 +136,42 @@ def rejected(host: str, port: int, ca_file: str) -> bool:
 def test_two_applications_serve_the_right_workspaces_over_https(
     session, session_factory, make_application, monkeypatch, tmp_path
 ):
-    # --- applications: BetterCollected-like with two workspaces, plus the sample SaaS ---
+    # --- operator: applications, credentials and proof-of-control of the origins ---
     bc = make_application("bettercollected", cname_target="bc.edge.localtest.me")
     sample = make_application("sample", cname_target="sample.edge.localtest.me")
     _, bc_secret = issue_credential(session, bc, label="e2e")
+    _, sample_secret = issue_credential(session, sample, label="e2e")
     session.commit()
+    bc_origin: dict[str, str] = {}
+    sample_origin: dict[str, str] = {}
     bc_server, bc_port = _serve(
         _origin_app(
             "bettercollected",
             {"ws_alpha": "Alpha workspace", "ws_beta": "Beta workspace"},
             str(bc.id),
+            bc_origin,
         )
     )
     sample_server, sample_port = _serve(
-        _origin_app("sample", {"ws_one": "Sample workspace"}, str(sample.id))
+        _origin_app("sample", {"ws_one": "Sample workspace"}, str(sample.id), sample_origin)
     )
-    for application, port in ((bc, bc_port), (sample, sample_port)):
+    for application, port, published in (
+        (bc, bc_port, bc_origin),
+        (sample, sample_port, sample_origin),
+    ):
         origin = register_origin(session, application, host="localhost", scheme="http", port=port)
-        record_origin_verification(session, origin, verified=True)
+        session.commit()
+        # Verification fails until the application publishes the token ...
+        with pytest.raises(OriginVerificationFailed) as failure:
+            verify_origin(session, origin, allow_private=True)
+        assert failure.value.code == "token_mismatch"
+        # ... and passes once it does, through the SDK middleware in reject mode.
+        published["token"] = origin.verification_token
+        verify_origin(session, origin, allow_private=True)
         activate_origin(session, origin)
-    alpha = claim_domain(session, bc, "alpha.customer.example", "ws_alpha")
-    beta = claim_domain(session, bc, "beta.customer.example", "ws_beta")
-    one = claim_domain(session, sample, "one.other-customer.example", "ws_one")
     session.commit()
 
-    # --- management API served for Caddy (ask + assert) ---
+    # --- management API served for the SDK clients and for Caddy (ask + assert) ---
     for name in ("EDGE_RECONCILE_ENABLED", "DNS_WORKER_ENABLED", "WEBHOOK_WORKER_ENABLED"):
         monkeypatch.setenv(name, "false")
     monkeypatch.setenv("ENABLE_LEGACY_API", "true")
@@ -161,6 +187,42 @@ def test_two_applications_serve_the_right_workspaces_over_https(
 
     api.dependency_overrides[get_session] = override
     api_server, api_port = _serve(api)
+
+    # --- the applications register their customers' hostnames through the SDK ---
+    api_url = f"http://127.0.0.1:{api_port}"
+    bc_client = Client(api_url, bc_secret)
+    sample_client = Client(api_url, sample_secret)
+    alpha = bc_client.create_domain(
+        "alpha.customer.example", "ws_alpha", idempotency_key="ws_alpha-alpha"
+    )
+    beta = bc_client.create_domain("beta.customer.example", "ws_beta")
+    one = sample_client.create_domain("one.other-customer.example", "ws_one")
+    assert {d.status for d in (alpha, beta, one)} == {"pending_dns"}
+    assert (
+        alpha.id
+        == bc_client.create_domain(
+            "alpha.customer.example", "ws_alpha", idempotency_key="ws_alpha-alpha"
+        ).id
+    ), "an idempotent retry returns the same domain"
+
+    # --- cross-application boundary: one tenant cannot see or touch another's domains ---
+    with pytest.raises(ConflictError):
+        sample_client.create_domain("alpha.customer.example", "ws_other")
+    with pytest.raises(NotFoundError):
+        sample_client.get_domain(alpha.id)
+    with pytest.raises(NotFoundError):
+        sample_client.delete_domain(alpha.id)
+    with pytest.raises(NotFoundError):
+        sample_client.request_recheck(alpha.id)
+    assert {d.hostname for d in sample_client.list_domains().items} == {
+        "one.other-customer.example"
+    }
+    assert {d.hostname for d in bc_client.list_domains().items} == {
+        "alpha.customer.example",
+        "beta.customer.example",
+    }
+    with pytest.raises(AuthenticationError):
+        Client(api_url, "cd_not_a_real_credential_000000000000").list_domains()
 
     https_port = _free_port()
     http_port = _free_port()
@@ -205,12 +267,12 @@ def test_two_applications_serve_the_right_workspaces_over_https(
         reconciler = Reconciler(session_factory, CaddyClient(settings.admin_url), settings)
         assert reconciler.run_once().ok
 
-        # --- DNS: the customers publish the records (in-memory resolver) ---
+        # --- DNS: the customers publish the records the API handed back ---
         resolver = FakeResolver()
         for domain in (alpha, beta, one):
-            claim = domain.active_claim
-            resolver.txt_records[claim.txt_record_name] = [claim.txt_record_value]
-            resolver.cnames[domain.hostname] = claim.cname_target
+            records = {r.purpose: r for r in domain.dns_records}
+            resolver.txt_records[records["ownership"].name] = [records["ownership"].value]
+            resolver.cnames[records["routing"].name] = records["routing"].value
 
         # --- the worker drives the domains to ready through the real edge ---
         prober = SystemEdgeProber(settings)
@@ -231,30 +293,19 @@ def test_two_applications_serve_the_right_workspaces_over_https(
             session.commit()
             session.expire_all()
             if all(
-                get_domain(session, d.application, d.id).status == DomainStatus.READY
-                for d in (alpha, beta, one)
+                client.get_domain(d.id).status == "ready"
+                for client, d in ((bc_client, alpha), (bc_client, beta), (sample_client, one))
             ):
                 break
             time.sleep(0.5)
         caddy_log.flush()
-        for d in (alpha, beta, one):
-            fresh = get_domain(session, d.application, d.id)
-            for c in fresh.checks:
-                print(
-                    "CHECK",
-                    fresh.hostname,
-                    c.check_type.value,
-                    c.status.value,
-                    c.error_code,
-                    c.message,
-                )
-            assert fresh.status == DomainStatus.READY, (
+        for client, d in ((bc_client, alpha), (bc_client, beta), (sample_client, one)):
+            fresh = client.get_domain(d.id)
+            assert fresh.status == "ready", (
                 fresh.hostname,
-                [
-                    (c.check_type.value, c.status.value, c.error_code, c.message)
-                    for c in fresh.checks
-                ],
+                [(c.type, c.status, c.error_code, c.message) for c in fresh.checks],
             )
+            assert {c.status for c in fresh.checks} == {"passing"}
 
         # --- correct HTTPS content per workspace, from the real edge ---
         assert https_get("alpha.customer.example", https_port, "/", str(ca_file)) == (
@@ -273,15 +324,24 @@ def test_two_applications_serve_the_right_workspaces_over_https(
         # --- wrong host: no certificate is issued for an unknown name ---
         assert rejected("nobody.customer.example", https_port, str(ca_file))
 
-        # --- stale claim: re-issued instructions take the domain out of service ---
-        reissue_claim(session, bc, beta.id)
+        # --- recheck from the application: the checks re-run through the real edge ---
+        assert bc_client.request_recheck(alpha.id).status == "ready"
+        run_due_checks(session_factory, resolver, prober=prober, settings=settings)
+        session.commit()
+        assert bc_client.get_domain(alpha.id).status == "ready"
+
+        # --- stale claim (operator re-issue): the domain leaves service until re-verified ---
+        reissue_claim(session, bc, uuid.UUID(beta.id))
         session.commit()
         reconciler.run_once()
         assert rejected("beta.customer.example", https_port, str(ca_file))
+        assert bc_client.get_domain(beta.id).status == "pending_dns"
 
-        # --- revoked domain: deletion is refused on the next request ---
-        delete_domain(session, bc, alpha.id)
-        session.commit()
+        # --- deletion from the application: refused on the next request ---
+        assert bc_client.delete_domain(alpha.id).status == "deleting"
+        with pytest.raises(NotFoundError):
+            bc_client.get_domain(alpha.id)
+        assert bc_client.get_domain(alpha.id, include_deleted=True).status == "deleting"
         assert rejected("alpha.customer.example", https_port, str(ca_file))
         assert https_get("one.other-customer.example", https_port, "/", str(ca_file)) == (
             200,

@@ -210,14 +210,6 @@ class EdgeSettings:
         key_id, secret = self.assertion_keys[0]
         return key_id, secret.encode("utf-8")
 
-    def tls_issuer_config(self) -> dict[str, Any]:
-        if self.tls_issuer == "internal":
-            return {"module": "internal"}
-        issuer: dict[str, Any] = {"module": "acme"}
-        if self.acme_email:
-            issuer["email"] = self.acme_email
-        return issuer
-
     def storage_config(self) -> dict[str, Any] | None:
         """The Caddy ``storage`` block, or None for Caddy's default file storage."""
         if self.storage != "redis":

@@ -1,9 +1,11 @@
 # BetterCollected integration
 
-Status: issue #13. This repository provides everything the integration
-needs and proves it end to end with a BetterCollected-like origin and a
-second application; the changes inside BetterCollected itself are specified
-here and made in its own repository.
+Status: issue #13 stays open until the BetterCollected repository carries the
+changes below. This repository provides everything the integration needs
+and proves the contract end to end with a BetterCollected-like origin and a
+second application (`tests/test_e2e_production_like.py`); the changes inside
+BetterCollected itself are specified here and are made, reviewed and linked
+from its own repository, which is outside this one.
 
 ## What BetterCollected does today
 
@@ -45,8 +47,12 @@ here and made in its own repository.
    reference=str(workspace.id), idempotency_key=f"ws-{workspace.id}-{hostname}")`;
    map `hostname_already_claimed` and the hostname validation codes to the
    existing "domain already exists" and validation errors; store id and
-   records. On change, delete the old domain first, then create. On delete,
-   `client.delete_domain(id)`. Add a `recheck` action calling
+   records. On change, create the replacement first and persist its id;
+   only after that succeeds delete the old domain, retrying the deletion
+   (or leaving it for a periodic sweep of domains whose id no workspace
+   references) so a validation error or a transient API failure never takes
+   the working hostname offline or releases it for another tenant to claim.
+   On delete, `client.delete_domain(id)`. Add a `recheck` action calling
    `request_recheck` and returning `RateLimitedError.retry_after` to the UI.
 4. Middleware: wrap the app with `CustomDomainMiddleware(keys=...,
    application_id=..., on_missing="passthrough")` because the same backend

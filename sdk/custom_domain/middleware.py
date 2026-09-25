@@ -20,6 +20,10 @@ from typing import Any
 from custom_domain.assertion import HEADER, Assertion, AssertionInvalid, verify_assertion
 
 WORKSPACE_PATH = "/.well-known/custom-domain-workspace"
+# Served by the application for the operator's proof-of-control check (docs/api-v1.md);
+# that probe comes from the management API, not through the edge, so it carries
+# no assertion and must not be rejected.
+ORIGIN_VERIFICATION_PATH = "/.well-known/custom-domain-origin-verification"
 
 
 class WorkspaceResolver:
@@ -84,6 +88,9 @@ class CustomDomainMiddleware:
 
     async def __call__(self, scope: dict, receive, send) -> None:
         if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        if scope.get("path") == ORIGIN_VERIFICATION_PATH and scope.get("method") == "GET":
             await self.app(scope, receive, send)
             return
         headers = [(k.decode("latin-1"), v.decode("latin-1")) for k, v in scope.get("headers", [])]
