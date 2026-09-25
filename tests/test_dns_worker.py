@@ -192,7 +192,9 @@ def test_claim_reissued_during_queries_discards_the_results(
     assert domain.status == DomainStatus.PENDING_DNS
     for check_type in (CheckType.OWNERSHIP, CheckType.ROUTING):
         check = domain.check(check_type)
-        assert check.status.value == "pending" and check.observed_at is None
+        # Reset by the re-issue, not evaluated by the worker's stale results.
+        assert check.status.value == "pending"
+        assert check.details.get("reason") == "claim_reissued"
         assert check.next_check_at is not None and check.next_check_at <= utcnow()
 
     # The next run verifies the new claim on its own records only.
