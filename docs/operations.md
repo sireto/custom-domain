@@ -33,6 +33,13 @@ database.
   origin, the domain is live and `ready`, its claim is verified and all four
   checks pass. Deleted, pending, suspended and drifting domains are not
   routed.
+- Runs are serialized across instances: each run updates the single row of
+  `edge_locks` as the first statement of its transaction and holds that
+  transaction until the Caddy write has finished (a row lock on PostgreSQL,
+  the write lock on SQLite). A run that starts after a change committed
+  therefore always sees it, and a snapshot built before a deletion can never
+  be applied after a newer one. On SQLite this briefly blocks all writers
+  during each run, one more reason PostgreSQL is the production target.
 - Failure modes: `database_unavailable` (nothing sent to Caddy),
   `caddy_unavailable` (admin API unreachable), `config_rejected` (Caddy
   validated and refused the configuration; it keeps the previous one). All
@@ -160,34 +167,50 @@ The container runs two processes under two system users (see
 
 | | `caddy` user | `app` user (migrations, API, reconciler) |
 | --- | --- | --- |
-| Certificate store `/var/lib/custom-domain/caddy` (file storage) | owner, mode 0700 | no access |
-| `/etc/caddy/bootstrap.json` (storage credentials) | owner, mode 0600 | no access |
+| Certificate store `/var/lib/custom-domain/caddy` (file storage) | owner, mode 0700 | no direct file access |
+| `/etc/caddy/bootstrap.json` (storage credentials) | owner, mode 0600 | no direct file access |
 | `CADDY_REDIS_PASSWORD`, `CADDY_REDIS_ENCRYPTION_KEY`, `CADDY_REDIS_USERNAME`, `CADDY_REDIS_TLS_SERVER_CERTS_PEM` | in environment | removed from environment |
-| Caddy admin API `localhost:2019` | serves it | uses it for `GET /config/` and `POST /config/apps` |
+| Caddy admin API `localhost:2019` | serves it | reachable; used for `GET /config/` and `POST /config/apps` |
 | Database | no access | full access |
 
-What this guarantees:
+What the separation gives: the API process cannot read key files or the
+storage credentials directly, never handles them in its own code or
+environment, and Caddy binds ports 80 and 443 through a file capability
+rather than root. What it does not give, stated plainly:
 
-- With file storage (the default), a compromised API process cannot read
-  private keys: the store is owned by `caddy` with mode 0700, the API runs
-  as `app`, and the database has no column for key material.
-- The API never handles storage credentials: it only writes the `apps`
-  subtree, and its environment is scrubbed before it starts.
-- Caddy binds ports 80 and 443 through a file capability, not root.
+**The Caddy admin API is the trust boundary, and today the API process is
+inside it, for both storage kinds.** Caddy's admin API has no
+authentication and no per-path or per-payload control. A compromised API
+process can `GET /config/` and read the storage block (Redis credentials and
+encryption key), and it can `POST /config/apps` or `/load` a configuration
+of its own, for example a `file_server` route publishing
+`/var/lib/custom-domain/caddy`, then fetch private keys through Caddy
+itself. Restricting a proxy to `GET`/`POST /config/apps` does not close
+this, because an arbitrary `apps` payload can still install such a route.
+Single-instance file storage is therefore **not** protected by the user
+separation alone.
 
-Residual risk, stated plainly: Caddy's admin API has no per-path access
-control and `GET /config/` returns the full configuration, including the
-storage block. With Redis storage, a compromised API process can therefore
-read the Redis credentials and encryption key from the admin API and reach
-the certificate store over the network. The application does not need that
-endpoint's storage section, but the admin API cannot hide it.
+Hardening requirement before production use, with either storage kind
+(tracked in #12):
 
-Hardening requirement before production use with Redis storage (tracked in
-#12): run Caddy in its own container, expose its admin API to the API
-container only through a reverse proxy that allows `GET /config/apps` and
-`POST /config/apps` (and nothing else), and keep the Redis network reachable
-from the Caddy containers only. Single-instance deployments with file storage
-already meet the boundary described above.
+1. Run Caddy in its own container. Its admin API must be reachable only by
+   a **validating configuration gateway**, not by the API container
+   directly, and `/load` must not be reachable at all.
+2. The gateway accepts only the shape the reconciler produces: an `apps`
+   object whose HTTP server routes contain a single `reverse_proxy` handler
+   per route, whose upstream is an origin registered and verified in the
+   database, with no other handler modules (`file_server`, `static_response`
+   with bodies, `templates`, admin or metrics endpoints), no changes to
+   `admin`, `storage` or the TLS automation policy beyond the ACME email,
+   and no listener other than the edge ports. Anything else is rejected and
+   logged.
+3. The certificate store (file volume or Redis) is mounted or reachable
+   from the Caddy container only.
+
+Until that gateway exists, treat the management API container as having the
+same privileges as Caddy, protect its credentials accordingly, and do not
+run it on a host or network where reading customer certificate keys would be
+unacceptable.
 
 - The Caddy admin API must never be published outside the container.
 - Redis: require AUTH, enable TLS when crossing networks, restrict network

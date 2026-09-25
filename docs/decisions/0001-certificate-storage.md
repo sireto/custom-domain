@@ -99,11 +99,13 @@ extra coordination service. Rejected for the MVP.
 - Caddy and the API run as separate users in the container. Caddy starts
   from a bootstrap file (admin listener and storage credentials) only it can
   read; the API manages the `apps` subtree through the admin API and has the
-  Redis credentials scrubbed from its environment. Because the admin API
-  returns the whole configuration, Redis credentials remain readable by the
-  API through it; full isolation requires a separate Caddy container behind
-  an allow-listing admin proxy, which #12 must deliver before production use
-  with Redis storage (see operations.md, "Private key boundaries").
+  Redis credentials scrubbed from its environment. The admin API itself is
+  the real boundary and the API process is still inside it: it can read the
+  storage block and can install arbitrary routes, including one that serves
+  the key directory. This holds for file and Redis storage alike. Before
+  production use with either, #12 must place Caddy in its own container
+  behind a validating configuration gateway that admits only the
+  reconciler's route shape (see operations.md, "Private key boundaries").
 - Rotating `CADDY_REDIS_ENCRYPTION_KEY` requires `caddy storage export` with
   the old key and `import` with the new one.
 - Building Caddy with `xcaddy` lengthens the image build by a few minutes and

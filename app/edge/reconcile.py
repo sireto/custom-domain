@@ -11,6 +11,8 @@ route set.
 from __future__ import annotations
 
 import logging
+import os
+import socket
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -21,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.edge.caddy_client import CaddyClient, CaddyError, CaddyRejectedConfig, CaddyUnavailable
 from app.edge.config import SERVER_NAME, build_apps, config_digest, hostnames_in
+from app.edge.lock import acquire_reconcile_lock
 from app.edge.settings import EdgeSettings
 from app.models.types import utcnow
 
@@ -53,6 +56,9 @@ class Reconciler:
         self.client = client
         self.settings = settings
         self.last_result: ReconcileResult | None = None
+        self.holder = f"{socket.gethostname()}:{os.getpid()}"
+        # Serializes runs within this process; the database lock taken in
+        # ``_run`` serializes runs across processes and instances.
         self._lock = threading.Lock()
 
     def desired_apps(self) -> dict[str, Any]:
@@ -79,9 +85,25 @@ class Reconciler:
     def _run(self) -> ReconcileResult:
         now = utcnow()
         try:
-            desired = self.desired_apps()
+            session = self.session_factory()
         except Exception as exc:  # database problems must not kill the loop
             return ReconcileResult(now, False, "none", 0, 0, "database_unavailable", str(exc))
+        with session:
+            try:
+                # Hold the cross-instance lock from snapshot to Caddy write so
+                # a snapshot built before a change committed cannot be applied
+                # after a newer one (see app/edge/lock.py).
+                acquire_reconcile_lock(session, self.holder)
+                desired = build_apps(session, self.settings)
+            except Exception as exc:
+                session.rollback()
+                return ReconcileResult(now, False, "none", 0, 0, "database_unavailable", str(exc))
+            try:
+                return self._apply(desired, now)
+            finally:
+                session.commit()  # releases the lock; nothing else to persist
+
+    def _apply(self, desired: dict[str, Any], now: datetime) -> ReconcileResult:
         digest = config_digest(desired)
         hostnames = len(hostnames_in({"apps": desired}))
         routes = len(desired["http"]["servers"][SERVER_NAME]["routes"])

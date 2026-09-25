@@ -13,6 +13,7 @@ from app.edge.config import (
 from app.edge.reconcile import Reconciler
 from app.edge.settings import EdgeConfigurationError, EdgeSettings, redact
 from app.models import (
+    Application,
     ApplicationStatus,
     CheckStatus,
     CheckType,
@@ -425,3 +426,69 @@ def test_reconcile_preserves_storage_block_and_falls_back_to_full_load(
     result = Reconciler(session_factory, bare, SETTINGS).run_once()
     assert result.changed and bare.full_loads == 1
     assert set(bare.running) == {"apps"}
+
+
+def test_stale_snapshot_cannot_restore_a_deleted_hostname(session, fleet, session_factory):
+    """Two instances share one Caddy. Instance A builds its snapshot (hostname
+    present), a deletion commits, and the delete-triggered run on instance B
+    must not be overtaken by A's stale apply."""
+    import time
+
+    from app.services.domains import lock_application
+
+    gate = threading.Event()
+
+    class GatedCaddy(FakeCaddy):
+        block_next_get = False
+
+        def get_config(self):
+            if self.block_next_get:
+                self.block_next_get = False
+                assert gate.wait(30), "gate never opened"
+            return super().get_config()
+
+    caddy = GatedCaddy(running=build_bootstrap(SETTINGS))
+    instance_a = Reconciler(session_factory, caddy, SETTINGS)
+    instance_b = Reconciler(session_factory, caddy, SETTINGS)
+    assert instance_a.run_once().changed
+    assert "a.customer.example" in hostnames_in(caddy.running)
+    target_id = session.query(Domain).filter_by(hostname="a.customer.example").one().id
+    acme_id = fleet["acme"].id
+
+    # A: snapshot built (hostname present), lock held, stuck talking to Caddy.
+    caddy.block_next_get = True
+    thread_a = threading.Thread(target=instance_a.run_once)
+    thread_a.start()
+    for _ in range(500):
+        if not caddy.block_next_get:
+            break
+        time.sleep(0.01)
+    assert not caddy.block_next_get, "instance A never reached Caddy"
+
+    # B: delete the hostname, then reconcile like the API's post-delete task.
+    outcome = {}
+
+    def delete_then_reconcile():
+        with session_factory() as s:
+            lock_application(s, acme_id)  # first statement: a write, so SQLite waits
+            app_row = s.get(Application, acme_id)
+            delete_domain(s, app_row, target_id)
+            s.commit()
+        outcome["result"] = instance_b.run_once()
+
+    thread_b = threading.Thread(target=delete_then_reconcile)
+    thread_b.start()
+    time.sleep(0.5)
+    assert "result" not in outcome, "instance B ran while A still held the lock"
+
+    gate.set()
+    thread_a.join(30)
+    thread_b.join(30)
+    assert not thread_a.is_alive() and not thread_b.is_alive()
+
+    assert outcome["result"].ok
+    assert "a.customer.example" not in hostnames_in(caddy.running)
+    # A's stale snapshot was applied first and then superseded, never last.
+    assert "a.customer.example" in hostnames_in({"apps": caddy.loads[-2]})
+    assert "a.customer.example" not in hostnames_in({"apps": caddy.loads[-1]})
+    assert instance_a.holder and instance_a.holder == instance_b.holder  # same process
