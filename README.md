@@ -110,7 +110,9 @@ document is [docs/openapi.json](docs/openapi.json) and is served at
 HTTPS readiness probe are in [docs/tls-readiness.md](docs/tls-readiness.md); how requests are routed and
 the signed workspace assertion origins verify are in [docs/edge-routing.md](docs/edge-routing.md); the status
 machine, the workspace probe and the worker are in [docs/lifecycle.md](docs/lifecycle.md); webhook
-subscriptions, signatures and delivery are in [docs/webhooks.md](docs/webhooks.md). Certificate storage,
+subscriptions, signatures and delivery are in [docs/webhooks.md](docs/webhooks.md). The Python SDK
+for integrating a SaaS application, with the assertion-verifying middleware, is in
+[sdk/](sdk/README.md); a minimal second SaaS origin is in [examples/sample_saas/](examples/sample_saas/README.md). Certificate storage,
 multi-instance coordination, backup and restore are covered by
 [docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md)
 and [docs/operations.md](docs/operations.md).

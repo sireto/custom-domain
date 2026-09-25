@@ -5,6 +5,8 @@ Status: implemented for issue #1. The machine-readable contract is
 `uv run custom-domain openapi export --output docs/openapi.json`); the live
 document is served at `/v1/openapi.json` with Swagger UI at `/v1/docs`.
 
+The Python SDK ([sdk/README.md](../sdk/README.md)) wraps everything below.
+
 ## Applications and credentials
 
 An application is a SaaS product that integrates with the service. There is no
