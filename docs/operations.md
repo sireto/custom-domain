@@ -51,7 +51,12 @@ upstream.
    | `response_too_large` | Body over 4 KiB. |
 
    A later failed re-verification deactivates the origin, and the edge stops
-   routing the application until it is verified and activated again.
+   routing the application until it is verified and activated again. The
+   same address policy applies on the serving path: at every reconciliation
+   the origin's name is resolved again, the edge dials the resolved public
+   address (presenting the origin's name as SNI and verifying its
+   certificate), and an origin whose DNS now points at a private, link-local
+   or metadata address is dropped from the routes instead of being dialed.
 4. **Issue a credential**: `custom-domain credential issue --application acme --label backend`.
    The secret is shown once. Clients send it as `Authorization: Bearer`; it
    is never accepted in a query string or cookie.

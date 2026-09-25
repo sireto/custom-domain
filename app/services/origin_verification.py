@@ -204,3 +204,19 @@ def verify_origin(
         raise
     record_origin_verification(session, origin, verified=True, now=now)
     return origin
+
+
+def pinned_dial(host: str, port: int, *, allow_private: bool = False) -> tuple[str, str]:
+    """Return ``(address:port, host)`` for the edge to dial.
+
+    The serving path must obey the same address policy as verification: the
+    hostname is resolved now, every address must be public (unless private
+    origins are allowed), and the edge dials the resolved address while
+    presenting ``host`` as SNI and Host. A later DNS change of the origin to
+    a private or metadata address therefore cannot redirect live traffic; the
+    next reconciliation resolves again and drops the origin instead.
+    """
+    addresses = resolve(host, port, allow_private=allow_private)
+    address = addresses[0]
+    dial = f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
+    return dial, host
