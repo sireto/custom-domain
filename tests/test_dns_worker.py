@@ -248,7 +248,7 @@ def test_claim_reissued_during_queries_discards_the_results(
 
     resolver = ReissuingResolver()
     _publish(resolver, domain)  # records for the OLD token and target
-    assert process_domain(session_factory, resolver, domain.id, **KW).done is False
+    assert process_domain(session_factory, resolver, domain.id, **KW) is False
 
     _refresh(session)
     fresh = domain.active_claim
@@ -256,13 +256,15 @@ def test_claim_reissued_during_queries_discards_the_results(
     assert domain.status == DomainStatus.PENDING_DNS
     for check_type in (CheckType.OWNERSHIP, CheckType.ROUTING):
         check = domain.check(check_type)
-        assert check.status.value == "pending" and check.observed_at is None
+        # Reset by the re-issue, not evaluated by the worker's stale results.
+        assert check.status.value == "pending"
+        assert check.details.get("reason") == "claim_reissued"
         assert check.next_check_at is not None and check.next_check_at <= utcnow()
 
     # The next run verifies the new claim on its own records only.
     plain = FakeResolver()
     _publish(plain, domain)
-    assert process_domain(session_factory, plain, domain.id, **KW).done is True
+    assert process_domain(session_factory, plain, domain.id, **KW) is True
     _refresh(session)
     assert domain.active_claim.status == ClaimStatus.VERIFIED
     assert domain.status == DomainStatus.PROVISIONING

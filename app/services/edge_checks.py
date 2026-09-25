@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.edge.config import EDGE_HEALTH_VALUE
 from app.edge.probe import EdgeProbe, EdgeProbeFailed, probe_edge
-from app.edge.settings import EdgeSettings
+from app.edge.settings import HEALTH_PATH, EdgeSettings
 from app.models import (
     ApplicationStatus,
     CheckStatus,
@@ -86,7 +86,7 @@ class SystemEdgeProber:
             port=port,
             ca_file=self.settings.probe_ca_file,
             timeout=self.settings.probe_timeout,
-            health_path=self.settings.health_path,
+            health_path=HEALTH_PATH,
         )
 
 
