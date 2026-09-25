@@ -86,6 +86,7 @@ app.add_middleware(
         "1": "<EDGE_ASSERTION_KEYS secret from the operator>"
     },  # current and previous key during rotation
     application_id="<your application id>",
+    workspace_lookup=load_workspace,  # returns the workspace for a reference, or None
     on_missing="reject",  # "passthrough" if this app also serves its own domain
 )
 
@@ -96,9 +97,13 @@ def home(request: Request):
     workspace = load_workspace(assertion.reference)
 ```
 
-The middleware also answers `GET /.well-known/custom-domain-workspace` with the
-verified reference, which the service's lifecycle worker uses to prove that
-routing and tenant selection work before it marks a domain ready.
+The middleware also answers `GET /.well-known/custom-domain-workspace`: it
+verifies the assertion, calls your `workspace_lookup` with the reference, and
+returns the reference only when the lookup confirms the workspace exists
+(404 otherwise). The service's lifecycle worker uses that answer to prove
+that routing and tenant selection really work before it marks a domain
+ready, so `workspace_lookup` must consult the same source your request
+handlers use.
 
 Any framework:
 

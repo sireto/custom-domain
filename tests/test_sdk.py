@@ -351,6 +351,22 @@ def test_middleware_resolves_workspace_and_serves_probe():
     )
     assert client.get("/.well-known/custom-domain-workspace").status_code == 403
 
+    # The probe confirms the workspace with the application; unknown ones are 404.
+    unknown = service_sign(
+        key_id="1",
+        key=KEYS["1"].encode(),
+        application_id="app-1",
+        domain_id="dom-2",
+        reference="ws_nobody",
+        hostname="x.sample.localtest.me",
+        request_id="r2",
+    )
+    missing = client.get(
+        "/.well-known/custom-domain-workspace",
+        headers={ASSERTION_HEADER: unknown, "Host": "x.sample.localtest.me"},
+    )
+    assert missing.status_code == 404 and missing.json()["error"] == "workspace_not_found"
+
     other = service_sign(
         key_id="1",
         key=KEYS["1"].encode(),
@@ -371,12 +387,17 @@ def test_middleware_resolves_workspace_and_serves_probe():
         lambda scope, receive, send: None,
         keys=KEYS,
         application_id="app-1",
+        workspace_lookup=lambda ref: ref == "ws_alpha",
         on_missing="passthrough",
     )
     assert passthrough.on_missing == "passthrough"
     with pytest.raises(ValueError):
         CustomDomainMiddleware(
-            lambda *a: None, keys=KEYS, application_id="app-1", on_missing="ignore"
+            lambda *a: None,
+            keys=KEYS,
+            application_id="app-1",
+            workspace_lookup=lambda ref: True,
+            on_missing="ignore",
         )
 
 

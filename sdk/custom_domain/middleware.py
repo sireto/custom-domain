@@ -12,6 +12,7 @@ same application also serves its own domain and decides per request.
 
 from __future__ import annotations
 
+import inspect
 import json
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
@@ -63,13 +64,21 @@ class CustomDomainMiddleware:
         *,
         keys: Mapping[str, str | bytes],
         application_id: str,
+        workspace_lookup: Callable[[str], Any],
         on_missing: str = "reject",
         state_key: str = "custom_domain",
     ) -> None:
+        """``workspace_lookup(reference)`` must return a truthy value only when the
+        application actually serves that workspace; it may be sync or async. The
+        workspace probe answers 200 only for a confirmed workspace, so readiness
+        proves real tenant selection rather than an echo of the reference."""
         if on_missing not in ("reject", "passthrough"):
             raise ValueError("on_missing must be 'reject' or 'passthrough'")
+        if not callable(workspace_lookup):
+            raise ValueError("workspace_lookup must be a callable taking the workspace reference")
         self.app = app
         self.resolver = WorkspaceResolver(keys, application_id)
+        self.workspace_lookup = workspace_lookup
         self.on_missing = on_missing
         self.state_key = state_key
 
@@ -91,6 +100,12 @@ class CustomDomainMiddleware:
         if scope.get("path") == WORKSPACE_PATH:
             if assertion is None:
                 await _json(send, 403, {"error": "assertion_missing"})
+                return
+            found = self.workspace_lookup(assertion.reference)
+            if inspect.isawaitable(found):
+                found = await found
+            if not found:
+                await _json(send, 404, {"error": "workspace_not_found"})
                 return
             await _json(
                 send,

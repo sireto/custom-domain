@@ -37,6 +37,7 @@ def create_app(keys: dict[str, str] | None = None, application_id: str | None = 
         CustomDomainMiddleware,
         keys=keys if keys is not None else load_keys(),
         application_id=application_id or os.environ.get("APPLICATION_ID", ""),
+        workspace_lookup=WORKSPACES.get,  # the probe answers only for workspaces that exist
         on_missing="reject",
     )
 
