@@ -251,6 +251,9 @@ def record_origin_verification(
         origin.status = OriginStatus.FAILED
         origin.last_error_code = error_code or "origin_verification_failed"
         origin.last_error_message = message
+        # An origin that failed verification must not keep receiving customer
+        # traffic; activation requires a fresh successful verification.
+        origin.is_active = False
     session.flush()
     return origin
 

@@ -43,7 +43,7 @@ services:
       - .env
     volumes:
       - https_domains:/app/domains
-      - https_data:/root/.local/share
+      - https_data:/var/lib/custom-domain
       - https_db:/app/data
 
 volumes:
@@ -57,6 +57,11 @@ volumes:
 networks:
   frontend:
 ```
+The `https_data` volume holds Caddy's certificate store. Deployments created
+before the mount path changed from `/root/.local/share` keep the same volume;
+only the mount path in the compose file changes, and the container fixes the
+file ownership on start.
+
 Now you can run the compose file:
 ```bash
 docker-compose up -d

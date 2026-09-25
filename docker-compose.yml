@@ -15,7 +15,7 @@ services:
       - .env
     volumes:
       - https_domains:/app/domains
-      - https_data:/root/.local/share
+      - https_data:/var/lib/custom-domain
       - https_db:/app/data
 
 volumes:

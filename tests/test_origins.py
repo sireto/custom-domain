@@ -58,6 +58,15 @@ def test_only_verified_origin_can_be_active_and_only_one(session, make_applicati
         session, second, verified=False, error_code="tls_failed", message="x"
     )
     assert second.status == OriginStatus.FAILED
+
+    # A failed re-verification of the active origin deactivates it atomically.
+    record_origin_verification(session, first, verified=False, error_code="tls_failed")
+    session.commit()
+    assert first.is_active is False and get_active_origin(session, acme) is None
+    record_origin_verification(session, first, verified=True)
+    activate_origin(session, first)
+    session.commit()
+    assert get_active_origin(session, acme).id == first.id
     with pytest.raises(OriginNotVerified):
         activate_origin(session, second)
     record_origin_verification(session, second, verified=True)

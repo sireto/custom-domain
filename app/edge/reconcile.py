@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.edge.caddy_client import CaddyClient, CaddyError, CaddyRejectedConfig, CaddyUnavailable
-from app.edge.config import build_caddy_config, config_digest, hostnames_in
+from app.edge.config import SERVER_NAME, build_apps, config_digest, hostnames_in
 from app.edge.settings import EdgeSettings
 from app.models.types import utcnow
 
@@ -55,9 +55,9 @@ class Reconciler:
         self.last_result: ReconcileResult | None = None
         self._lock = threading.Lock()
 
-    def desired_config(self) -> dict[str, Any]:
+    def desired_apps(self) -> dict[str, Any]:
         with self.session_factory() as session:
-            return build_caddy_config(session, self.settings)
+            return build_apps(session, self.settings)
 
     def run_once(self) -> ReconcileResult:
         """One convergence step. Never raises; failures are reported in the result."""
@@ -79,12 +79,12 @@ class Reconciler:
     def _run(self) -> ReconcileResult:
         now = utcnow()
         try:
-            desired = self.desired_config()
+            desired = self.desired_apps()
         except Exception as exc:  # database problems must not kill the loop
             return ReconcileResult(now, False, "none", 0, 0, "database_unavailable", str(exc))
         digest = config_digest(desired)
-        hostnames = len(hostnames_in(desired))
-        routes = len(desired["apps"]["http"]["servers"]["edge"]["routes"])
+        hostnames = len(hostnames_in({"apps": desired}))
+        routes = len(desired["http"]["servers"][SERVER_NAME]["routes"])
 
         try:
             current = self.client.get_config()
@@ -92,11 +92,16 @@ class Reconciler:
             return ReconcileResult(
                 now, False, digest, hostnames, routes, "caddy_unavailable", str(exc)
             )
-        if current == desired:
+        if current is not None and current.get("apps") == desired:
             return ReconcileResult(now, False, digest, hostnames, routes)
 
         try:
-            self.client.load_config(desired)
+            if current is None:
+                # Caddy started without a bootstrap config (no storage block to
+                # preserve); load the whole thing.
+                self.client.load_config({"apps": desired})
+            else:
+                self.client.set_apps(desired)
         except CaddyRejectedConfig as exc:
             return ReconcileResult(
                 now, False, digest, hostnames, routes, "config_rejected", str(exc)

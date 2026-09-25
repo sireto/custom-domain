@@ -49,6 +49,8 @@ def _build_parser() -> argparse.ArgumentParser:
     down = db.add_parser("downgrade", help="revert migrations")
     down.add_argument("--revision", default="-1")
     down.set_defaults(func=lambda a: migrate.downgrade(revision=a.revision))
+    libpq = db.add_parser("libpq-url", help="print DATABASE_URL in the form pg_dump accepts")
+    libpq.set_defaults(func=_db_libpq_url)
 
     application = sub.add_parser("application", help="manage applications").add_subparsers(
         dest="application_command"
@@ -126,6 +128,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="report what would change without contacting Caddy"
     )
     reconcile.set_defaults(func=_edge_reconcile)
+    bootstrap = edge_sub.add_parser(
+        "bootstrap",
+        help="write the Caddy bootstrap config (admin listener, storage, empty server)",
+    )
+    bootstrap.add_argument(
+        "--output", default="-", help="file path (created 0600), or - for stdout"
+    )
+    bootstrap.set_defaults(func=_edge_bootstrap)
 
     openapi = sub.add_parser("openapi", help="API contract").add_subparsers(dest="openapi_command")
     export = openapi.add_parser("export", help="write the OpenAPI document as JSON")
@@ -276,6 +286,40 @@ def _edge_settings():
         return None
 
 
+def _db_libpq_url(args) -> int:
+    from app.db.session import get_database_url
+
+    url = get_database_url()
+    if not url.startswith("postgresql"):
+        print("error [database_url]: only PostgreSQL URLs have a libpq form", file=sys.stderr)
+        return 2
+    scheme, _, rest = url.partition("://")
+    print(f"postgresql://{rest}")
+    return 0
+
+
+def _edge_bootstrap(args) -> int:
+    import os
+
+    from app.edge.config import build_bootstrap
+    from app.edge.settings import redact
+
+    settings = _edge_settings()
+    if settings is None:
+        return 2
+    config = build_bootstrap(settings)
+    if args.output == "-":
+        print(json.dumps(redact(config), indent=2, sort_keys=True))
+        return 0
+    document = json.dumps(config, indent=2, sort_keys=True) + "\n"
+    fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(document)
+    os.chmod(args.output, 0o600)
+    print(f"wrote {args.output}")
+    return 0
+
+
 def _edge_config(args) -> int:
     from app.edge.config import build_caddy_config
     from app.edge.settings import redact
@@ -291,7 +335,7 @@ def _edge_config(args) -> int:
 
 def _edge_reconcile(args) -> int:
     from app.edge.caddy_client import CaddyClient
-    from app.edge.config import build_caddy_config, config_digest, hostnames_in
+    from app.edge.config import build_apps, config_digest, hostnames_in
     from app.edge.reconcile import Reconciler
 
     settings = _edge_settings()
@@ -299,11 +343,11 @@ def _edge_reconcile(args) -> int:
         return 2
     if args.dry_run:
         with get_session_factory()() as session:
-            config = build_caddy_config(session, settings)
-        routes = len(config["apps"]["http"]["servers"]["edge"]["routes"])
+            apps = build_apps(session, settings)
+        routes = len(apps["http"]["servers"]["edge"]["routes"])
         print(
-            f"dry run: {routes} route(s), {len(hostnames_in(config))} hostname(s), "
-            f"digest {config_digest(config)}; Caddy not contacted"
+            f"dry run: {routes} route(s), {len(hostnames_in({'apps': apps}))} hostname(s), "
+            f"digest {config_digest(apps)}; Caddy not contacted"
         )
         return 0
     if settings.legacy_api_enabled:

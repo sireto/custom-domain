@@ -17,6 +17,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -46,7 +47,7 @@ def serveable_route_groups(session: Session) -> list[RouteGroup]:
     ).all()
     groups: list[RouteGroup] = []
     for application in applications:
-        origin: VerifiedOrigin | None = application.active_origin
+        origin: VerifiedOrigin | None = application.serving_origin
         if origin is None:
             continue
         domains = session.scalars(
@@ -92,25 +93,52 @@ def _route(group: RouteGroup) -> dict[str, Any]:
     }
 
 
-def build_caddy_config(session: Session, settings: EdgeSettings) -> dict[str, Any]:
-    groups = serveable_route_groups(session)
-    server: dict[str, Any] = {
-        "listen": [f":{settings.https_port}"],
-        "routes": [_route(group) for group in groups],
-    }
+def _server(settings: EdgeSettings, routes: list[dict[str, Any]]) -> dict[str, Any]:
+    server: dict[str, Any] = {"listen": [f":{settings.https_port}"], "routes": routes}
     if settings.disable_https:
         server["automatic_https"] = {"disable": True}
+    return server
 
-    config: dict[str, Any] = {"apps": {"http": {"servers": {SERVER_NAME: server}}}}
-    storage = settings.storage_config()
-    if storage is not None:
-        config["storage"] = storage
+
+def build_apps(session: Session, settings: EdgeSettings) -> dict[str, Any]:
+    """The ``apps`` subtree the reconciler manages: routing and TLS automation."""
+    groups = serveable_route_groups(session)
+    apps: dict[str, Any] = {
+        "http": {"servers": {SERVER_NAME: _server(settings, [_route(g) for g in groups])}}
+    }
     if settings.acme_email and not settings.disable_https:
-        config["apps"]["tls"] = {
+        apps["tls"] = {
             "automation": {
                 "policies": [{"issuers": [{"module": "acme", "email": settings.acme_email}]}]
             }
         }
+    return apps
+
+
+def admin_listen(settings: EdgeSettings) -> str:
+    parsed = urlparse(settings.admin_url)
+    return f"{parsed.hostname or 'localhost'}:{parsed.port or 2019}"
+
+
+def build_bootstrap(settings: EdgeSettings) -> dict[str, Any]:
+    """The configuration Caddy starts with: admin listener, certificate storage
+    and an empty server. It holds the storage credentials, so it is written to a
+    file only the caddy user can read (entrypoint.sh) and never sent through the
+    admin API by the application."""
+    config: dict[str, Any] = {
+        "admin": {"listen": admin_listen(settings)},
+        "apps": {"http": {"servers": {SERVER_NAME: _server(settings, [])}}},
+    }
+    storage = settings.storage_config()
+    if storage is not None:
+        config["storage"] = storage
+    return config
+
+
+def build_caddy_config(session: Session, settings: EdgeSettings) -> dict[str, Any]:
+    """The complete desired configuration (bootstrap plus derived apps)."""
+    config = build_bootstrap(settings)
+    config["apps"] = build_apps(session, settings)
     return config
 
 

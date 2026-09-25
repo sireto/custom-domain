@@ -60,5 +60,16 @@ class CaddyClient:
         if response.status_code >= 400:
             raise CaddyRejectedConfig(response.status_code, response.text)
 
+    def set_apps(self, apps: dict[str, Any]) -> None:
+        """Replace only the ``apps`` subtree; ``admin`` and ``storage`` stay as loaded."""
+        try:
+            response = self._client.post("/config/apps", json=apps)
+        except httpx.HTTPError as exc:
+            raise CaddyUnavailable(
+                f"Cannot reach Caddy admin API at {self.admin_url}: {exc}"
+            ) from exc
+        if response.status_code >= 400:
+            raise CaddyRejectedConfig(response.status_code, response.text)
+
     def close(self) -> None:
         self._client.close()

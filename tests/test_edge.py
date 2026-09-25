@@ -3,10 +3,24 @@ import threading
 import pytest
 
 from app.edge.caddy_client import CaddyRejectedConfig, CaddyUnavailable
-from app.edge.config import build_caddy_config, config_digest, hostnames_in
+from app.edge.config import (
+    build_apps,
+    build_bootstrap,
+    build_caddy_config,
+    config_digest,
+    hostnames_in,
+)
 from app.edge.reconcile import Reconciler
 from app.edge.settings import EdgeConfigurationError, EdgeSettings, redact
-from app.models import ApplicationStatus, CheckStatus, CheckType, Domain, DomainStatus
+from app.models import (
+    ApplicationStatus,
+    CheckStatus,
+    CheckType,
+    Domain,
+    DomainStatus,
+    OriginStatus,
+    VerifiedOrigin,
+)
 from app.services.applications import (
     activate_origin,
     record_origin_verification,
@@ -155,6 +169,61 @@ def test_config_includes_storage_tls_and_https_options(session, fleet):
     assert "tls" not in config["apps"]
 
 
+def test_failed_origin_recheck_stops_routing_until_reverified(session, fleet):
+    acme = fleet["acme"]
+    origin = acme.active_origin
+    assert origin is not None and origin.status == OriginStatus.VERIFIED
+    assert "a.customer.example" in hostnames_in(build_caddy_config(session, SETTINGS))
+
+    record_origin_verification(session, origin, verified=False, error_code="tls_failed")
+    session.commit()
+    session.expire_all()
+
+    assert origin.is_active is False and origin.status == OriginStatus.FAILED
+    assert acme.active_origin is None and acme.serving_origin is None
+    routed = hostnames_in(build_caddy_config(session, SETTINGS))
+    assert "a.customer.example" not in routed and "b.customer.example" not in routed
+    assert "one.globex-customer.example" in routed
+
+    record_origin_verification(session, origin, verified=True)
+    activate_origin(session, origin)
+    session.commit()
+    assert "a.customer.example" in hostnames_in(build_caddy_config(session, SETTINGS))
+
+
+def test_builder_ignores_an_active_origin_whose_status_is_not_verified(session, fleet):
+    # Defence in depth: even if a row is left active with a non-verified
+    # status (for example by a direct database edit), it is not routed.
+    acme = fleet["acme"]
+    origin = session.get(VerifiedOrigin, acme.active_origin.id)
+    origin.status = OriginStatus.FAILED
+    session.commit()
+    session.expire_all()
+    assert acme.active_origin is not None and acme.serving_origin is None
+    assert "a.customer.example" not in hostnames_in(build_caddy_config(session, SETTINGS))
+
+
+def test_bootstrap_holds_admin_and_storage_and_apps_holds_routes(session, fleet):
+    settings = EdgeSettings(
+        admin_url="http://127.0.0.1:2019",
+        storage="redis",
+        redis_address=("redis:6379",),
+        redis_password="pw",
+        reconcile_enabled=True,
+        legacy_api_enabled=False,
+    )
+    bootstrap = build_bootstrap(settings)
+    assert bootstrap["admin"] == {"listen": "127.0.0.1:2019"}
+    assert bootstrap["storage"]["password"] == "pw"
+    assert bootstrap["apps"]["http"]["servers"]["edge"]["routes"] == []
+
+    apps = build_apps(session, settings)
+    assert "storage" not in apps and "admin" not in apps
+    assert len(apps["http"]["servers"]["edge"]["routes"]) == 2
+    full = build_caddy_config(session, settings)
+    assert full["storage"] == bootstrap["storage"] and full["apps"] == apps
+
+
 def test_empty_database_yields_a_valid_empty_server(session):
     config = build_caddy_config(session, SETTINGS)
     assert config["apps"]["http"]["servers"]["edge"]["routes"] == []
@@ -223,9 +292,12 @@ def test_settings_redis_from_env():
 
 
 class FakeCaddy:
+    """Records what the reconciler sends. ``running`` mimics Caddy's full config."""
+
     def __init__(self, *, running=None):
         self.running = running
         self.loads: list[dict] = []
+        self.full_loads = 0
         self.fail_get = None
         self.fail_load = None
 
@@ -238,12 +310,20 @@ class FakeCaddy:
         if self.fail_load:
             raise self.fail_load
         self.running = config
+        self.full_loads += 1
         self.loads.append(config)
+
+    def set_apps(self, apps):
+        if self.fail_load:
+            raise self.fail_load
+        assert self.running is not None
+        self.running = {**self.running, "apps": apps}
+        self.loads.append(apps)
 
 
 @pytest.fixture
 def reconciler(session_factory):
-    caddy = FakeCaddy()
+    caddy = FakeCaddy(running=build_bootstrap(SETTINGS))
     return Reconciler(session_factory, caddy, SETTINGS), caddy
 
 
@@ -252,7 +332,9 @@ def test_reconcile_applies_then_converges(session, fleet, reconciler):
     first = reconciler.run_once()
     assert first.ok and first.changed
     assert first.routes == 2 and first.hostnames == 3
-    assert len(caddy.loads) == 1 and hostnames_in(caddy.running) == hostnames_in(caddy.loads[0])
+    assert len(caddy.loads) == 1 and caddy.full_loads == 0
+    assert hostnames_in(caddy.running) == hostnames_in({"apps": caddy.loads[0]})
+    assert "admin" in caddy.running  # bootstrap keys untouched
 
     second = reconciler.run_once()
     assert second.ok and not second.changed and len(caddy.loads) == 1
@@ -321,3 +403,25 @@ def test_database_failure_is_reported_not_raised(reconciler):
     reconciler.session_factory = broken
     result = reconciler.run_once()
     assert result.error == "database_unavailable" and "db down" in result.detail
+
+
+def test_reconcile_preserves_storage_block_and_falls_back_to_full_load(
+    session, fleet, session_factory
+):
+    redis_settings = EdgeSettings(
+        storage="redis",
+        redis_address=("redis:6379",),
+        redis_password="pw",
+        reconcile_enabled=True,
+        legacy_api_enabled=False,
+    )
+    caddy = FakeCaddy(running=build_bootstrap(redis_settings))
+    result = Reconciler(session_factory, caddy, redis_settings).run_once()
+    assert result.changed
+    assert caddy.running["storage"]["password"] == "pw"
+    assert "storage" not in caddy.loads[0]
+
+    bare = FakeCaddy(running=None)  # Caddy started with no config at all
+    result = Reconciler(session_factory, bare, SETTINGS).run_once()
+    assert result.changed and bare.full_loads == 1
+    assert set(bare.running) == {"apps"}

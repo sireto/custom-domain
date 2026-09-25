@@ -96,8 +96,14 @@ extra coordination service. Rejected for the MVP.
   and Caddy on its last good configuration; the next reconciliation retries.
 - Operators must back up two things: the database and the certificate store.
   Procedures are in [operations.md](../operations.md).
-- The Caddy admin API must stay bound to localhost inside the container; the
-  derived configuration includes the Redis password when Redis is used.
+- Caddy and the API run as separate users in the container. Caddy starts
+  from a bootstrap file (admin listener and storage credentials) only it can
+  read; the API manages the `apps` subtree through the admin API and has the
+  Redis credentials scrubbed from its environment. Because the admin API
+  returns the whole configuration, Redis credentials remain readable by the
+  API through it; full isolation requires a separate Caddy container behind
+  an allow-listing admin proxy, which #12 must deliver before production use
+  with Redis storage (see operations.md, "Private key boundaries").
 - Rotating `CADDY_REDIS_ENCRYPTION_KEY` requires `caddy storage export` with
   the old key and `import` with the new one.
 - Building Caddy with `xcaddy` lengthens the image build by a few minutes and
