@@ -95,7 +95,7 @@ def test_route_strips_headers_then_asserts_then_proxies(session, make_applicatio
     assert copied["routes"][0]["handle"][0]["request"]["set"][ASSERTION_HEADER] == [
         "{http.reverse_proxy.header.X-Custom-Domain-Assertion}"
     ]
-    assert proxy["upstreams"] == [{"dial": "app.acme.example:443"}]
+    assert proxy["upstreams"] == [{"dial": "203.0.113.10:443"}]  # pinned address
     assert proxy["headers"]["request"]["set"]["Host"] == ["{http.request.host}"]
     assert proxy["headers"]["request"]["set"]["X-Forwarded-Host"] == ["{http.request.host}"]
     assert proxy["transport"] == {"protocol": "http", "tls": {"server_name": "app.acme.example"}}
@@ -299,6 +299,7 @@ def test_two_applications_are_never_confused_through_real_caddy(
     monkeypatch.setenv("ENABLE_LEGACY_API", "true")
     monkeypatch.setenv("EDGE_RECONCILE_ENABLED", "false")
     monkeypatch.setenv("DNS_WORKER_ENABLED", "false")
+    monkeypatch.setenv("ORIGIN_ALLOW_PRIVATE", "true")  # the test origins are on loopback
     app = create_app()
 
     def override():
