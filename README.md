@@ -35,7 +35,7 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp"
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"
     restart: unless-stopped
     networks:
       - frontend
@@ -69,9 +69,10 @@ docker-compose up -d
 
 This will run a webserver and the management APIs. 
 
-The OpenAPI docs for the management APIs will be available on port 9000. <br/>
-So, if you deployed host is localhost, the APIs are available at: <br/>
-**http://localhost:9000/docs**
+The management API listens on port 9000, bound to `127.0.0.1` on the host so
+it is not a public port; reach it from the host or through an authenticated
+reverse proxy you control. Its OpenAPI document and Swagger UI are at
+**http://localhost:9000/v1/docs**.
 
 ## 4. Instructions for SaaS customers
 Your SaaS customers need to add a DNS Record to point their domain to your deployed server. This can be done in one of the two ways.
