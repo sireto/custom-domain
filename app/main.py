@@ -22,6 +22,9 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse, RedirectResponse
 
 from app.db.session import get_session_factory
+from app.dns.resolver import SystemResolver
+from app.dns.settings import DnsSettings
+from app.dns.worker import DnsWorker
 from app.edge.caddy_client import CaddyClient
 from app.edge.reconcile import Reconciler
 from app.edge.settings import EdgeSettings
@@ -77,11 +80,31 @@ async def lifespan(app: FastAPI):
         logger.info("edge reconciler started (every %ss)", settings.reconcile_interval)
     else:
         logger.info("edge reconciler disabled; the legacy API owns the Caddy config")
+
+    dns_settings = DnsSettings.from_env()
+    dns_thread: threading.Thread | None = None
+    app.state.dns_worker = None
+    if dns_settings.worker_enabled:
+        worker = DnsWorker(
+            get_session_factory(),
+            SystemResolver(dns_settings.nameservers or None, timeout=dns_settings.timeout),
+            batch_size=dns_settings.batch_size,
+        )
+        app.state.dns_worker = worker
+        dns_thread = threading.Thread(
+            target=worker.run_forever,
+            args=(stop, dns_settings.worker_interval),
+            name="dns-worker",
+            daemon=True,
+        )
+        dns_thread.start()
+        logger.info("dns worker started (every %ss)", dns_settings.worker_interval)
     logger.info("App started")
     yield
     stop.set()
-    if thread is not None:
-        thread.join(timeout=5)
+    for worker_thread in (thread, dns_thread):
+        if worker_thread is not None:
+            worker_thread.join(timeout=5)
     logger.info("App is shutting down")
 
 

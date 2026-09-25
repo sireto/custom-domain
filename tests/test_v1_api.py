@@ -25,6 +25,7 @@ def make_client(session_factory, monkeypatch):
         monkeypatch.setenv(
             "EDGE_RECONCILE_ENABLED", os.environ.get("EDGE_RECONCILE_ENABLED", "false")
         )
+        monkeypatch.setenv("DNS_WORKER_ENABLED", "false")
         app = create_app()
 
         def override():

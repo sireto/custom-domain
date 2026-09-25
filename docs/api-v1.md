@@ -115,6 +115,10 @@ There is no `upstream`. Traffic goes to the application's verified origin
  ], "...": "..."}
 ```
 
+The `error_code` values of the ownership and routing checks and the rules
+that move a domain between statuses are specified in
+[dns-verification.md](dns-verification.md).
+
 After the customer fixes DNS, call `POST /v1/domains/{id}/checks` to bring the
 next check forward instead of waiting for the poll interval. The response is
 the domain as it is now; the outcome arrives by polling or webhook.
