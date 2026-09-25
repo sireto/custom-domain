@@ -165,3 +165,25 @@ def test_cli_legacy_import_is_all_or_nothing_unless_acknowledged(cli_env, capsys
     captured = capsys.readouterr()
     assert "existing\tforms.customer.example" in captured.out
     assert "imported\tother.customer.example\tpending_dns\tws_2" in captured.out
+
+
+def test_cli_edge_config_and_dry_run(cli_env, capsys, monkeypatch):
+    monkeypatch.setenv("ENABLE_LEGACY_API", "false")
+    monkeypatch.setenv("CADDY_STORAGE", "redis")
+    monkeypatch.setenv("CADDY_REDIS_ADDRESS", "redis:6379")
+    monkeypatch.setenv("CADDY_REDIS_PASSWORD", "topsecret")
+    assert _run("edge", "config") == 0
+    out = capsys.readouterr().out
+    assert '"module": "redis"' in out and "topsecret" not in out and '"***"' in out
+
+    assert _run("edge", "reconcile", "--dry-run") == 0
+    assert "0 route(s), 0 hostname(s)" in capsys.readouterr().out
+
+    monkeypatch.setenv("CADDY_ADMIN_URL", "http://127.0.0.1:1")
+    assert _run("edge", "reconcile") == 3
+    assert "caddy_unavailable" in capsys.readouterr().err
+
+    monkeypatch.setenv("EDGE_RECONCILE_ENABLED", "true")
+    monkeypatch.setenv("ENABLE_LEGACY_API", "true")
+    assert _run("edge", "config") == 2
+    assert "cannot both be true" in capsys.readouterr().err

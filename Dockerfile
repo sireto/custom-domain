@@ -1,16 +1,16 @@
+# Caddy with the Redis storage module for shared certificate storage
+# (docs/decisions/0001-certificate-storage.md). Pinned to the Caddy release
+# the module is tested against.
+FROM caddy:2.11.4-builder AS caddy-builder
+RUN xcaddy build --with github.com/pberkel/caddy-storage-redis
+
 FROM python:3.12-slim-bookworm
 
 COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /uvx /bin/
+COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg debian-keyring debian-archive-keyring apt-transport-https \
-    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-        | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
-    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-        > /etc/apt/sources.list.d/caddy-stable.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends caddy \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

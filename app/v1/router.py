@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Header, Query, Request, Response, status
 
 from app.models import DomainStatus
 from app.services import domains as domain_service
@@ -300,8 +300,16 @@ def request_recheck(
     },
 )
 def delete_domain(
-    domain_id: uuid.UUID, application: CurrentApplication, db: DbSession
+    domain_id: uuid.UUID,
+    application: CurrentApplication,
+    db: DbSession,
+    request: Request,
+    background: BackgroundTasks,
 ) -> DomainResource:
     domain = domain_service.delete_domain(db, application, domain_id)
     db.commit()
+    # Stop serving promptly instead of waiting for the next timer tick.
+    reconciler = getattr(request.app.state, "reconciler", None)
+    if reconciler is not None:
+        background.add_task(reconciler.run_once)
     return domain_resource(domain)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -20,6 +21,10 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse, RedirectResponse
 
+from app.db.session import get_session_factory
+from app.edge.caddy_client import CaddyClient
+from app.edge.reconcile import Reconciler
+from app.edge.settings import EdgeSettings
 from app.v1.errors import install_error_handlers
 from app.v1.router import router as v1_router
 from app.v1.webhooks import webhooks
@@ -55,8 +60,28 @@ def _csv(name: str, default: str) -> list[str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings = EdgeSettings.from_env()
+    stop = threading.Event()
+    thread: threading.Thread | None = None
+    app.state.reconciler = None
+    if settings.reconcile_enabled:
+        reconciler = Reconciler(get_session_factory(), CaddyClient(settings.admin_url), settings)
+        app.state.reconciler = reconciler
+        thread = threading.Thread(
+            target=reconciler.run_forever,
+            args=(stop, settings.reconcile_interval),
+            name="edge-reconciler",
+            daemon=True,
+        )
+        thread.start()
+        logger.info("edge reconciler started (every %ss)", settings.reconcile_interval)
+    else:
+        logger.info("edge reconciler disabled; the legacy API owns the Caddy config")
     logger.info("App started")
     yield
+    stop.set()
+    if thread is not None:
+        thread.join(timeout=5)
     logger.info("App is shutting down")
 
 

@@ -13,9 +13,9 @@ Status: implemented for issue #4. Later issues build on it: #1 (API), #2
   the whole Caddy JSON as truth stops at cutover.
 - **PostgreSQL in production, SQLite for development and tests.** The schema
   uses only portable features (partial unique indexes, CHECK constraints,
-  JSON, UUID). Every test runs on both backends in CI. Issue #2 records the
-  final decision together with certificate storage; nothing here prevents
-  changing it.
+  JSON, UUID). Every test runs on both backends in CI. Certificate storage
+  is decided separately in [ADR 0001](decisions/0001-certificate-storage.md):
+  private keys never enter this database.
 - **Rows are never reused.** A deleted domain leaves a tombstone. Claiming the
   hostname again creates a new row with a new ownership token, so stale
   verification can never be carried over to a different owner or workspace.
@@ -211,14 +211,18 @@ staged so each step can be rolled back by redeploying the previous image.
    told the date their hostname stops resolving. Do not switch the edge to
    derived configuration while the last import still reports skipped names
    you have not accounted for.
-4. **Switch the edge to derived configuration** (#7 to #9) and retire the
-   legacy endpoint per the plan in #1. Only after this step does the database
-   drive Caddy. Keep the `https_domains` volume until the switch has run
-   cleanly for one certificate renewal cycle.
+4. **Switch the edge to derived configuration.** Set `ENABLE_LEGACY_API=false`;
+   the reconciler ([operations.md](operations.md#reconciliation)) then builds
+   the Caddy configuration from the database on start and every 30 seconds.
+   Only serveable domains are routed, so imported hostnames must reach
+   `ready` (their checks are driven by #7 to #9) before they serve through
+   the new path; plan the cutover with that in mind. Keep the `https_domains`
+   volume until the switch has run cleanly for one certificate renewal cycle.
 
 Open points handed to later issues:
 
 - Revalidation policy for `legacy_import` claims (#6): CNAME-only until the
   customer adds a TXT record, or a deadline after which service is suspended.
 - Public-suffix apex detection and reserved names (#12).
-- Certificate storage and multi-instance coordination (#2).
+- Certificate storage and multi-instance coordination: decided in
+  [ADR 0001](decisions/0001-certificate-storage.md).

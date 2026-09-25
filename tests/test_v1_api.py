@@ -1,3 +1,4 @@
+import os
 import uuid
 
 import pytest
@@ -19,6 +20,11 @@ from app.services.domains import (
 def make_client(session_factory, monkeypatch):
     def _make(legacy: bool = True) -> TestClient:
         monkeypatch.setenv("ENABLE_LEGACY_API", "true" if legacy else "false")
+        # Tests never talk to a real Caddy: keep the reconciler loop off unless
+        # a test sets EDGE_RECONCILE_ENABLED itself.
+        monkeypatch.setenv(
+            "EDGE_RECONCILE_ENABLED", os.environ.get("EDGE_RECONCILE_ENABLED", "false")
+        )
         app = create_app()
 
         def override():
@@ -363,6 +369,34 @@ def test_delete_tombstones_and_frees_the_hostname(client, tenant):
     assert reclaimed.status_code == 201
     assert reclaimed.json()["id"] != domain_id
     assert reclaimed.json()["dns_records"][0]["value"] != created["dns_records"][0]["value"]
+
+
+def test_delete_triggers_edge_reconcile_when_enabled(make_client, tenant):
+    from app.edge.config import hostnames_in
+    from app.edge.reconcile import Reconciler
+    from app.edge.settings import EdgeSettings
+
+    class Recorder:
+        def __init__(self):
+            self.runs = 0
+
+        def run_once(self):
+            self.runs += 1
+
+    with make_client(legacy=False) as client:
+        _, headers = tenant()
+        recorder = Recorder()
+        client.app.state.reconciler = recorder
+        domain_id = client.post("/v1/domains", json=BODY, headers=headers).json()["id"]
+        assert client.delete(f"/v1/domains/{domain_id}", headers=headers).status_code == 202
+        assert recorder.runs == 1
+    assert isinstance(Reconciler, type) and callable(hostnames_in) and EdgeSettings
+
+
+def test_app_refuses_to_start_with_legacy_api_and_reconciler(make_client, monkeypatch):
+    monkeypatch.setenv("EDGE_RECONCILE_ENABLED", "true")
+    with pytest.raises(Exception, match="cannot both be true"), make_client(legacy=True):
+        pass
 
 
 def test_legacy_api_is_deprecated_and_can_be_disabled(make_client):

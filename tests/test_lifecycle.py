@@ -345,3 +345,16 @@ def test_concurrent_rechecks_respect_the_application_budget(
     outcomes = _concurrent_rechecks(session_factory, acme.id, ids, 6)
     assert outcomes.count("accepted") == 2
     assert outcomes.count("limited") == 4
+
+
+def test_events_recorded_with_one_clock_keep_a_total_order(session, domain):
+    from app.services.domains import record_event
+
+    stamp = utcnow()
+    first = record_event(session, domain, "test.one", now=stamp)
+    second = record_event(session, domain, "test.two", now=stamp)
+    third = record_event(session, domain, "test.three", now=stamp - timedelta(days=1))
+    session.commit()
+    session.refresh(domain)
+    assert first.created_at < second.created_at < third.created_at
+    assert [e.event_type for e in domain.events][-3:] == ["test.one", "test.two", "test.three"]
