@@ -61,7 +61,11 @@ The origin check passes when the application has a verified active origin
 
 A `provisioning` domain becomes `ready` when ownership, routing, certificate
 and origin all pass and the claim is verified. `ready` is never asserted from
-DNS alone.
+DNS alone. The edge server always serves TLS (an empty connection policy),
+so the first handshake for a freshly verified hostname can trigger on-demand
+issuance before any application route exists for it; the reconciler adds the
+route as soon as the claim is verified, and the worker reconciles between its
+DNS and edge phases so the readiness probe finds it in place.
 
 ## Diagnostics
 
@@ -111,3 +115,4 @@ uv run custom-domain checks edge --application acme --hostname forms.customer.ex
 | `EDGE_PROBE_ADDRESS` | resolve the hostname | Fixed `host:port` to probe instead of the public path. |
 | `EDGE_PROBE_CA_FILE` | system store | CA bundle to trust for the probe. |
 | `EDGE_PROBE_TIMEOUT` | `15` | Seconds for connect, handshake and request. |
+| `EDGE_TLS_ISSUER` | `acme` | `internal` uses Caddy's local CA (development and staging); point `EDGE_PROBE_CA_FILE` at its root certificate. |

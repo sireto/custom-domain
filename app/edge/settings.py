@@ -195,13 +195,6 @@ class EdgeSettings:
                     continue
         return False
 
-    def signing_keys(self) -> dict[str, bytes]:
-        return {key_id: secret.encode("utf-8") for key_id, secret in self.assertion_keys}
-
-    def active_key(self) -> tuple[str, bytes]:
-        key_id, secret = self.assertion_keys[0]
-        return key_id, secret.encode("utf-8")
-
     def tls_issuer_config(self) -> dict[str, Any]:
         if self.tls_issuer == "internal":
             return {"module": "internal"}
@@ -209,6 +202,13 @@ class EdgeSettings:
         if self.acme_email:
             issuer["email"] = self.acme_email
         return issuer
+
+    def signing_keys(self) -> dict[str, bytes]:
+        return {key_id: secret.encode("utf-8") for key_id, secret in self.assertion_keys}
+
+    def active_key(self) -> tuple[str, bytes]:
+        key_id, secret = self.assertion_keys[0]
+        return key_id, secret.encode("utf-8")
 
     def storage_config(self) -> dict[str, Any] | None:
         """The Caddy ``storage`` block, or None for Caddy's default file storage."""

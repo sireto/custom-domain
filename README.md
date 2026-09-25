@@ -113,7 +113,8 @@ machine, the workspace probe and the worker are in [docs/lifecycle.md](docs/life
 subscriptions, signatures and delivery are in [docs/webhooks.md](docs/webhooks.md). Production deployment with separate
 API, worker and edge containers, monitoring and rollback is in [docs/deployment.md](docs/deployment.md). The Python SDK
 for integrating a SaaS application, with the assertion-verifying middleware, is in
-[sdk/](sdk/README.md); a minimal second SaaS origin is in [examples/sample_saas/](examples/sample_saas/README.md). Certificate storage,
+[sdk/](sdk/README.md); a minimal second SaaS origin is in [examples/sample_saas/](examples/sample_saas/README.md). The BetterCollected
+integration and its migration plan are in [docs/bettercollected-integration.md](docs/bettercollected-integration.md). Certificate storage,
 multi-instance coordination, backup and restore are covered by
 [docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md)
 and [docs/operations.md](docs/operations.md).

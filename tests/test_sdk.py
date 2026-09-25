@@ -1,6 +1,7 @@
 """SDK against the real API app, plus cross-checks with the service's own algorithms."""
 
 import json
+import os
 import time
 import uuid
 from datetime import UTC, datetime
@@ -25,6 +26,7 @@ from custom_domain import (
     verify_webhook,
 )
 from custom_domain.assertion import HEADER as ASSERTION_HEADER
+from custom_domain.middleware import ORIGIN_VERIFICATION_PATH
 from fastapi.testclient import TestClient
 
 from app.db.session import get_session
@@ -343,6 +345,18 @@ def test_middleware_resolves_workspace_and_serves_probe():
         client.get("/", headers={"Host": "alpha.sample.localtest.me"}).json()["error"]
         == "assertion_missing"
     )
+
+    # The operator's proof-of-control probe comes from the management API without
+    # an assertion and must pass through even in reject mode; only GET, only that path.
+    monkeypatch_token = "cd-origin-token-for-test"
+    os.environ["ORIGIN_VERIFICATION_TOKEN"] = monkeypatch_token
+    try:
+        probe = client.get(ORIGIN_VERIFICATION_PATH, headers={"Host": "alpha.sample.localtest.me"})
+        assert probe.status_code == 200 and probe.text == monkeypatch_token
+    finally:
+        del os.environ["ORIGIN_VERIFICATION_TOKEN"]
+    assert client.post(ORIGIN_VERIFICATION_PATH).status_code == 403
+    assert client.get(ORIGIN_VERIFICATION_PATH + "/other").status_code == 403
     wrong_host = client.get(
         "/", headers={ASSERTION_HEADER: token, "Host": "beta.sample.localtest.me"}
     )

@@ -49,8 +49,12 @@ def validate_apps(apps: Any, settings: EdgeSettings, allowed_upstreams: Mapping[
     if set(apps) - {"http", "tls"}:
         raise ConfigRejected(f"unexpected apps: {sorted(set(apps) - {'http', 'tls'})}")
     http = apps.get("http")
-    if not isinstance(http, dict) or set(http) != {"servers"}:
-        raise ConfigRejected("http must contain only servers")
+    expected_http = edge_config.http_app(settings, [])
+    if not isinstance(http, dict) or set(http) != set(expected_http):
+        raise ConfigRejected(f"http keys must be exactly {sorted(expected_http)}")
+    for key, value in expected_http.items():
+        if key != "servers" and http.get(key) != value:
+            raise ConfigRejected(f"http.{key} must be {value!r}")
     servers = http["servers"]
     if not isinstance(servers, dict) or set(servers) != {edge_config.SERVER_NAME}:
         raise ConfigRejected(f"exactly one server named {edge_config.SERVER_NAME!r} is allowed")
@@ -83,13 +87,10 @@ def validate_apps(apps: Any, settings: EdgeSettings, allowed_upstreams: Mapping[
 
 
 def _expected_tls(settings: EdgeSettings) -> dict[str, Any]:
-    issuer: dict[str, Any] = {"module": "acme"}
-    if settings.acme_email:
-        issuer["email"] = settings.acme_email
     return {
         "automation": {
             "on_demand": {"permission": {"module": "http", "endpoint": settings.ask_url}},
-            "policies": [{"on_demand": True, "issuers": [issuer]}],
+            "policies": [{"on_demand": True, "issuers": [settings.tls_issuer_config()]}],
         }
     }
 
