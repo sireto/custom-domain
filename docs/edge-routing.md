@@ -9,10 +9,14 @@ proof (#5) and readiness (#6, #7).
    `strict_sni_host`, refuses any request whose `Host` differs from the SNI
    (HTTP 421). Certificates exist only for authorized hostnames (#7).
 2. Route: the derived configuration has one route per application whose
-   host matcher lists that application's serveable hostnames (live,
-   `ready`, verified claim, all checks passing, active application with a
-   verified active origin). There is no catch-all proxy: a hostname that
-   matches no application route hits a terminal 404 route, never an origin.
+   host matcher lists that application's routable hostnames: live, claim
+   verified, application active with a verified active origin, status
+   `provisioning`, `ready` or `attention_required`. Routing is wider than
+   serving on purpose: before a domain is `ready` the assert step below
+   admits only the workspace probe path, so the lifecycle worker can prove
+   tenant selection through the edge. There is no catch-all proxy: a
+   hostname that matches no application route hits a terminal 404 route,
+   never an origin.
 3. Strip: every `X-Custom-Domain-*` header the client sent is deleted.
 4. Assert: Caddy makes a subrequest to `GET /internal/edge/assert` on the
    management API with the request's `Host`, TLS SNI and request id. The

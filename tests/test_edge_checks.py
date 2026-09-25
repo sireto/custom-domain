@@ -298,3 +298,27 @@ def test_edge_settings_probe_options():
                 "EDGE_PROBE_ADDRESS": "edge",
             }
         )
+
+
+def test_system_prober_refuses_private_edge_addresses(monkeypatch):
+    """A hostname rebound to an internal address is not probed (no internal scanning)."""
+    import socket
+
+    from app.edge.settings import EdgeSettings
+    from app.services.edge_checks import SystemEdgeProber
+
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        address = {"forms.customer.example": "10.0.0.5", "edge.example.net": "203.0.113.9"}[host]
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    monkeypatch.delenv("ORIGIN_ALLOW_PRIVATE", raising=False)
+    prober = SystemEdgeProber(EdgeSettings())
+    with pytest.raises(EdgeProbeFailed) as failure:
+        prober._target("forms.customer.example")
+    assert failure.value.code == "edge_private_address"
+    # A configured edge address is trusted as given, whatever it is.
+    fixed = SystemEdgeProber(EdgeSettings(probe_address="edge.example.net:8443"))
+    assert fixed._target("forms.customer.example") == ("203.0.113.9", 8443)
+    monkeypatch.setenv("ORIGIN_ALLOW_PRIVATE", "true")
+    assert prober._target("forms.customer.example") == ("10.0.0.5", 443)

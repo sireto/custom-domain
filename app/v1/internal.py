@@ -18,7 +18,8 @@ from fastapi import APIRouter, Header, Query, Request, Response, status
 
 from app.edge.assertion import HEADER as ASSERTION_HEADER
 from app.edge.assertion import sign
-from app.edge.config import EDGE_HOST_HEADER, EDGE_REQUEST_ID_HEADER, EDGE_SNI_HEADER
+from app.edge.config import EDGE_HOST_HEADER, EDGE_REQUEST_ID_HEADER, EDGE_SNI_HEADER, routable
+from app.edge.settings import WORKSPACE_PATH
 from app.hostname import InvalidHostname, canonicalize
 from app.services.domains import find_live_by_hostname, is_serveable
 from app.services.edge_checks import certificate_authorized
@@ -60,6 +61,7 @@ def edge_assert(
     host: str | None = Header(default=None, alias=EDGE_HOST_HEADER),
     sni: str | None = Header(default=None, alias=EDGE_SNI_HEADER),
     request_id: str | None = Header(default=None, alias=EDGE_REQUEST_ID_HEADER),
+    forwarded_uri: str | None = Header(default=None, alias="X-Forwarded-Uri"),
 ) -> Response:
     if not _trusted(request):
         return Response(status_code=status.HTTP_403_FORBIDDEN)
@@ -82,8 +84,14 @@ def edge_assert(
             return Response(status_code=status.HTTP_403_FORBIDDEN)
 
     domain = find_live_by_hostname(db, hostname)
-    if domain is None or not is_serveable(domain):
+    if domain is None:
         return Response(status_code=status.HTTP_403_FORBIDDEN)
+    if not is_serveable(domain):
+        # Before readiness only the workspace probe may pass, so the
+        # lifecycle worker can prove tenant selection through the edge.
+        path = (forwarded_uri or "").split("?", 1)[0]
+        if not (routable(domain) and path == WORKSPACE_PATH):
+            return Response(status_code=status.HTTP_403_FORBIDDEN)
     origin = domain.application.serving_origin
     if origin is None:
         return Response(status_code=status.HTTP_403_FORBIDDEN)

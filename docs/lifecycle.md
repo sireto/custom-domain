@@ -79,10 +79,12 @@ Transitions the worker performs:
 | `suspended` | ownership and routing pass | `provisioning` | `dns_verified` |
 | any but `deleting` | `DELETE /v1/domains/{id}` | `deleting` | tombstone |
 
-Traffic policy: only `ready` domains are routed, and every request is
-re-checked at the edge's assert step, so a transition out of `ready`, a
-suspension or a deletion stops traffic on the next request. Certificate
-renewal continues in `attention_required` and stops in `suspended`.
+Traffic policy: only `ready` domains are served. Verified `provisioning`
+and `attention_required` domains are listed in the edge routes so the
+workspace probe can reach the origin, but the per-request assert step admits
+nothing else for them; a transition out of `ready`, a suspension or a
+deletion therefore stops traffic on the next request. Certificate renewal
+continues in `attention_required` and stops in `suspended`.
 
 Each transition is recorded as a `domain.status_changed` event with the
 reason; check updates are `domain.check_updated` events. Webhooks (#10) map

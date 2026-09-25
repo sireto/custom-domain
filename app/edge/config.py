@@ -25,8 +25,14 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.edge.assertion import HEADER as ASSERTION_HEADER
 from app.edge.settings import ASSERT_PATH, HEALTH_PATH, EdgeSettings
-from app.models import Application, ApplicationStatus, Domain, DomainStatus, VerifiedOrigin
-from app.services.domains import is_serveable
+from app.models import (
+    Application,
+    ApplicationStatus,
+    ClaimStatus,
+    Domain,
+    DomainStatus,
+    VerifiedOrigin,
+)
 from app.services.origin_verification import (
     OriginVerificationFailed,
     allow_private_from_env,
@@ -34,6 +40,29 @@ from app.services.origin_verification import (
 )
 
 logger = logging.getLogger(__name__)
+
+ROUTABLE_STATUSES = (
+    DomainStatus.PROVISIONING,
+    DomainStatus.READY,
+    DomainStatus.ATTENTION_REQUIRED,
+)
+
+
+def routable(domain: Domain) -> bool:
+    """Hostnames the edge lists in its routes.
+
+    Routing is wider than serving: a verified, active domain is routed as soon
+    as it is provisioning so the readiness probe can reach the origin through
+    the edge. The assert step (app/v1/internal.py) admits ordinary requests
+    only when the domain is ready, and only the workspace probe path before.
+    """
+    if domain.is_deleted or domain.status not in ROUTABLE_STATUSES:
+        return False
+    if domain.application is None or domain.application.status != ApplicationStatus.ACTIVE:
+        return False
+    claim = domain.active_claim
+    return claim is not None and claim.status == ClaimStatus.VERIFIED
+
 
 SERVER_NAME = "edge"
 EDGE_HEALTH_HEADER = "X-Custom-Domain-Edge"
@@ -79,7 +108,7 @@ def serveable_route_groups(session: Session) -> list[RouteGroup]:
             .where(
                 Domain.application_id == application.id,
                 Domain.deleted_at.is_(None),
-                Domain.status == DomainStatus.READY,
+                Domain.status.in_(ROUTABLE_STATUSES),
             )
             .options(
                 joinedload(Domain.application),
@@ -88,7 +117,7 @@ def serveable_route_groups(session: Session) -> list[RouteGroup]:
             )
             .order_by(Domain.hostname)
         ).all()
-        hostnames = tuple(d.hostname for d in domains if is_serveable(d))
+        hostnames = tuple(d.hostname for d in domains if routable(d))
         if not hostnames:
             continue
         try:
