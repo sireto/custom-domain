@@ -86,6 +86,7 @@ def process_domain(
         # Queries run without holding a transaction; they can be slow.
         session.commit()
         application_id = domain.application_id
+        queried = claim_version(domain)
         ownership = ownership_outcome(resolver, domain)
         routing = routing_outcome(resolver, domain)
         # Write phase: take the application lock first so the read that
@@ -96,9 +97,33 @@ def process_domain(
         if domain is None or domain.status == DomainStatus.DELETING:
             session.rollback()
             return False  # deleted while we were querying
+        if claim_version(domain) != queried:
+            # The ownership claim was re-issued while we were querying: the
+            # observations belong to the old token and target. Discard them
+            # and make the checks due again so the new claim is verified on
+            # its own evidence.
+            logger.info("discarding dns results for %s: claim changed", domain.hostname)
+            session.execute(
+                update(DomainCheck)
+                .where(
+                    DomainCheck.domain_id == domain_id,
+                    DomainCheck.check_type.in_(DNS_CHECK_TYPES),
+                )
+                .values(next_check_at=utcnow())
+            )
+            session.commit()
+            return False
         apply_dns_outcomes(session, domain, ownership, routing, now=utcnow())
         session.commit()
         return True
+
+
+def claim_version(domain: Domain) -> tuple | None:
+    """Identity of the live claim the DNS observations were made against."""
+    claim = domain.active_claim
+    if claim is None:
+        return None
+    return (claim.id, claim.token, claim.cname_target)
 
 
 def run_due_checks(
