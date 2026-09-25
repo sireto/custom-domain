@@ -68,3 +68,11 @@ class OriginConflict(ServiceError):
 
 class OriginNotVerified(ServiceError):
     code = "origin_not_verified"
+
+
+class RateLimited(ServiceError):
+    code = "rate_limited"
+
+    def __init__(self, message: str, *, retry_after: int) -> None:
+        super().__init__(message, details={"retry_after_seconds": max(1, int(retry_after))})
+        self.retry_after = max(1, int(retry_after))

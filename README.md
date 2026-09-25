@@ -95,7 +95,11 @@ Set `TEST_DATABASE_URL` to a PostgreSQL URL to run the same suite against Postgr
 
 The application and domain data model, its invariants, the status model and
 the migration path from volume-based deployments are described in
-[docs/data-model.md](docs/data-model.md).
+[docs/data-model.md](docs/data-model.md). The v1 API contract, with worked
+examples, error codes, webhook payloads and the migration from the legacy
+`/domains` endpoint, is in [docs/api-v1.md](docs/api-v1.md); the OpenAPI
+document is [docs/openapi.json](docs/openapi.json) and is served at
+`/v1/openapi.json` with Swagger UI at `/v1/docs`.
 
 # Source Code
 The full source code is available on GitHub <br/>

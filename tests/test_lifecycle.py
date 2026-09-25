@@ -27,11 +27,13 @@ from app.services.domains import (
     is_serveable,
     list_domains,
     mark_claim_verified,
+    page_domains,
     purge_tombstones,
     record_check,
+    request_recheck,
     transition_status,
 )
-from app.services.errors import DomainNotFound, InvalidStatusTransition
+from app.services.errors import DomainNotFound, InvalidStatusTransition, RateLimited
 
 
 @pytest.fixture
@@ -233,3 +235,113 @@ def test_only_one_live_claim_per_domain(session, domain):
     with pytest.raises(IntegrityError):
         session.flush()
     session.rollback()
+
+
+def test_recheck_interval_per_domain_and_budget_per_application(
+    session, domain, monkeypatch, make_application
+):
+    from app.services import domains as domain_service
+
+    acme = domain.application
+    t0 = utcnow()
+    request_recheck(session, acme, domain.id, now=t0)
+    with pytest.raises(RateLimited) as info:
+        request_recheck(session, acme, domain.id, now=t0 + timedelta(seconds=30))
+    assert 29 <= info.value.retry_after <= 31
+    request_recheck(session, acme, domain.id, now=t0 + timedelta(seconds=61))
+
+    monkeypatch.setattr(domain_service, "RECHECK_MAX_PER_WINDOW", 3)
+    other = claim_domain(session, acme, "other.customer.example", "ws_2")
+    request_recheck(session, acme, other.id, now=t0 + timedelta(seconds=62))
+    third = claim_domain(session, acme, "third.customer.example", "ws_3")
+    with pytest.raises(RateLimited) as info:
+        request_recheck(session, acme, third.id, now=t0 + timedelta(seconds=63))
+    assert info.value.retry_after >= 3500
+    # The window slides: an hour after the first recheck the budget frees up.
+    request_recheck(session, acme, third.id, now=t0 + timedelta(hours=1, seconds=2))
+
+
+def test_recheck_refuses_deleted_domains(session, domain):
+    acme = domain.application
+    delete_domain(session, acme, domain.id)
+    with pytest.raises(InvalidStatusTransition):
+        request_recheck(session, acme, domain.id)
+
+
+def test_page_domains_lookahead_is_not_clamped(session, domain):
+    from app.services.domains import MAX_PAGE_SIZE
+
+    acme = domain.application
+    for index in range(MAX_PAGE_SIZE):
+        claim_domain(session, acme, f"p{index}.customer.example", "w")
+    session.commit()
+    rows, has_more = page_domains(session, acme, limit=MAX_PAGE_SIZE)
+    assert len(rows) == MAX_PAGE_SIZE and has_more
+    rows, has_more = page_domains(session, acme, limit=MAX_PAGE_SIZE, offset=MAX_PAGE_SIZE)
+    assert len(rows) == 1 and not has_more
+    rows, has_more = page_domains(session, acme, limit=MAX_PAGE_SIZE * 5)
+    assert len(rows) == MAX_PAGE_SIZE and has_more
+
+
+def _concurrent_rechecks(session_factory, application_id, domain_ids, workers):
+    import threading
+
+    from app.models import Application
+
+    barrier = threading.Barrier(workers)
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def worker(index: int) -> None:
+        with session_factory() as s:
+            app_row = s.get(Application, application_id)
+            s.commit()  # end the read transaction; the recheck must start fresh
+            barrier.wait()
+            try:
+                request_recheck(s, app_row, domain_ids[index % len(domain_ids)])
+                s.commit()
+                result = "accepted"
+            except RateLimited:
+                s.rollback()
+                result = "limited"
+        with lock:
+            outcomes.append(result)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(workers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    assert len(outcomes) == workers
+    return outcomes
+
+
+def test_concurrent_rechecks_on_one_domain_admit_exactly_one(session_factory, session, domain):
+    outcomes = _concurrent_rechecks(session_factory, domain.application_id, [domain.id], 6)
+    assert outcomes.count("accepted") == 1
+    assert outcomes.count("limited") == 5
+    with session_factory() as s:
+        events = s.scalars(
+            select(DomainEvent).where(
+                DomainEvent.domain_id == domain.id,
+                DomainEvent.event_type == EventType.RECHECK_REQUESTED.value,
+            )
+        ).all()
+        assert len(events) == 1
+
+
+def test_concurrent_rechecks_respect_the_application_budget(
+    session_factory, session, domain, monkeypatch
+):
+    from app.services import domains as domain_service
+
+    monkeypatch.setattr(domain_service, "RECHECK_MAX_PER_WINDOW", 2)
+    acme = domain.application
+    ids = [domain.id]
+    for index in range(5):
+        ids.append(claim_domain(session, acme, f"c{index}.customer.example", "w").id)
+    session.commit()
+
+    outcomes = _concurrent_rechecks(session_factory, acme.id, ids, 6)
+    assert outcomes.count("accepted") == 2
+    assert outcomes.count("limited") == 4

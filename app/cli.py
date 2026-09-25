@@ -20,6 +20,7 @@ from app.legacy import import_legacy_domains, parse_legacy_config
 from app.models.types import utcnow
 from app.services import applications as app_service
 from app.services import domains as domain_service
+from app.services import idempotency
 from app.services.errors import ServiceError
 
 
@@ -115,6 +116,11 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="domain_command"
     )
     domain.add_parser("purge-tombstones").set_defaults(func=_domain_purge)
+
+    openapi = sub.add_parser("openapi", help="API contract").add_subparsers(dest="openapi_command")
+    export = openapi.add_parser("export", help="write the OpenAPI document as JSON")
+    export.add_argument("--output", default="-", help="file path, or - for stdout")
+    export.set_defaults(func=_openapi_export)
 
     return parser
 
@@ -244,8 +250,21 @@ def _legacy_import(args) -> int:
 def _domain_purge(args) -> int:
     with get_session_factory()() as session:
         count = domain_service.purge_tombstones(session)
+        keys = idempotency.purge_expired(session)
         session.commit()
-        print(f"purged {count} tombstone(s)")
+        print(f"purged {count} tombstone(s) and {keys} expired idempotency key(s)")
+    return 0
+
+
+def _openapi_export(args) -> int:
+    from app.main import create_app
+
+    document = json.dumps(create_app().openapi(), indent=2, sort_keys=True) + "\n"
+    if args.output == "-":
+        sys.stdout.write(document)
+    else:
+        Path(args.output).write_text(document)
+        print(f"wrote {args.output}")
     return 0
 
 

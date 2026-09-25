@@ -22,12 +22,13 @@ Rules enforced here (see docs/data-model.md):
 
 from __future__ import annotations
 
+import math
 import secrets
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -52,6 +53,7 @@ from app.services.errors import (
     HostnameAlreadyClaimed,
     InvalidReference,
     InvalidStatusTransition,
+    RateLimited,
 )
 
 CHALLENGE_LABEL = "_custom-domain-challenge"
@@ -60,6 +62,12 @@ TOMBSTONE_RETENTION = timedelta(days=90)
 MAX_REFERENCE_LENGTH = 255
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
+
+# Manual rechecks: one per domain per interval, and a per-application budget
+# per window. Both are counted from recorded events, so they survive restarts.
+RECHECK_MIN_INTERVAL = timedelta(seconds=60)
+RECHECK_WINDOW = timedelta(hours=1)
+RECHECK_MAX_PER_WINDOW = 60
 
 ALLOWED_TRANSITIONS: dict[DomainStatus, frozenset[DomainStatus]] = {
     DomainStatus.PENDING_DNS: frozenset(
@@ -309,6 +317,21 @@ def get_domain(
     return domain
 
 
+def _list_query(
+    application: Application,
+    *,
+    reference: str | None,
+    status: DomainStatus | None,
+    include_deleted: bool,
+):
+    query = _domain_query(include_deleted).where(Domain.application_id == application.id)
+    if reference is not None:
+        query = query.where(Domain.reference == reference)
+    if status is not None:
+        query = query.where(Domain.status == status)
+    return query.order_by(Domain.created_at, Domain.id)
+
+
 def list_domains(
     session: Session,
     application: Application,
@@ -319,14 +342,40 @@ def list_domains(
     limit: int = DEFAULT_PAGE_SIZE,
     offset: int = 0,
 ) -> list[Domain]:
-    query = _domain_query(include_deleted).where(Domain.application_id == application.id)
-    if reference is not None:
-        query = query.where(Domain.reference == reference)
-    if status is not None:
-        query = query.where(Domain.status == status)
-    query = query.order_by(Domain.created_at, Domain.id)
-    query = query.limit(max(1, min(limit, MAX_PAGE_SIZE))).offset(max(0, offset))
-    return list(session.scalars(query))
+    rows, _ = page_domains(
+        session,
+        application,
+        reference=reference,
+        status=status,
+        include_deleted=include_deleted,
+        limit=limit,
+        offset=offset,
+    )
+    return rows
+
+
+def page_domains(
+    session: Session,
+    application: Application,
+    *,
+    reference: str | None = None,
+    status: DomainStatus | None = None,
+    include_deleted: bool = False,
+    limit: int = DEFAULT_PAGE_SIZE,
+    offset: int = 0,
+) -> tuple[list[Domain], bool]:
+    """Return one page and whether more rows follow.
+
+    ``limit`` is clamped to ``MAX_PAGE_SIZE``; the lookahead row that decides
+    ``has_more`` is fetched on top of it so the boundary page is correct.
+    """
+    limit = max(1, min(limit, MAX_PAGE_SIZE))
+    offset = max(0, offset)
+    query = _list_query(
+        application, reference=reference, status=status, include_deleted=include_deleted
+    )
+    rows = list(session.scalars(query.limit(limit + 1).offset(offset)))
+    return rows[:limit], len(rows) > limit
 
 
 def find_live_by_hostname(session: Session, hostname: str) -> Domain | None:
@@ -478,6 +527,91 @@ def delete_domain(
         now=now,
     )
     return domain
+
+
+def request_recheck(
+    session: Session,
+    application: Application,
+    domain_id: uuid.UUID,
+    *,
+    now: datetime | None = None,
+) -> Domain:
+    """Ask the lifecycle worker to re-run every check at the next opportunity.
+
+    Sets ``next_check_at`` on all checks and records an event. A deleted
+    domain is refused with ``invalid_status_transition``. Manual rechecks are
+    limited to one per domain per ``RECHECK_MIN_INTERVAL`` and
+    ``RECHECK_MAX_PER_WINDOW`` per application per ``RECHECK_WINDOW``;
+    exceeding either raises ``RateLimited`` before anything is written.
+    """
+    now = now or utcnow()
+    # Take the application lock before any read so concurrent rechecks for the
+    # same application are decided one at a time within this transaction.
+    lock_application(session, application.id)
+    domain = get_domain(session, application, domain_id, include_deleted=True)
+    if domain.is_deleted or domain.status == DomainStatus.DELETING:
+        raise InvalidStatusTransition("Deleted domains are not rechecked")
+    _enforce_recheck_limits(session, domain, now)
+    for check in domain.checks:
+        check.next_check_at = now
+    session.flush()
+    record_event(session, domain, EventType.RECHECK_REQUESTED, {"requested_by": "api"}, now=now)
+    return domain
+
+
+def lock_application(session: Session, application_id: uuid.UUID) -> None:
+    """Serialize decisions for one application until the transaction ends.
+
+    A no-op UPDATE takes a row-level lock on PostgreSQL and the write lock on
+    SQLite, so it works the same on both backends. Callers must issue it as
+    the first statement of the transaction; a later read would otherwise
+    hold a stale snapshot on SQLite. The lock is released at commit or
+    rollback.
+    """
+    session.execute(
+        update(Application)
+        .where(Application.id == application_id)
+        .values(updated_at=Application.updated_at)
+    )
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+def _enforce_recheck_limits(session: Session, domain: Domain, now: datetime) -> None:
+    recheck_events = DomainEvent.event_type == EventType.RECHECK_REQUESTED.value
+    last = _as_utc(
+        session.scalar(
+            select(func.max(DomainEvent.created_at)).where(
+                DomainEvent.domain_id == domain.id, recheck_events
+            )
+        )
+    )
+    if last is not None and last + RECHECK_MIN_INTERVAL > now:
+        wait = (last + RECHECK_MIN_INTERVAL - now).total_seconds()
+        raise RateLimited(
+            f"This domain was rechecked less than {int(RECHECK_MIN_INTERVAL.total_seconds())} "
+            "seconds ago",
+            retry_after=math.ceil(wait),
+        )
+    window_start = now - RECHECK_WINDOW
+    in_window = [
+        DomainEvent.application_id == domain.application_id,
+        recheck_events,
+        DomainEvent.created_at > window_start,
+    ]
+    count = session.scalar(select(func.count()).select_from(DomainEvent).where(*in_window))
+    if count is not None and count >= RECHECK_MAX_PER_WINDOW:
+        oldest = _as_utc(session.scalar(select(func.min(DomainEvent.created_at)).where(*in_window)))
+        wait = (oldest + RECHECK_WINDOW - now).total_seconds() if oldest else 60
+        raise RateLimited(
+            f"At most {RECHECK_MAX_PER_WINDOW} manual rechecks per application per "
+            f"{int(RECHECK_WINDOW.total_seconds() // 3600)} hour(s)",
+            retry_after=math.ceil(wait),
+        )
 
 
 def purge_tombstones(session: Session, *, now: datetime | None = None) -> int:
