@@ -149,6 +149,7 @@ def test_two_applications_serve_the_right_workspaces_over_https(
     for name in ("EDGE_RECONCILE_ENABLED", "DNS_WORKER_ENABLED", "WEBHOOK_WORKER_ENABLED"):
         monkeypatch.setenv(name, "false")
     monkeypatch.setenv("ENABLE_LEGACY_API", "true")
+    monkeypatch.setenv("ORIGIN_ALLOW_PRIVATE", "true")  # the origins listen on loopback
     api = create_app()
 
     def override():
