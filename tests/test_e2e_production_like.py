@@ -73,9 +73,13 @@ def _wait_port(port: int, timeout: float = 20) -> bool:
     return False
 
 
-def _serve(app: FastAPI) -> tuple[uvicorn.Server, int]:
+def _serve(app: FastAPI, *, proxy_headers: bool = True) -> tuple[uvicorn.Server, int]:
     port = _free_port()
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app, host="127.0.0.1", port=port, log_level="warning", proxy_headers=proxy_headers
+        )
+    )
     threading.Thread(target=server.run, daemon=True).start()
     assert _wait_port(port)
     return server, port
@@ -109,10 +113,18 @@ def _origin_app(
     return app
 
 
-def https_get(host: str, port: int, path: str, ca_file: str) -> tuple[int, str]:
-    """GET through the edge with ``host`` as SNI and Host header, trusting ``ca_file``."""
+def https_get(
+    host: str, port: int, path: str, ca_file: str, source: str | None = None
+) -> tuple[int, str]:
+    """GET through the edge with ``host`` as SNI and Host header, trusting ``ca_file``.
+
+    ``source`` is the client address to connect from (any 127.0.0.0/8 address
+    works on Linux), so the edge sees a client other than 127.0.0.1.
+    """
     context = ssl.create_default_context(cafile=ca_file)
-    sock = socket.create_connection(("127.0.0.1", port), timeout=15)
+    sock = socket.create_connection(
+        ("127.0.0.1", port), timeout=15, source_address=(source, 0) if source else None
+    )
     tls = context.wrap_socket(sock, server_hostname=host)
     try:
         connection = http.client.HTTPConnection(host, port, timeout=15)
@@ -186,7 +198,9 @@ def test_two_applications_serve_the_right_workspaces_over_https(
             s.close()
 
     api.dependency_overrides[get_session] = override
-    api_server, api_port = _serve(api)
+    # As in entrypoint.sh: the API must judge the edge by the connecting
+    # address, not by the X-Forwarded-For Caddy adds for the browser.
+    api_server, api_port = _serve(api, proxy_headers=False)
 
     # --- the applications register their customers' hostnames through the SDK ---
     api_url = f"http://127.0.0.1:{api_port}"
@@ -320,6 +334,13 @@ def test_two_applications_serve_the_right_workspaces_over_https(
             200,
             "sample: Sample workspace",
         )
+
+        # --- a client from another address is served: Caddy forwards that
+        # address in X-Forwarded-For on the assert subrequest, and the API must
+        # still judge the edge by the address that connects to it ---
+        assert https_get(
+            "alpha.customer.example", https_port, "/", str(ca_file), source="127.0.0.2"
+        ) == (200, "bettercollected: Alpha workspace")
 
         # --- wrong host: no certificate is issued for an unknown name ---
         assert rejected("nobody.customer.example", https_port, str(ca_file))

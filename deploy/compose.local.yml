@@ -1,0 +1,63 @@
+# Local development and evaluation. One container runs Caddy with its own
+# private CA, the API and the workers; a second runs the sample SaaS origin.
+# DNS checks are answered from the records the service issued
+# (DNS_VERIFICATION_MODE=local), so invented hostnames under localtest.me
+# (a public name that resolves to 127.0.0.1) go through the real lifecycle
+# without touching public DNS. Never use these settings on a host reachable
+# from the internet. Walkthrough: README.md, "Try it locally".
+services:
+  custom-domain:
+    build: ..
+    image: ${CUSTOM_DOMAIN_IMAGE:-custom-domain:local}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:9000:9000"   # management API, host only
+    environment:
+      CONTAINER_ROLE: all
+      DATABASE_URL: sqlite:///data/custom_domain.db
+      ENABLE_LEGACY_API: "false"
+      # Caddy's internal CA instead of a public one: real TLS, locally trusted.
+      EDGE_TLS_ISSUER: internal
+      EDGE_PROBE_ADDRESS: 127.0.0.1:443
+      EDGE_PROBE_CA_FILE: /var/lib/custom-domain/local-ca.crt
+      # The DNS checks pass for the records the service itself issued.
+      DNS_VERIFICATION_MODE: local
+      # The sample origin is on the Compose network, a private address.
+      ORIGIN_ALLOW_PRIVATE: "true"
+      # Signs the assertion on every proxied request. Not a secret here: it
+      # only protects this machine's local edge. Override to test rotation.
+      EDGE_ASSERTION_KEYS: ${EDGE_ASSERTION_KEYS:-1:local-development-only-key-0000000000000000}
+      CADDY_STORAGE: file
+      # Where `custom-domain dev demo` leaves the sample origin's configuration.
+      CUSTOM_DOMAIN_DEMO_ENV: /demo/sample.env
+    volumes:
+      - local_data:/var/lib/custom-domain
+      - local_db:/app/data
+      - demo:/demo
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9000/v1/openapi.json', timeout=3).status == 200 else 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  sample-saas:
+    image: ${CUSTOM_DOMAIN_IMAGE:-custom-domain:local}
+    # Starts once `custom-domain dev demo` has written its configuration
+    # (application id, assertion key, origin verification token).
+    command:
+      - sh
+      - -c
+      - |
+        until [ -f /demo/sample.env ]; do sleep 1; done
+        set -a; . /demo/sample.env; set +a
+        exec uvicorn examples.sample_saas.app:app --host 0.0.0.0 --port 8000
+    volumes:
+      - demo:/demo
+    depends_on:
+      custom-domain: { condition: service_healthy }
+
+volumes:
+  local_data:
+  local_db:
+  demo:

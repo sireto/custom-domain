@@ -34,7 +34,9 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY app ./app
 COPY alembic.ini entrypoint.sh ./
+COPY examples ./examples
 RUN uv sync --frozen --no-dev \
+    && uv pip install --no-deps ./sdk \
     && mkdir -p /app/domains /app/data
 
 VOLUME ["/var/lib/custom-domain"]

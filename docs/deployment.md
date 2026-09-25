@@ -43,6 +43,13 @@ policy changes and `/load` are refused. This closes the boundary described
 in [operations.md](operations.md#private-key-boundaries): a compromised API
 or worker can no longer make Caddy serve the certificate store.
 
+The API is started with uvicorn's proxy-header handling disabled
+(`--no-proxy-headers`): the internal endpoints authorize the edge by the
+address that connects to them, and Caddy adds `X-Forwarded-For` with the
+browser's address to every assert subrequest, which would otherwise be taken
+for the client. A reverse proxy in front of the management API therefore
+appears under its own address in the API's logs.
+
 ## Secrets
 
 Copy `deploy/env.production.example` to `deploy/.env` and fill it. Compose

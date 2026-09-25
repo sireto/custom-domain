@@ -70,6 +70,37 @@ PostgreSQL, Redis-backed certificate storage, and separate API, worker and edge
 containers with the edge's admin API behind a validating gateway. The
 walkthrough, backups, monitoring and rollback are in [docs/deployment.md](docs/deployment.md).
 
+## Try it locally
+
+[deploy/compose.local.yml](deploy/compose.local.yml) runs the whole service
+on one machine with nothing else: Caddy with its own private CA, the API and
+workers, and the sample SaaS origin as a second container. The DNS checks
+are answered from the records the service issued (`DNS_VERIFICATION_MODE=local`,
+refused unless the edge is local too), so invented hostnames under
+`localtest.me` (which resolves to 127.0.0.1) go through the real lifecycle.
+
+```bash
+docker compose -f deploy/compose.local.yml up -d --build
+docker compose -f deploy/compose.local.yml exec custom-domain custom-domain dev demo
+```
+
+The demo creates the sample application, registers and verifies its origin,
+issues a credential (printed once) and registers `alpha.sample.localtest.me`
+and `beta.sample.localtest.me` for two workspaces, then waits for them to
+become `ready`. Open https://alpha.sample.localtest.me/ and
+https://beta.sample.localtest.me/: each shows its own workspace, served
+through Caddy with a signed assertion. The certificate is signed by the local
+CA; trust it or fetch it for curl:
+
+```bash
+docker compose -f deploy/compose.local.yml cp custom-domain:/var/lib/custom-domain/local-ca.crt local-ca.crt
+curl --cacert local-ca.crt https://alpha.sample.localtest.me/
+```
+
+The management API is at http://127.0.0.1:9000/v1/docs; use the printed
+credential with the SDK against it. `docker compose -f deploy/compose.local.yml down -v`
+removes everything.
+
 ## Operating it
 
 Everything an operator does is a `custom-domain` command (run it inside the

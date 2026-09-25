@@ -22,7 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse, RedirectResponse
 
 from app.db.session import get_session_factory
-from app.dns.resolver import SystemResolver
+from app.dns.resolver import make_resolver
 from app.dns.settings import DnsSettings
 from app.dns.worker import ChecksWorker
 from app.edge.caddy_client import CaddyClient
@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
     if dns_settings.worker_enabled:
         worker = ChecksWorker(
             get_session_factory(),
-            SystemResolver(dns_settings.nameservers or None, timeout=dns_settings.timeout),
+            make_resolver(dns_settings, settings, get_session_factory()),
             prober=SystemEdgeProber(settings),
             settings=settings,
             batch_size=dns_settings.batch_size,
