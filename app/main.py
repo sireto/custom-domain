@@ -33,6 +33,8 @@ from app.v1.errors import install_error_handlers
 from app.v1.internal import router as internal_router
 from app.v1.router import router as v1_router
 from app.v1.webhooks import webhooks
+from app.v1.webhooks_api import router as webhooks_router
+from app.webhooks.worker import WebhookWorker
 
 logger = logging.getLogger(__name__)
 
@@ -107,10 +109,22 @@ async def lifespan(app: FastAPI):
         )
         dns_thread.start()
         logger.info("dns worker started (every %ss)", dns_settings.worker_interval)
+    webhook_thread: threading.Thread | None = None
+    app.state.webhook_worker = None
+    if _env_flag("WEBHOOK_WORKER_ENABLED", True):
+        webhook_worker = WebhookWorker(get_session_factory())
+        app.state.webhook_worker = webhook_worker
+        webhook_thread = threading.Thread(
+            target=webhook_worker.run_forever,
+            args=(stop, float(os.environ.get("WEBHOOK_WORKER_INTERVAL", "5"))),
+            name="webhook-worker",
+            daemon=True,
+        )
+        webhook_thread.start()
     logger.info("App started")
     yield
     stop.set()
-    for worker_thread in (thread, dns_thread):
+    for worker_thread in (thread, dns_thread, webhook_thread):
         if worker_thread is not None:
             worker_thread.join(timeout=5)
     logger.info("App is shutting down")
@@ -130,6 +144,7 @@ def create_app() -> FastAPI:
     install_error_handlers(app)
     app.include_router(v1_router)
     app.include_router(internal_router)
+    app.include_router(webhooks_router)
     app.webhooks.include_router(webhooks)
 
     if _env_flag("ENABLE_LEGACY_API", True):

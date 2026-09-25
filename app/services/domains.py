@@ -655,6 +655,11 @@ def record_event(
     )
     session.add(event)
     session.flush()
+    # Transactional outbox: webhook deliveries for this event are created in
+    # the same transaction (docs/webhooks.md).
+    from app.services.webhooks import enqueue_for_event
+
+    enqueue_for_event(session, domain, event)
     return event
 
 

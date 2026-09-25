@@ -13,6 +13,7 @@ from app.models.enums import (
     OriginStatus,
 )
 from app.models.idempotency import IdempotencyKey
+from app.models.webhook import WebhookDelivery, WebhookSubscription
 
 __all__ = [
     "ApiCredential",
@@ -31,4 +32,6 @@ __all__ = [
     "OriginStatus",
     "OwnershipClaim",
     "VerifiedOrigin",
+    "WebhookDelivery",
+    "WebhookSubscription",
 ]

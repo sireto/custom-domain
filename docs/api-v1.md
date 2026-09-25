@@ -230,8 +230,9 @@ Every error has the same body:
 ## Webhooks
 
 Applications subscribe to `domain.ready`, `domain.attention_required`,
-`domain.recovered` and `domain.deleted` (subscription management and delivery
-are implemented in #10). Every delivery is a `WebhookEvent`:
+`domain.recovered` and `domain.deleted` with `POST /v1/webhooks`; delivery,
+retries, rotation and replay are specified in [webhooks.md](webhooks.md).
+Every delivery is a `WebhookEvent`:
 
 ```json
 {

@@ -134,6 +134,7 @@ def client(session_factory, monkeypatch):
     monkeypatch.setenv("ENABLE_LEGACY_API", "true")
     monkeypatch.setenv("EDGE_RECONCILE_ENABLED", "false")
     monkeypatch.setenv("DNS_WORKER_ENABLED", "false")
+    monkeypatch.setenv("WEBHOOK_WORKER_ENABLED", "false")
     app = create_app()
 
     def override():

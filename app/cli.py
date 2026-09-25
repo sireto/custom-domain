@@ -263,6 +263,9 @@ def _worker_run(args) -> int:
         batch_size=dns_settings.batch_size,
         on_status_change=reconciler.run_once if reconciler else None,
     )
+    from app.webhooks.worker import WebhookWorker
+
+    webhooks = WebhookWorker(get_session_factory())
     if args.once:
         result = worker.run_once()
         line = f"checks: {result.processed} processed, {result.failed} failed, "
@@ -270,11 +273,16 @@ def _worker_run(args) -> int:
         if reconciler is not None:
             edge = reconciler.run_once()
             line += f"; edge: {'applied' if edge.changed else edge.error or 'unchanged'}"
+        sent = webhooks.run_once()
+        line += f"; webhooks: {sent.delivered} delivered, {sent.failed} failed"
         print(line)
         return 0 if result.failed == 0 else 3
     interval = args.interval or dns_settings.worker_interval
     stop = threading.Event()
-    threads = [threading.Thread(target=worker.run_forever, args=(stop, interval), daemon=True)]
+    threads = [
+        threading.Thread(target=worker.run_forever, args=(stop, interval), daemon=True),
+        threading.Thread(target=webhooks.run_forever, args=(stop, 5.0), daemon=True),
+    ]
     if reconciler is not None:
         threads.append(
             threading.Thread(

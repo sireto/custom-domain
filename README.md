@@ -109,7 +109,8 @@ document is [docs/openapi.json](docs/openapi.json) and is served at
 [docs/dns-verification.md](docs/dns-verification.md); on-demand certificates and the
 HTTPS readiness probe are in [docs/tls-readiness.md](docs/tls-readiness.md); how requests are routed and
 the signed workspace assertion origins verify are in [docs/edge-routing.md](docs/edge-routing.md); the status
-machine, the workspace probe and the worker are in [docs/lifecycle.md](docs/lifecycle.md). Certificate storage,
+machine, the workspace probe and the worker are in [docs/lifecycle.md](docs/lifecycle.md); webhook
+subscriptions, signatures and delivery are in [docs/webhooks.md](docs/webhooks.md). Certificate storage,
 multi-instance coordination, backup and restore are covered by
 [docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md)
 and [docs/operations.md](docs/operations.md).
