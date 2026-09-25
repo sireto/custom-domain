@@ -108,7 +108,8 @@ document is [docs/openapi.json](docs/openapi.json) and is served at
 `/v1/openapi.json` with Swagger UI at `/v1/docs`. DNS verification, its diagnostics and the status rules it drives are in
 [docs/dns-verification.md](docs/dns-verification.md); on-demand certificates and the
 HTTPS readiness probe are in [docs/tls-readiness.md](docs/tls-readiness.md); how requests are routed and
-the signed workspace assertion origins verify are in [docs/edge-routing.md](docs/edge-routing.md). Certificate storage,
+the signed workspace assertion origins verify are in [docs/edge-routing.md](docs/edge-routing.md); the status
+machine, the workspace probe and the worker are in [docs/lifecycle.md](docs/lifecycle.md). Certificate storage,
 multi-instance coordination, backup and restore are covered by
 [docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md)
 and [docs/operations.md](docs/operations.md).

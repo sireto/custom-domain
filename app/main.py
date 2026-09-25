@@ -94,6 +94,9 @@ async def lifespan(app: FastAPI):
             prober=SystemEdgeProber(settings),
             settings=settings,
             batch_size=dns_settings.batch_size,
+            on_status_change=(
+                app.state.reconciler.run_once if app.state.reconciler is not None else None
+            ),
         )
         app.state.dns_worker = worker
         dns_thread = threading.Thread(

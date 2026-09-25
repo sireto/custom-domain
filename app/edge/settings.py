@@ -18,6 +18,7 @@ DEFAULT_RECONCILE_INTERVAL = 30.0
 DEFAULT_ASK_URL = "http://localhost:9000/internal/tls/ask"
 DEFAULT_PROBE_TIMEOUT = 15.0
 HEALTH_PATH = "/.well-known/custom-domain-edge-health"
+WORKSPACE_PATH = "/.well-known/custom-domain-workspace"
 DEFAULT_ASSERT_UPSTREAM = "localhost:9000"
 ASSERT_PATH = "/internal/edge/assert"
 REDIS_ENCRYPTION_KEY_LENGTH = 32

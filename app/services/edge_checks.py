@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 from datetime import datetime, timedelta
 from typing import Protocol
@@ -21,7 +22,7 @@ from typing import Protocol
 from sqlalchemy.orm import Session
 
 from app.edge.config import EDGE_HEALTH_VALUE
-from app.edge.probe import EdgeProbe, EdgeProbeFailed, probe_edge
+from app.edge.probe import EdgeProbe, EdgeProbeFailed, WorkspaceProbe, probe_edge, probe_workspace
 from app.edge.settings import HEALTH_PATH, EdgeSettings
 from app.models import (
     ApplicationStatus,
@@ -35,6 +36,7 @@ from app.models import (
 from app.models.types import utcnow
 from app.services.dns_checks import Outcome, schedule_next
 from app.services.domains import checks_passing, record_check, transition_status
+from app.services.origin_verification import allow_private_from_env
 
 CERTIFICATE_EXPIRY_WARNING = timedelta(days=7)
 EDGE_CHECK_TYPES = (CheckType.CERTIFICATE, CheckType.ORIGIN)
@@ -58,6 +60,8 @@ def eligible_for_edge_checks(domain: Domain) -> bool:
 class EdgeProber(Protocol):
     def probe(self, hostname: str) -> EdgeProbe: ...
 
+    def probe_workspace(self, hostname: str) -> WorkspaceProbe: ...
+
 
 class SystemEdgeProber:
     """Probes through the public path (the hostname itself) or a fixed edge address."""
@@ -65,7 +69,7 @@ class SystemEdgeProber:
     def __init__(self, settings: EdgeSettings) -> None:
         self.settings = settings
 
-    def probe(self, hostname: str) -> EdgeProbe:
+    def _target(self, hostname: str) -> tuple[str, int]:
         if self.settings.probe_address:
             host, _, port_text = self.settings.probe_address.rpartition(":")
             port = int(port_text)
@@ -80,6 +84,34 @@ class SystemEdgeProber:
         if not infos:
             raise EdgeProbeFailed("edge_unresolvable", f"{host} has no addresses")
         address = infos[0][4][0]
+        # The customer controls where the hostname resolves. Without a fixed
+        # edge address, only a public address may be probed, so a hostname
+        # rebound to an internal address cannot turn the worker into a scanner.
+        if (
+            not self.settings.probe_address
+            and not ipaddress.ip_address(address).is_global
+            and not allow_private_from_env()
+        ):
+            raise EdgeProbeFailed(
+                "edge_private_address",
+                f"{host} resolves to the non-public address {address}; the edge is reached "
+                "only at public addresses (or set EDGE_PROBE_ADDRESS to the edge itself).",
+            )
+        return address, port
+
+    def probe_workspace(self, hostname: str) -> WorkspaceProbe:
+        address, port = self._target(hostname)
+        return probe_workspace(
+            hostname,
+            address=address,
+            port=port,
+            ca_file=self.settings.probe_ca_file,
+            timeout=self.settings.probe_timeout,
+            plain_http=self.settings.disable_https,
+        )
+
+    def probe(self, hostname: str) -> EdgeProbe:
+        address, port = self._target(hostname)
         return probe_edge(
             hostname,
             address=address,
@@ -114,7 +146,7 @@ def certificate_outcome(
     # (Caddy renews at two thirds of the lifetime), so a 12-hour internal-CA
     # certificate is not reported as expiring the moment it is issued.
     warning = CERTIFICATE_EXPIRY_WARNING
-    if probe.not_before is not None:
+    if getattr(probe, "not_before", None) is not None:
         warning = min(warning, (probe.not_after - probe.not_before) / 3)
     details = {
         "address": probe.address,
@@ -141,16 +173,65 @@ def certificate_outcome(
     return Outcome(CheckStatus.PASSING, details=details)
 
 
-def origin_outcome(domain: Domain) -> Outcome:
-    origin = domain.application.serving_origin if domain.application else None
+def origin_outcome(
+    domain: Domain, prober: EdgeProber | None = None, settings: EdgeSettings | None = None
+) -> Outcome:
+    """Does the application's origin serve the correct workspace for this hostname?
+
+    Requires a verified active origin. When the application has the workspace
+    probe enabled (the default), the origin must also answer
+    ``GET /.well-known/custom-domain-workspace`` through the edge with the
+    workspace reference it derived from the assertion; that proves routing,
+    assertion verification and tenant selection end to end.
+    """
+    application = domain.application
+    origin = application.serving_origin if application else None
     if origin is None:
         return Outcome(
             CheckStatus.FAILING,
             "origin_not_ready",
-            f"Application {domain.application.slug if domain.application else '?'} has no "
-            "verified active origin. Run `custom-domain origin verify --activate` for it.",
+            f"Application {application.slug if application else '?'} has no verified active "
+            "origin. Run `custom-domain origin verify --activate` for it.",
         )
-    return Outcome(CheckStatus.PASSING, details={"origin": origin.url})
+    details: dict = {"origin": origin.url}
+    if not application.workspace_probe_enabled or prober is None:
+        details["workspace_probe"] = "disabled"
+        return Outcome(CheckStatus.PASSING, details=details)
+    try:
+        probe = prober.probe_workspace(domain.hostname)
+    except EdgeProbeFailed as exc:
+        return Outcome(CheckStatus.FAILING, exc.code, exc.message, details)
+    details["address"] = probe.address
+    if probe.status != 200:
+        return Outcome(
+            CheckStatus.FAILING,
+            "workspace_probe_failed",
+            f"{domain.hostname} answered HTTP {probe.status} on the workspace path; the origin "
+            "must return 200 with the workspace it selected from the assertion "
+            "(docs/lifecycle.md).",
+            details,
+        )
+    if probe.reference is None:
+        return Outcome(
+            CheckStatus.FAILING,
+            "workspace_probe_invalid",
+            f"{domain.hostname}: the workspace path returned 200 without a JSON `reference` "
+            "field; the origin must echo the reference from the verified assertion.",
+            details,
+        )
+    if probe.reference != domain.reference or (
+        probe.application_id is not None and probe.application_id != str(domain.application_id)
+    ):
+        return Outcome(
+            CheckStatus.FAILING,
+            "workspace_mismatch",
+            f"{domain.hostname} is served for workspace {probe.reference!r} but is registered "
+            f"for {domain.reference!r}; the origin must select the workspace from the "
+            "assertion's `ref`, never from the hostname or other input.",
+            {**details, "observed_reference": probe.reference},
+        )
+    details["workspace"] = probe.reference
+    return Outcome(CheckStatus.PASSING, details=details)
 
 
 def apply_edge_outcomes(
@@ -205,6 +286,6 @@ def run_edge_checks(
         session,
         domain,
         certificate_outcome(prober, domain, settings, now=now),
-        origin_outcome(domain),
+        origin_outcome(domain, prober, settings),
         now=now,
     )

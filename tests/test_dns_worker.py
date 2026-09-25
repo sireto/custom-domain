@@ -30,6 +30,9 @@ class NoEdge:
     def probe(self, hostname):
         raise EdgeProbeFailed("connection_failed", "no edge in tests")
 
+    def probe_workspace(self, hostname):
+        raise EdgeProbeFailed("connection_failed", "no edge in tests")
+
 
 SETTINGS = EdgeSettings(reconcile_enabled=True, legacy_api_enabled=False)
 KW = {"prober": NoEdge(), "settings": SETTINGS}
@@ -123,7 +126,7 @@ def test_domain_deleted_during_queries_is_not_updated(session, session_factory, 
 
     resolver = DeletingResolver()
     _publish(resolver, domain)
-    assert process_domain(session_factory, resolver, domain.id, **KW) is False
+    assert process_domain(session_factory, resolver, domain.id, **KW).done is False
     _refresh(session)
     assert domain.deleted_at is not None and domain.status == DomainStatus.DELETING
 
@@ -193,6 +196,7 @@ def test_worker_runs_edge_checks_after_dns_and_reaches_ready(
     resolver = FakeResolver()
     _publish(resolver, domain)
     prober = FakeProber()
+    prober.workspace_reference = "w"
 
     result = run_due_checks(session_factory, resolver, prober=prober, settings=SETTINGS)
     assert result.processed == 1 and result.failed == 0
@@ -224,6 +228,51 @@ def test_worker_skips_edge_checks_for_unverified_domains(
     assert domain.status == DomainStatus.PENDING_DNS and prober.calls == []
 
 
+def test_status_change_triggers_reconcile_hook_and_leases_expire(
+    session, session_factory, make_application
+):
+    from app.services.applications import (
+        activate_origin,
+        record_origin_verification,
+        register_origin,
+    )
+    from tests.test_edge_checks import FakeProber
+
+    acme = make_application("acme")
+    origin = register_origin(session, acme, host="app.acme.example")
+    record_origin_verification(session, origin, verified=True)
+    activate_origin(session, origin)
+    domain = claim_domain(session, acme, "forms.customer.example", "w")
+    session.commit()
+    resolver = FakeResolver()
+    _publish(resolver, domain)
+    prober = FakeProber()
+    prober.workspace_reference = "w"
+    hook_calls = []
+    worker = ChecksWorker(
+        session_factory,
+        resolver,
+        prober=prober,
+        settings=SETTINGS,
+        on_status_change=lambda: hook_calls.append(1),
+    )
+    result = worker.run_once()
+    assert result.processed == 1 and result.status_changes == 1 and hook_calls
+    _refresh(session)
+    assert domain.status == DomainStatus.READY
+
+    # Nothing changed on the next pass: the hook is not called again.
+    before = len(hook_calls)
+    assert worker.run_once().status_changes == 0 and len(hook_calls) == before
+
+    # A crashed worker leaves a lease; once it expires the domain is due again.
+    now = utcnow()
+    assert lease_domain(session, domain.id, now + timedelta(hours=7), types=list(CheckType))
+    session.commit()
+    assert due_domain_ids(session, now + timedelta(hours=7, minutes=1), 50) == []
+    assert due_domain_ids(session, now + timedelta(hours=7) + LEASE, 50) == [domain.id]
+
+
 def test_claim_reissued_during_queries_discards_the_results(
     session, session_factory, make_application
 ):
@@ -248,7 +297,7 @@ def test_claim_reissued_during_queries_discards_the_results(
 
     resolver = ReissuingResolver()
     _publish(resolver, domain)  # records for the OLD token and target
-    assert process_domain(session_factory, resolver, domain.id, **KW) is False
+    assert process_domain(session_factory, resolver, domain.id, **KW).done is False
 
     _refresh(session)
     fresh = domain.active_claim
@@ -256,15 +305,101 @@ def test_claim_reissued_during_queries_discards_the_results(
     assert domain.status == DomainStatus.PENDING_DNS
     for check_type in (CheckType.OWNERSHIP, CheckType.ROUTING):
         check = domain.check(check_type)
-        # Reset by the re-issue, not evaluated by the worker's stale results.
         assert check.status.value == "pending"
         assert check.details.get("reason") == "claim_reissued"
-        assert check.next_check_at is not None and check.next_check_at <= utcnow()
 
-    # The next run verifies the new claim on its own records only.
     plain = FakeResolver()
     _publish(plain, domain)
-    assert process_domain(session_factory, plain, domain.id, **KW) is True
+    assert process_domain(session_factory, plain, domain.id, **KW).done is True
     _refresh(session)
     assert domain.active_claim.status == ClaimStatus.VERIFIED
     assert domain.status == DomainStatus.PROVISIONING
+
+
+def test_claim_reissued_during_probes_discards_the_results(
+    session, session_factory, make_application
+):
+    """The edge phase must not mark a domain ready on results probed for a revoked claim."""
+    from app.models import Application, CheckType, ClaimStatus
+    from app.services.applications import (
+        activate_origin,
+        record_origin_verification,
+        register_origin,
+    )
+    from app.services.domains import reissue_claim
+    from tests.test_edge_checks import FakeProber
+
+    acme = make_application("acme")
+    origin = register_origin(session, acme, host="app.acme.example")
+    record_origin_verification(session, origin, verified=True)
+    activate_origin(session, origin)
+    domain = claim_domain(session, acme, "forms.customer.example", "w")
+    session.commit()
+    resolver = FakeResolver()
+    _publish(resolver, domain)
+
+    class ReissuingProber(FakeProber):
+        """Re-issues the claim while the worker is inside its probes."""
+
+        def probe(self, hostname):
+            with session_factory() as s:
+                app_row = s.get(Application, acme.id)
+                s.commit()
+                reissue_claim(s, app_row, domain.id)
+                s.commit()
+            return super().probe(hostname)
+
+    prober = ReissuingProber()
+    prober.workspace_reference = "w"
+    process_domain(session_factory, resolver, domain.id, prober=prober, settings=SETTINGS)
+    _refresh(session)
+    assert domain.active_claim.status == ClaimStatus.PENDING
+    assert domain.status == DomainStatus.PENDING_DNS
+    for check_type in (CheckType.CERTIFICATE, CheckType.ORIGIN):
+        check = domain.check(check_type)
+        assert check.status.value == "pending"
+        assert check.details.get("reason") == "claim_reissued"
+
+
+def test_edge_probes_run_only_when_their_checks_are_leased(
+    session, session_factory, make_application
+):
+    """A DNS revalidation alone does not re-run the probes; a fresh verification does."""
+    from datetime import timedelta
+
+    from app.models import CheckType
+    from app.services.applications import (
+        activate_origin,
+        record_origin_verification,
+        register_origin,
+    )
+    from tests.test_edge_checks import FakeProber
+
+    acme = make_application("acme")
+    origin = register_origin(session, acme, host="app.acme.example")
+    record_origin_verification(session, origin, verified=True)
+    activate_origin(session, origin)
+    domain = claim_domain(session, acme, "forms.customer.example", "w")
+    session.commit()
+    resolver = FakeResolver()
+    _publish(resolver, domain)
+    prober = FakeProber()
+    prober.workspace_reference = "w"
+
+    # Fresh verification: the edge checks were scheduled for later, but the
+    # status change makes them follow immediately.
+    later = utcnow() + timedelta(hours=1)
+    for check_type in (CheckType.CERTIFICATE, CheckType.ORIGIN):
+        domain.check(check_type).next_check_at = later
+    session.commit()
+    assert process_domain(session_factory, resolver, domain.id, prober=prober, settings=SETTINGS)
+    _refresh(session)
+    assert domain.status == DomainStatus.READY and prober.calls == ["forms.customer.example"]
+
+    # DNS revalidation only: the edge checks are not due, so nothing is probed.
+    for check_type in (CheckType.OWNERSHIP, CheckType.ROUTING):
+        domain.check(check_type).next_check_at = utcnow() - timedelta(seconds=1)
+    session.commit()
+    assert process_domain(session_factory, resolver, domain.id, prober=prober, settings=SETTINGS)
+    _refresh(session)
+    assert domain.status == DomainStatus.READY and prober.calls == ["forms.customer.example"]

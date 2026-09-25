@@ -8,7 +8,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from app.edge.config import EDGE_HEALTH_HEADER, EDGE_HEALTH_VALUE
-from app.edge.probe import EdgeProbeFailed, probe_edge
+from app.edge.probe import EdgeProbeFailed, probe_edge, probe_workspace
+from app.edge.settings import WORKSPACE_PATH
 
 pytestmark = pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl not installed")
 
@@ -44,13 +45,21 @@ def _make_cert(tmp_path, name, *, cn=HOST, days=30):
 
 
 class EdgeServer:
-    def __init__(self, cert, key, *, status=204, marker=True):
+    def __init__(self, cert, key, *, status=204, marker=True, workspace=b'{"reference": "ws_1"}'):
         self.status = status
         self.marker = marker
+        self.workspace = workspace
         server = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):  # noqa: N802
+                if self.path == WORKSPACE_PATH:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(server.workspace)))
+                    self.end_headers()
+                    self.wfile.write(server.workspace)
+                    return
                 self.send_response(server.status)
                 if server.marker:
                     self.send_header(EDGE_HEALTH_HEADER, EDGE_HEALTH_VALUE)
@@ -143,3 +152,31 @@ def test_probe_reports_foreign_server_and_transport_failures(cert):
     with pytest.raises(EdgeProbeFailed) as info:
         probe_edge(HOST, address="127.0.0.1", port=server.port, ca_file=cert_file, timeout=5)
     assert info.value.code == "connection_failed"
+
+
+def test_probe_workspace_parses_the_origin_answer(cert):
+    cert_file, key_file = cert
+    server = EdgeServer(
+        cert_file, key_file, workspace=b'{"reference": "ws_9", "application": "app-1"}'
+    )
+    try:
+        probe = probe_workspace(
+            HOST, address="127.0.0.1", port=server.port, ca_file=cert_file, timeout=5
+        )
+        assert probe.status == 200 and probe.reference == "ws_9" and probe.application_id == "app-1"
+        server.workspace = b"not json"
+        probe = probe_workspace(
+            HOST, address="127.0.0.1", port=server.port, ca_file=cert_file, timeout=5
+        )
+        assert probe.status == 200 and probe.reference is None
+        with pytest.raises(EdgeProbeFailed) as info:
+            probe_workspace(
+                "other.customer.example",
+                address="127.0.0.1",
+                port=server.port,
+                ca_file=cert_file,
+                timeout=5,
+            )
+        assert info.value.code == "certificate_hostname_mismatch"
+    finally:
+        server.close()

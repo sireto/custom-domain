@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.edge.config import EDGE_HEALTH_VALUE, build_apps, health_route
-from app.edge.probe import EdgeProbe, EdgeProbeFailed
+from app.edge.probe import EdgeProbe, EdgeProbeFailed, WorkspaceProbe
 from app.edge.settings import EdgeSettings
 from app.models import ApplicationStatus, CheckStatus, CheckType, DomainStatus
 from app.models.types import utcnow
@@ -41,12 +41,30 @@ class FakeProber:
         self.marker = EDGE_HEALTH_VALUE
         self.failure: EdgeProbeFailed | None = None
         self.calls: list[str] = []
+        # Workspace echo: by default the origin answers with the registered reference.
+        self.workspace_status = 200
+        self.workspace_reference = "ws_1"
+        self.workspace_application: str | None = None
+        self.workspace_failure: EdgeProbeFailed | None = None
+        self.workspace_calls: list[str] = []
 
     def probe(self, hostname):
         self.calls.append(hostname)
         if self.failure:
             raise self.failure
         return EdgeProbe("203.0.113.10", self.not_after, "Let's Encrypt", self.status, self.marker)
+
+    def probe_workspace(self, hostname):
+        self.workspace_calls.append(hostname)
+        if self.workspace_failure:
+            raise self.workspace_failure
+        return WorkspaceProbe(
+            "203.0.113.10",
+            self.workspace_status,
+            self.workspace_reference if self.workspace_status == 200 else None,
+            self.workspace_application,
+            "",
+        )
 
 
 @pytest.fixture
@@ -107,12 +125,16 @@ def test_readiness_requires_probe_and_origin(session, acme, prober):
         and certificate.details["address"] == "203.0.113.10"
     )
     assert certificate.next_check_at == t0 + REVALIDATE_INTERVAL
-    assert origin.status == CheckStatus.PASSING and origin.details == {
+    assert origin.status == CheckStatus.PASSING
+    assert origin.details == {
         "origin": "https://app.acme.example:443",
+        "address": "203.0.113.10",
+        "workspace": "ws_1",
         "attempts": 0,
     }
     assert domain.status == DomainStatus.READY and is_serveable(domain)
     assert prober.calls == ["forms.customer.example"]
+    assert prober.workspace_calls == ["forms.customer.example"]
 
 
 def test_missing_origin_blocks_readiness(session, make_application, prober):
@@ -176,13 +198,61 @@ def test_https_disabled_marks_certificate_as_not_applicable(session, acme, probe
     assert outcome.passing and outcome.details == {"tls": "disabled"} and prober.calls == []
 
 
-def test_origin_outcome_reflects_serving_origin(session, acme):
+def test_origin_outcome_reflects_serving_origin(session, acme, prober):
     domain = _dns_verified(session, acme)
-    assert origin_outcome(domain).passing
+    assert origin_outcome(domain, prober, SETTINGS).passing
     record_origin_verification(session, acme.active_origin, verified=False, error_code="x")
     session.commit()
     session.expire_all()
-    assert origin_outcome(domain).error_code == "origin_not_ready"
+    assert origin_outcome(domain, prober, SETTINGS).error_code == "origin_not_ready"
+
+
+@pytest.mark.parametrize(
+    ("setup", "code"),
+    [
+        (lambda p: setattr(p, "workspace_status", 404), "workspace_probe_failed"),
+        (lambda p: setattr(p, "workspace_reference", None), "workspace_probe_invalid"),
+        (lambda p: setattr(p, "workspace_reference", "ws_other"), "workspace_mismatch"),
+        (lambda p: setattr(p, "workspace_application", "not-this-app"), "workspace_mismatch"),
+        (lambda p: setattr(p, "workspace_failure", EdgeProbeFailed("timeout", "slow")), "timeout"),
+    ],
+)
+def test_workspace_probe_failures_block_readiness(session, acme, prober, setup, code):
+    domain = _dns_verified(session, acme)
+    setup(prober)
+    certificate, origin = run_edge_checks(session, domain, prober, SETTINGS)
+    assert certificate.status == CheckStatus.PASSING
+    assert origin.status == CheckStatus.FAILING and origin.error_code == code
+    assert domain.status == DomainStatus.PROVISIONING and not is_serveable(domain)
+
+
+def test_workspace_probe_checks_application_when_present(session, acme, prober):
+    domain = _dns_verified(session, acme)
+    prober.workspace_application = str(acme.id)
+    _, origin = run_edge_checks(session, domain, prober, SETTINGS)
+    assert origin.status == CheckStatus.PASSING and domain.status == DomainStatus.READY
+
+
+def test_workspace_probe_can_be_disabled_per_application(session, acme, prober):
+    acme.workspace_probe_enabled = False
+    session.commit()
+    domain = _dns_verified(session, acme)
+    prober.workspace_reference = "ws_other"  # would fail if probed
+    _, origin = run_edge_checks(session, domain, prober, SETTINGS)
+    assert origin.status == CheckStatus.PASSING
+    assert origin.details["workspace_probe"] == "disabled"
+    assert prober.workspace_calls == [] and domain.status == DomainStatus.READY
+
+
+def test_workspace_mismatch_on_ready_domain_stops_serving(session, acme, prober):
+    domain = _dns_verified(session, acme)
+    run_edge_checks(session, domain, prober, SETTINGS)
+    assert domain.status == DomainStatus.READY
+    prober.workspace_reference = "ws_other"
+    run_edge_checks(session, domain, prober, SETTINGS)
+    session.commit()
+    assert domain.status == DomainStatus.ATTENTION_REQUIRED and not is_serveable(domain)
+    assert domain.check(CheckType.ORIGIN).error_code == "workspace_mismatch"
 
 
 def test_apps_config_has_health_route_and_on_demand_tls(session, acme):

@@ -67,7 +67,10 @@ domain:
    from `Host`, a query parameter or any other header.
 
 `app.edge.assertion.verify()` implements exactly this and the Python SDK
-(#11) ships it for origins. Origins that receive requests on their own
+(#11) ships it for origins. Origins must also serve `GET /.well-known/custom-domain-workspace`
+with the reference from the verified assertion; the lifecycle worker uses it to
+prove correct workspace selection before a domain becomes ready
+([lifecycle.md](lifecycle.md)). Origins that receive requests on their own
 domain as well should apply the check only when the header is present and
 serve their own domain otherwise, or, better, restrict the custom-domain
 listener to the edge (see below).
