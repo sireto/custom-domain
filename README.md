@@ -1,131 +1,191 @@
-# Custom Domain API
-This service is designed to support custom domains for SaaS products.
+# Custom Domain
 
-# Usage
-Here are the steps you need to take to run this docker image.
+Custom domains for multi-tenant SaaS products. Applications register their
+customers' hostnames through an API, hand back exact DNS instructions, and are
+told when each hostname is verified, certified and serving. The edge (Caddy)
+obtains certificates on demand and forwards every request to the application's
+origin with a signed assertion that names the workspace the hostname belongs
+to, so the application never selects a tenant from the `Host` header.
 
-## 1. Environment variables
-Set the proper environment variable for your desired installation.
+Several applications share one deployment. Each has its own credentials, its
+own verified origin and its own hostnames; nothing an application does can
+affect another's.
 
-Here is a sample `.env` file.
+## How it works
+
+1. The operator creates an application, registers its origin and proves
+   control of it (the origin serves a token at
+   `/.well-known/custom-domain-origin-verification`), then issues an API
+   credential.
+2. The application calls `POST /v1/domains` with a customer hostname and an
+   opaque workspace reference. The answer carries the two records the customer
+   must publish: a TXT record proving ownership and a CNAME to the edge.
+3. The lifecycle worker checks DNS, obtains the certificate through the edge
+   and asks the origin, through the edge, which workspace it serves for the
+   hostname. The domain becomes `ready` only when ownership, routing,
+   certificate and origin checks all pass. Drift later moves it to
+   `attention_required`; a lost TXT record suspends it after 24 hours.
+4. Every request the edge proxies carries `X-Custom-Domain-Assertion`, an
+   HMAC-signed token binding the request to the application, domain, workspace
+   reference and hostname. The SDK middleware verifies it and exposes the
+   workspace to the application.
+5. Status changes are delivered as signed webhooks (`domain.ready`,
+   `domain.attention_required`, `domain.recovered`, `domain.deleted`), with
+   history and replay. Deleting a domain stops service on the next request.
+
+Only exact customer subdomains are supported (no apex or wildcard names).
+
+## Quick start (single container)
+
+Create a `.env` file:
+
 ```
-SAAS_UPSTREAM=example.com:443
-API_KEY=0df05a6c-d4c6-4ee4-a55d-de1409e82cee
 DATABASE_URL=sqlite:///data/custom_domain.db
+ENABLE_LEGACY_API=false
+EDGE_ASSERTION_KEYS=1:<at least 32 random characters>
+ACME_EMAIL=ops@example.com
+CADDY_STORAGE=file
 ```
-`DATABASE_URL` selects the authoritative database. Use a PostgreSQL URL such as
-`postgresql+psycopg://user:password@db:5432/custom_domain` for production.
 
-## 2. Create docker volumes to persist data (eg. certificates, domains, database)
+`EDGE_ASSERTION_KEYS` signs the assertions the edge attaches to proxied
+requests; generate the secret with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+Use a PostgreSQL URL such as `postgresql+psycopg://user:password@db:5432/custom_domain`
+for anything beyond a trial. All settings are listed in [.env_example](.env_example).
+
+Run the image:
+
 ```bash
-docker volume create https_data
-docker volume create https_domains
-docker volume create https_db
+docker volume create https_data && docker volume create https_db && docker volume create https_domains
+docker compose up -d
 ```
 
-## 3. Docker Compose file
-Create a `docker-compose.yml` file.
-```yaml
-version: "3.7"
+The bundled [docker-compose.yml](docker-compose.yml) publishes ports 80 and
+443 and binds the management API to `127.0.0.1:9000`; reach it from the host
+or through an authenticated reverse proxy. Swagger UI is at
+**http://localhost:9000/v1/docs**; the OpenAPI document is served at
+`/v1/openapi.json` and committed as [docs/openapi.json](docs/openapi.json).
 
-services:
-  https:
-    image: sireto/custom-domain:latest
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-      - "127.0.0.1:9000:9000"
-    restart: unless-stopped
-    networks:
-      - frontend
-    env_file:
-      - .env
-    volumes:
-      - https_domains:/app/domains
-      - https_data:/var/lib/custom-domain
-      - https_db:/app/data
+For production, use [deploy/compose.production.yml](deploy/compose.production.yml):
+PostgreSQL, Redis-backed certificate storage, and separate API, worker and edge
+containers with the edge's admin API behind a validating gateway. The
+walkthrough, backups, monitoring and rollback are in [docs/deployment.md](docs/deployment.md).
 
-volumes:
-  https_data:
-    external: true
-  https_domains:
-    external: true
-  https_db:
-    external: true
+## Operating it
 
-networks:
-  frontend:
-```
-The `https_data` volume holds Caddy's certificate store. Deployments created
-before the mount path changed from `/root/.local/share` keep the same volume;
-only the mount path in the compose file changes, and the container fixes the
-file ownership on start.
+Everything an operator does is a `custom-domain` command (run it inside the
+container, or with `uv run custom-domain` in a checkout):
 
-Now you can run the compose file:
 ```bash
-docker-compose up -d
+custom-domain application create --slug acme --name "Acme" --cname-target acme.edge.example.net
+custom-domain origin register --application acme --host app.acme.example --scheme https --port 443
+custom-domain origin verify --application acme --host app.acme.example --activate
+custom-domain credential issue --application acme --label backend
 ```
 
-This will run a webserver and the management APIs. 
+`--cname-target` is the name customers point their CNAME at; it must resolve
+to this deployment's edge. `origin register` prints the verification token the
+application must serve before `origin verify` succeeds. Credentials are shown
+once and can be rotated with a grace period (`credential rotate`).
 
-The management API listens on port 9000, bound to `127.0.0.1` on the host so
-it is not a public port; reach it from the host or through an authenticated
-reverse proxy you control. Its OpenAPI document and Swagger UI are at
-**http://localhost:9000/v1/docs**.
+Other commands: `db upgrade` (migrations), `worker run` (lifecycle checks,
+edge reconciliation and webhook delivery outside the API process),
+`edge config` and `edge reconcile` (the Caddy configuration derived from the
+database), `domain purge-tombstones`, and `legacy import` for hostnames from
+the previous volume-based deployment. `custom-domain --help` lists them all.
 
-## 4. Instructions for SaaS customers
-Your SaaS customers need to add a DNS Record to point their domain to your deployed server. This can be done in one of the two ways.
-### 4.1 A Record
-Assuming your deployed server has IP address: `XX.XX.XX.XX`. <br/>
-Then your customers will have to set the DNS Record:
-- Type: A Record 
-- Name: customerdomain.com (or subdomain)
-- IPv4 address: `XX.XX.XX.XX`
+## Integrating an application
 
-### 4.2 CNAME Record
-Assuming your deployed server has a DNS name: `custom.example.com` <br/>
-Then, your customer should set the following DNS records:
-- Type: CNAME Record 
-- Name: customerdomain.com (or subdomain)
-- Target: `custom.example.com`
+The Python SDK in [sdk/](sdk/README.md) (`custom-domain-sdk`) has the API
+client, the assertion verifier, an ASGI middleware and the webhook signature
+verifier.
 
-# Development
-The project uses [uv](https://docs.astral.sh/uv/) for a reproducible environment.
+```python
+from custom_domain import Client, CustomDomainMiddleware
+
+client = Client("https://custom-domain.example.net", "cd_...")
+domain = client.create_domain("forms.customer.example", reference="ws_8f3a1c")
+for record in domain.dns_records:      # show these to the customer
+    print(record.type, record.name, record.value)
+
+app.add_middleware(
+    CustomDomainMiddleware,
+    keys={"1": "<the EDGE_ASSERTION_KEYS secret>"},
+    application_id="<application id>",
+    workspace_lookup=workspaces.get,   # truthy only for workspaces you serve
+)
+# request.state.custom_domain.reference is the workspace for this request
+```
+
+The middleware also answers the workspace probe the lifecycle worker uses and
+lets the origin verification probe through. A complete second SaaS origin is
+in [examples/sample_saas/](examples/sample_saas/README.md), a webhook consumer
+in [examples/webhook_consumer.py](examples/webhook_consumer.py), and the
+BetterCollected integration plan in
+[docs/bettercollected-integration.md](docs/bettercollected-integration.md).
+
+Any language can integrate without the SDK: the API contract is in
+[docs/api-v1.md](docs/api-v1.md), the assertion format in
+[docs/edge-routing.md](docs/edge-routing.md) and the webhook signature in
+[docs/webhooks.md](docs/webhooks.md).
+
+## Instructions for SaaS customers
+
+The API returns the exact records for each hostname:
+
+- a TXT record named `_custom-domain-challenge.<hostname>` with the value
+  shown, proving ownership;
+- a CNAME record for `<hostname>` pointing at the application's edge target.
+
+The domain is checked automatically (and on request through
+`POST /v1/domains/{id}/checks`); every failing check carries a stable error
+code and a message the application can show to the customer.
+
+## Documentation
+
+- [docs/data-model.md](docs/data-model.md): applications, domains, claims, checks, events and their invariants.
+- [docs/api-v1.md](docs/api-v1.md): the v1 API with worked examples, error codes and the migration from the legacy `/domains` endpoint.
+- [docs/dns-verification.md](docs/dns-verification.md): ownership and routing checks, diagnostics, status rules.
+- [docs/tls-readiness.md](docs/tls-readiness.md): on-demand certificates and the HTTPS readiness probe.
+- [docs/edge-routing.md](docs/edge-routing.md): request routing and the signed workspace assertion.
+- [docs/lifecycle.md](docs/lifecycle.md): the status machine, the workspace probe and the worker.
+- [docs/webhooks.md](docs/webhooks.md): subscriptions, signatures, delivery and replay.
+- [docs/deployment.md](docs/deployment.md): production layout, secrets, monitoring, backups and rollback.
+- [docs/operations.md](docs/operations.md) and [docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md): certificate storage, multi-instance coordination, trust boundaries.
+
+## Development
+
+The project uses [uv](https://docs.astral.sh/uv/); the SDK is a workspace member.
+
 ```bash
 uv sync                      # install dependencies from uv.lock
-uv run pytest                # run the test suite on a temporary SQLite database
-uv run custom-domain --help  # operator commands: migrations, applications, credentials, imports
+uv run pytest                # test suite on a temporary SQLite database
+uv run ruff check app tests sdk
+uv run custom-domain --help
 ```
-Set `TEST_DATABASE_URL` to a PostgreSQL URL to run the same suite against PostgreSQL.
 
-The application and domain data model, its invariants, the status model and
-the migration path from volume-based deployments are described in
-[docs/data-model.md](docs/data-model.md). The v1 API contract, with worked
-examples, error codes, webhook payloads and the migration from the legacy
-`/domains` endpoint, is in [docs/api-v1.md](docs/api-v1.md); the OpenAPI
-document is [docs/openapi.json](docs/openapi.json) and is served at
-`/v1/openapi.json` with Swagger UI at `/v1/docs`. DNS verification, its diagnostics and the status rules it drives are in
-[docs/dns-verification.md](docs/dns-verification.md); on-demand certificates and the
-HTTPS readiness probe are in [docs/tls-readiness.md](docs/tls-readiness.md); how requests are routed and
-the signed workspace assertion origins verify are in [docs/edge-routing.md](docs/edge-routing.md); the status
-machine, the workspace probe and the worker are in [docs/lifecycle.md](docs/lifecycle.md); webhook
-subscriptions, signatures and delivery are in [docs/webhooks.md](docs/webhooks.md). Production deployment with separate
-API, worker and edge containers, monitoring and rollback is in [docs/deployment.md](docs/deployment.md). The Python SDK
-for integrating a SaaS application, with the assertion-verifying middleware, is in
-[sdk/](sdk/README.md); a minimal second SaaS origin is in [examples/sample_saas/](examples/sample_saas/README.md). The BetterCollected
-integration and its migration plan are in [docs/bettercollected-integration.md](docs/bettercollected-integration.md). Certificate storage,
-multi-instance coordination, backup and restore are covered by
-[docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md)
-and [docs/operations.md](docs/operations.md).
+Set `TEST_DATABASE_URL` to a PostgreSQL URL to run the suite against
+PostgreSQL. Tests that drive a real edge need the `caddy` binary (2.11) on the
+path and are skipped without it; `REQUIRE_CADDY=1` makes them fail instead, as
+in CI. `tests/test_e2e_production_like.py` runs the complete flow through
+Caddy with on-demand certificates from its internal CA and two SDK-based
+origins.
 
-# Source Code
-The full source code is available on GitHub <br/>
-[**https://github.com/sireto/custom-domain**](https://github.com/sireto/custom-domain)
+## Legacy deployments
 
+Deployments made before the v1 API still work: the `/domains` endpoint stays
+available while `ENABLE_LEGACY_API=true`. Import the existing hostnames with
+`custom-domain legacy import`, then set `ENABLE_LEGACY_API=false` so the edge
+configuration is derived from the database. The `https_data` volume keeps the
+certificate store across the change.
 
-# Paid version and Support
-Don't want to host it yourself? No problem! We do it for you. Here's what you get on the paid version:
+## Source code
+
+[https://github.com/sireto/custom-domain](https://github.com/sireto/custom-domain)
+
+## Paid version and support
+
+Don't want to host it yourself? We do it for you. The paid version includes:
+
 - Unlimited domains
 - A dedicated IP address
 - 20TB of free traffic
