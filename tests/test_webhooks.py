@@ -528,3 +528,64 @@ def test_http_sender_rejects_rebinding_to_private(monkeypatch):
     )
     with pytest.raises(service.InvalidWebhook):
         http_sender("https://hooks.acme.example/x", b"{}", {})
+
+
+def test_delivery_attempts_take_their_own_time(
+    session, session_factory, make_application, monkeypatch
+):
+    """A slow batch must not sign later deliveries with the batch's start time."""
+    from datetime import timedelta
+
+    from sqlalchemy import select as sa_select
+
+    from app.models import WebhookDelivery
+    from app.services.webhooks import create_subscription
+    from app.webhooks import worker as worker_module
+    from app.webhooks.signature import verify
+
+    acme = make_application("acme")
+    subscription, secret = create_subscription(
+        session, acme, url=URL, events=["domain.ready"], allow_private=True
+    )
+    domain = claim_domain(session, acme, "forms.customer.example", "w")
+    session.commit()
+    _make_ready(session, domain)
+    session.commit()
+    stale = utcnow() - timedelta(minutes=10)
+    for delivery in session.scalars(sa_select(WebhookDelivery)):
+        delivery.next_attempt_at = stale - timedelta(minutes=1)
+    session.commit()
+
+    # The batch "started" ten minutes ago (first clock read); each attempt
+    # must still take the current time for its lease and signature.
+    clock = [stale]
+    real_utcnow = worker_module.utcnow
+
+    def batch_clock():
+        return clock.pop() if clock else real_utcnow()
+
+    monkeypatch.setattr(worker_module, "utcnow", batch_clock)
+    seen = []
+
+    def sender(url, body, headers):
+        seen.append((body, headers))
+        return 200, "ok"
+
+    result = worker_module.deliver_due(session_factory, sender=sender)
+    assert result.delivered == 1 and result.at == stale
+    body, headers = seen[0]
+    # Verified against the real clock with the consumer's default tolerance.
+    assert (
+        verify(headers[worker_module.HEADER], body, [secret]) >= int(real_utcnow().timestamp()) - 5
+    )
+    session.commit()
+    session.expire_all()
+    delivery = session.scalar(sa_select(WebhookDelivery))
+    assert delivery.last_attempt_at >= real_utcnow() - timedelta(seconds=10)
+
+
+def test_webhook_url_with_invalid_port_is_rejected(session, make_application):
+    from app.services.webhooks import InvalidWebhook, validate_url
+
+    with pytest.raises(InvalidWebhook):
+        validate_url("https://hooks.example:abc/cd", allow_private=True)

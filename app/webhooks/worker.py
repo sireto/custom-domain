@@ -127,7 +127,12 @@ def attempt_delivery(
     sender: Sender = http_sender,
     now: datetime | None = None,
 ) -> str:
-    """Try one delivery. Returns 'skipped', 'delivered', 'retry' or 'abandoned'."""
+    """Try one delivery. Returns 'skipped', 'delivered', 'retry' or 'abandoned'.
+
+    ``now`` defaults to the current time for this attempt, not the batch's
+    start: the lease, the signature timestamp and the backoff must not age
+    with a slow batch (consumers reject timestamps older than a few minutes).
+    """
     now = now or utcnow()
     with session_factory() as session:
         if not lease_delivery(session, delivery_id, now):
@@ -187,9 +192,11 @@ def deliver_due(
     now: datetime | None = None,
     limit: int = 100,
 ) -> DeliveryResult:
-    now = now or utcnow()
+    # A fixed ``now`` (tests) is passed through; otherwise every attempt
+    # takes its own current time.
+    batch_now = now or utcnow()
     with session_factory() as session:
-        ids = due_delivery_ids(session, now, limit)
+        ids = due_delivery_ids(session, batch_now, limit)
     attempted = delivered = failed = 0
     for delivery_id in ids:
         try:
@@ -205,7 +212,7 @@ def deliver_due(
             delivered += 1
         else:
             failed += 1
-    return DeliveryResult(now, attempted, delivered, failed)
+    return DeliveryResult(batch_now, attempted, delivered, failed)
 
 
 class WebhookWorker:

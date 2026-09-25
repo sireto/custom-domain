@@ -75,7 +75,10 @@ def validate_url(url: str, *, allow_private: bool = False) -> str:
         raise InvalidWebhook("Webhook URL must use https")
     if parts.username or parts.password:
         raise InvalidWebhook("Webhook URL must not contain credentials")
-    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except ValueError as exc:  # "https://host:abc/" parses but has no valid port
+        raise InvalidWebhook("Webhook URL has an invalid port") from exc
     _require_public(parts.hostname, port, allow_private=allow_private)
     return url.strip()
 
