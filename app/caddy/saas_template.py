@@ -1,4 +1,3 @@
-from typing import Dict, List
 
 HTTPS_PORT = 443
 
@@ -40,22 +39,22 @@ def add_https_domain(domain, upstream, port=HTTPS_PORT, template=None, replace=T
         apps = {}
         template["apps"] = apps
 
-    http = apps.get("http", None)
+    http = apps.get("http")
     if not http:
         http = {}
         apps["http"] = http
 
-    servers = http.get("servers", None)
+    servers = http.get("servers")
     if not servers:
         servers = {}
         http["servers"] = servers
 
-    https_server = servers.get(f"{port}", None)
+    https_server = servers.get(f"{port}")
     if not https_server:
         https_server = {"listen": [f":{port}"], "routes": []}
         servers[f"{port}"] = https_server
 
-    routes: List[Dict] = https_server.get("routes", [])
+    routes: list[dict] = https_server.get("routes", [])
     expected_route = route_template(domain, upstream, disable_https=disable_https)
     exists = False
     for route in routes:

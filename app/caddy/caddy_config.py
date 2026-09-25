@@ -1,8 +1,7 @@
+import json
 import logging
-import time
 
 import requests
-import json
 
 from app.caddy import saas_template
 from app.caddy.saas_template import DomainAlreadyExists, DomainDoesNotExist
@@ -39,7 +38,7 @@ class CaddyAPIConfigurator:
 
     def load_config_from_file(self, file_path):
         try:
-            with open(file_path, 'r') as config_file:
+            with open(file_path) as config_file:
                 config = json.load(config_file)
                 success = self.load_new_config(config)
                 if success:
@@ -87,7 +86,7 @@ class CaddyAPIConfigurator:
                 self.load_new_config(config)
                 return False
 
-            except DomainAlreadyExists as dae:
+            except DomainAlreadyExists:
                 self.logger.error(f"Domain '{domain} already exists somewhere else.")
                 raise
 

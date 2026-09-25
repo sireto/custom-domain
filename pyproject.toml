@@ -1,0 +1,52 @@
+[project]
+name = "custom-domain"
+version = "0.2.0"
+description = "API-first custom domain service for multi-tenant SaaS, backed by Caddy."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = [
+    "alembic>=1.20.0",
+    "fastapi[standard]>=0.141.1",
+    "httpx>=0.28.1",
+    "idna>=3.20",
+    "psycopg[binary]>=3.3.6",
+    "python-dotenv>=1.2.3",
+    "requests>=2.34.2",
+    "sqlalchemy>=2.0",
+    "uvicorn[standard]>=0.54.0",
+    "validators>=0.35.0",
+]
+
+[project.scripts]
+custom-domain = "app.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+# B008: FastAPI's Depends()/Security() in parameter defaults is the intended pattern.
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# Prototype Caddy modules are replaced by #1 and #7; not restyled meanwhile.
+"app/caddy/*" = ["E501", "SIM108"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.9",
+]
