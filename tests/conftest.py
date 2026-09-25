@@ -86,6 +86,7 @@ def pinned_origin_addresses(monkeypatch):
     import ipaddress
 
     from app.edge import config as edge_config
+    from app.services import origin_verification
     from app.services.origin_verification import OriginVerificationFailed
 
     table = {
@@ -116,5 +117,9 @@ def pinned_origin_addresses(monkeypatch):
         dial = f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
         return dial, host
 
+    def fake_resolve_dials(host, port, *, allow_private=False):
+        return [fake_pinned_dial(host, port, allow_private=allow_private)[0]]
+
     monkeypatch.setattr(edge_config, "pinned_dial", fake_pinned_dial)
+    monkeypatch.setattr(origin_verification, "resolve_dials", fake_resolve_dials)
     return table
