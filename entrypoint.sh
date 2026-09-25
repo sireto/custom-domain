@@ -31,7 +31,10 @@ start_caddy() {
     custom-domain edge bootstrap --output "$BOOTSTRAP" >/dev/null
     chown caddy:caddy "$BOOTSTRAP"
     chmod 600 "$BOOTSTRAP"
-    run_as caddy env HOME="$CADDY_HOME" XDG_DATA_HOME="$DATA_HOME" \
+    # Caddy gets an empty environment: everything it needs is in the bootstrap
+    # file, and the application's secrets (database URL, assertion keys, edge
+    # token) must not be readable from the Caddy process.
+    run_as caddy env -i PATH="$PATH" HOME="$CADDY_HOME" XDG_DATA_HOME="$DATA_HOME" \
         XDG_CONFIG_HOME="$CADDY_HOME/.config" caddy start --config "$BOOTSTRAP"
 }
 

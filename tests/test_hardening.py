@@ -134,7 +134,9 @@ def test_edge_token_required_when_configured(client, session, make_application):
 
     assert client.get("/internal/edge/origins").status_code == 403
     origins = client.get("/internal/edge/origins", headers={EDGE_TOKEN_HEADER: SETTINGS.edge_token})
-    assert origins.status_code == 200 and origins.json() == {"upstreams": ["app.acme.example:443"]}
+    assert origins.status_code == 200 and origins.json() == {
+        "upstreams": [{"dial": "203.0.113.10:443", "host": "app.acme.example"}]
+    }
 
     # The ask endpoint cannot carry headers: address trust only.
     assert (
@@ -197,7 +199,8 @@ def valid_apps(session, make_application):
     return build_apps(session, SETTINGS)
 
 
-ALLOWED = {"app.acme.example:443"}
+# The gateway learns {pinned address: origin name} from /internal/edge/origins.
+ALLOWED = {"203.0.113.10:443": "app.acme.example"}
 
 
 def test_gateway_accepts_reconciler_output_only(valid_apps):
@@ -227,6 +230,9 @@ def test_gateway_accepts_reconciler_output_only(valid_apps):
         "no fallback": lambda a: server(a)["routes"].pop(),
         "insecure transport": lambda a: app_route(a)["handle"][2].__setitem__(
             "transport", {"protocol": "http", "tls": {"insecure_skip_verify": True}}
+        ),
+        "server name of another origin": lambda a: app_route(a)["handle"][2].__setitem__(
+            "transport", {"protocol": "http", "tls": {"server_name": "evil.example"}}
         ),
         "tampered assert step": lambda a: app_route(a)["handle"][1]["upstreams"].__setitem__(
             0, {"dial": "evil:1"}
@@ -274,7 +280,7 @@ def test_gateway_app_forwards_only_valid_configs(valid_apps):
             return httpx.Response(200)
         return httpx.Response(404)
 
-    origins = {"upstreams": set(ALLOWED)}
+    origins = {"upstreams": dict(ALLOWED)}
     app = create_gateway_app(
         SETTINGS,
         caddy_admin_url="http://caddy",
@@ -298,7 +304,7 @@ def test_gateway_app_forwards_only_valid_configs(valid_apps):
     assert app_client.post("/load", json=valid_apps).status_code in (404, 405)
     assert app_client.get("/config/storage").status_code == 404
 
-    origins["upstreams"] = set()
+    origins["upstreams"] = {}
     assert (
         app_client.post("/config/apps", json=valid_apps).status_code == 400
     )  # upstream no longer verified

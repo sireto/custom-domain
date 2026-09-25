@@ -206,6 +206,14 @@ def verify_origin(
     return origin
 
 
+def resolve_dials(host: str, port: int, *, allow_private: bool = False) -> list[str]:
+    """Every ``address:port`` the origin currently resolves to, in resolver order."""
+    dials = []
+    for address in resolve(host, port, allow_private=allow_private):
+        dials.append(f"[{address}]:{port}" if ":" in address else f"{address}:{port}")
+    return dials
+
+
 def pinned_dial(host: str, port: int, *, allow_private: bool = False) -> tuple[str, str]:
     """Return ``(address:port, host)`` for the edge to dial.
 
@@ -216,7 +224,4 @@ def pinned_dial(host: str, port: int, *, allow_private: bool = False) -> tuple[s
     a private or metadata address therefore cannot redirect live traffic; the
     next reconciliation resolves again and drops the origin instead.
     """
-    addresses = resolve(host, port, allow_private=allow_private)
-    address = addresses[0]
-    dial = f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
-    return dial, host
+    return resolve_dials(host, port, allow_private=allow_private)[0], host

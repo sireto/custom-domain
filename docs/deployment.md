@@ -34,17 +34,22 @@ talks to (`CADDY_ADMIN_URL=http://edge:2019`). It exposes only
 `storage`) and `POST /config/apps`, and it accepts a `POST` only when the
 payload is exactly the reconciler's shape: the health and 404 routes, and
 per application a route whose handlers are the header strip, the assert
-subrequest to the configured upstream, and a `reverse_proxy` to an upstream
-that the management API currently lists as a verified active origin
-(`GET /internal/edge/origins`), with only the documented headers and
-verified TLS. `file_server`, extra listeners, extra servers, storage or TLS
+subrequest to the configured upstream, and a `reverse_proxy` that dials an
+address the management API currently lists for a verified active origin and
+presents that origin's own name for TLS (`GET /internal/edge/origins`
+returns the resolved addresses paired with the name), with only the
+documented headers. `file_server`, extra listeners, extra servers, storage or TLS
 policy changes and `/load` are refused. This closes the boundary described
 in [operations.md](operations.md#private-key-boundaries): a compromised API
 or worker can no longer make Caddy serve the certificate store.
 
 ## Secrets
 
-Copy `deploy/env.production.example` to `deploy/.env.production` and fill it.
+Copy `deploy/env.production.example` to `deploy/.env` and fill it. Compose
+reads `deploy/.env` on its own for the `${...}` substitutions in the file and
+the services load the same file through `env_file`, so no variable has to be
+exported in the shell; run every command from the `deploy` directory (or
+pass `--project-directory deploy`).
 It holds the database password, `EDGE_ASSERTION_KEYS` (signs assertions),
 `EDGE_TOKEN` (edge to API), `CADDY_REDIS_PASSWORD` and
 `CADDY_REDIS_ENCRYPTION_KEY`. Only the edge containers need the Redis
@@ -57,6 +62,7 @@ redaction filter masks credential-looking values as a last line of defence.
 
 ```
 cd deploy
+docker compose -f compose.production.yml config >/dev/null   # verifies the env file is complete
 docker compose -f compose.production.yml up -d db redis
 docker compose -f compose.production.yml up -d api          # runs migrations
 docker compose -f compose.production.yml up -d worker edge

@@ -20,7 +20,7 @@ listeners, no changes to TLS automation beyond the expected policy.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import httpx
@@ -38,8 +38,12 @@ class ConfigRejected(Exception):
         self.reason = reason
 
 
-def validate_apps(apps: Any, settings: EdgeSettings, allowed_upstreams: set[str]) -> None:
-    """Raise ``ConfigRejected`` unless ``apps`` is exactly a reconciler-shaped subtree."""
+def validate_apps(apps: Any, settings: EdgeSettings, allowed_upstreams: Mapping[str, str]) -> None:
+    """Raise ``ConfigRejected`` unless ``apps`` is exactly a reconciler-shaped subtree.
+
+    ``allowed_upstreams`` maps each dialable ``address:port`` of a verified
+    active origin to that origin's name (``GET /internal/edge/origins``).
+    """
     if not isinstance(apps, dict):
         raise ConfigRejected("apps must be an object")
     if set(apps) - {"http", "tls"}:
@@ -91,7 +95,7 @@ def _expected_tls(settings: EdgeSettings) -> dict[str, Any]:
 
 
 def _validate_app_route(
-    route: Any, settings: EdgeSettings, allowed_upstreams: set[str], seen_hosts: set[str]
+    route: Any, settings: EdgeSettings, allowed_upstreams: Mapping[str, str], seen_hosts: set[str]
 ) -> None:
     if not isinstance(route, dict) or set(route) != {"@id", "match", "handle", "terminal"}:
         raise ConfigRejected("application routes must have @id, match, handle and terminal only")
@@ -151,24 +155,27 @@ def _validate_app_route(
     if proxy.get("headers") != expected_headers:
         raise ConfigRejected("reverse_proxy headers must set Host and X-Forwarded-* only")
     transport = proxy.get("transport")
-    host = dial.rsplit(":", 1)[0]
-    if transport is not None and transport != {"protocol": "http", "tls": {"server_name": host}}:
-        raise ConfigRejected("reverse_proxy transport may only enable verified TLS to the origin")
+    origin_host = allowed_upstreams[dial]
+    expected_transport = {"protocol": "http", "tls": {"server_name": origin_host}}
+    if transport is not None and transport != expected_transport:
+        raise ConfigRejected(
+            "reverse_proxy transport may only enable verified TLS to the origin's own name"
+        )
 
 
-OriginsProvider = Callable[[], set[str]]
+OriginsProvider = Callable[[], Mapping[str, str]]
 
 
 def api_origins_provider(api_url: str, token: str | None, timeout: float = 5.0) -> OriginsProvider:
-    """Fetch the verified active origins (host:port) from the management API."""
+    """Fetch the verified active origins from the management API as ``{dial: host}``."""
 
-    def fetch() -> set[str]:
+    def fetch() -> dict[str, str]:
         headers = {"X-Custom-Domain-Edge-Token": token} if token else {}
         response = httpx.get(
             f"{api_url.rstrip('/')}/internal/edge/origins", headers=headers, timeout=timeout
         )
         response.raise_for_status()
-        return set(response.json()["upstreams"])
+        return {item["dial"]: item["host"] for item in response.json()["upstreams"]}
 
     return fetch
 

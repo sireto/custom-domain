@@ -1,5 +1,7 @@
 # Production layout: separate database, certificate store, API, worker and
-# edge containers. Secrets come from an env file that is not committed.
+# edge containers. Secrets live in deploy/.env (copied from
+# env.production.example, never committed). Compose reads that file both for
+# the ${...} substitutions below and, through env_file, for the containers.
 # See docs/deployment.md for the walkthrough, backups and rollback.
 services:
   db:
@@ -7,7 +9,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: custom_domain
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env.production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in deploy/.env}
       POSTGRES_DB: custom_domain
     volumes:
       - db_data:/var/lib/postgresql/data
@@ -21,20 +23,23 @@ services:
   redis:
     image: redis:7
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${CADDY_REDIS_PASSWORD:?set in .env.production}"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${CADDY_REDIS_PASSWORD:?set in deploy/.env}"]
+    environment:
+      # Only for the health check below; the server reads --requirepass.
+      REDIS_PASSWORD: ${CADDY_REDIS_PASSWORD:?set in deploy/.env}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $$CADDY_REDIS_PASSWORD --no-auth-warning ping | grep PONG"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 6
     networks: [edge_storage]
 
   api:
-    image: sireto/custom-domain:latest
+    image: ${CUSTOM_DOMAIN_IMAGE:-sireto/custom-domain:latest}
     restart: unless-stopped
-    env_file: .env.production
+    env_file: .env
     environment:
       CONTAINER_ROLE: api
       ENABLE_LEGACY_API: "false"
@@ -51,9 +56,9 @@ services:
     # Not published: reach the management API through a host reverse proxy or a VPN.
 
   worker:
-    image: sireto/custom-domain:latest
+    image: ${CUSTOM_DOMAIN_IMAGE:-sireto/custom-domain:latest}
     restart: unless-stopped
-    env_file: .env.production
+    env_file: .env
     environment:
       CONTAINER_ROLE: worker
       ENABLE_LEGACY_API: "false"
@@ -64,9 +69,9 @@ services:
     networks: [backend, control]
 
   edge:
-    image: sireto/custom-domain:latest
+    image: ${CUSTOM_DOMAIN_IMAGE:-sireto/custom-domain:latest}
     restart: unless-stopped
-    env_file: .env.production
+    env_file: .env
     environment:
       CONTAINER_ROLE: edge
       ENABLE_LEGACY_API: "false"
