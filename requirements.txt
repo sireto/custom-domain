@@ -1,6 +1,0 @@
-fastapi[all]
-uvicorn[standard]
-python-dotenv
-httpx
-requests
-validators

@@ -11,12 +11,16 @@ Here is a sample `.env` file.
 ```
 SAAS_UPSTREAM=example.com:443
 API_KEY=0df05a6c-d4c6-4ee4-a55d-de1409e82cee
+DATABASE_URL=sqlite:///data/custom_domain.db
 ```
+`DATABASE_URL` selects the authoritative database. Use a PostgreSQL URL such as
+`postgresql+psycopg://user:password@db:5432/custom_domain` for production.
 
-## 2. Create docker volumes to persist data (eg. certificates, domains etc.)
+## 2. Create docker volumes to persist data (eg. certificates, domains, database)
 ```bash
 docker volume create https_data
 docker volume create https_domains
+docker volume create https_db
 ```
 
 ## 3. Docker Compose file
@@ -40,11 +44,14 @@ services:
     volumes:
       - https_domains:/app/domains
       - https_data:/root/.local/share
+      - https_db:/app/data
 
 volumes:
   https_data:
     external: true
   https_domains:
+    external: true
+  https_db:
     external: true
 
 networks:
@@ -76,6 +83,19 @@ Then, your customer should set the following DNS records:
 - Type: CNAME Record 
 - Name: customerdomain.com (or subdomain)
 - Target: `custom.example.com`
+
+# Development
+The project uses [uv](https://docs.astral.sh/uv/) for a reproducible environment.
+```bash
+uv sync                      # install dependencies from uv.lock
+uv run pytest                # run the test suite on a temporary SQLite database
+uv run custom-domain --help  # operator commands: migrations, applications, credentials, imports
+```
+Set `TEST_DATABASE_URL` to a PostgreSQL URL to run the same suite against PostgreSQL.
+
+The application and domain data model, its invariants, the status model and
+the migration path from volume-based deployments are described in
+[docs/data-model.md](docs/data-model.md).
 
 # Source Code
 The full source code is available on GitHub <br/>

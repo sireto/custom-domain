@@ -1,4 +1,3 @@
-from typing import Optional
 
 from fastapi import APIRouter, Depends
 from fastapi.openapi.models import APIKey
@@ -23,7 +22,7 @@ async def get_domains(api_key: APIKey = Depends(get_api_key)):
 
 @domain_api.post("/domains", tags=["Custom Domain API"])
 async def add_domain(domain: str,
-                     upstream: Optional[str] = None,
+                     upstream: str | None = None,
                      api_key: APIKey = Depends(get_api_key)):
     caddy_server.add_custom_domain(domain, upstream)
     return "OK"

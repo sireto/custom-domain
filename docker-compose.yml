@@ -16,11 +16,14 @@ services:
     volumes:
       - https_domains:/app/domains
       - https_data:/root/.local/share
+      - https_db:/app/data
 
 volumes:
   https_data:
     external: true
   https_domains:
+    external: true
+  https_db:
     external: true
 
 networks:

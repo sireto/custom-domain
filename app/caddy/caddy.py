@@ -1,8 +1,8 @@
 import os
 
+import validators
 from dotenv import load_dotenv
 from fastapi import HTTPException
-import validators
 
 from app.caddy.caddy_config import CaddyAPIConfigurator
 

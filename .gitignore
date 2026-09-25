@@ -1,5 +1,15 @@
 /local/
 /venv/
+/.venv/
 .idea/
 .env
+.env.*
+!.env_example
 __pycache__/
+.pytest_cache/
+.ruff_cache/
+/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

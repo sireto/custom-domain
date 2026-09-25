@@ -1,8 +1,8 @@
 import os
 import uuid
 
-from fastapi import Security, HTTPException
-from fastapi.security.api_key import APIKeyQuery, APIKeyCookie, APIKeyHeader
+from fastapi import HTTPException, Security
+from fastapi.security.api_key import APIKeyCookie, APIKeyHeader, APIKeyQuery
 from starlette.status import HTTP_403_FORBIDDEN
 
 API_KEY = os.environ.get('API_KEY', str(uuid.uuid4()))

@@ -1,0 +1,39 @@
+name: Tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: custom_domain
+          POSTGRES_PASSWORD: custom_domain
+          POSTGRES_DB: custom_domain_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U custom_domain"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check app tests
+      - name: Test on SQLite
+        run: uv run pytest
+      - name: Test on PostgreSQL
+        run: uv run pytest
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://custom_domain:custom_domain@localhost:5432/custom_domain_test
