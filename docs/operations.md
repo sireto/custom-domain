@@ -285,3 +285,43 @@ unacceptable.
 - Rotating the Redis encryption key: `caddy storage export` with the old
   key, change the key, `caddy storage import`.
 - Backups that include the certificate store or the database are secrets.
+
+## Releasing the SDK
+
+`custom-domain-sdk` is published to PyPI by the `Publish SDK` workflow
+(`.github/workflows/publish-sdk.yml`) with [Trusted Publishing](https://docs.pypi.org/trusted-publishers/):
+PyPI accepts a short-lived OpenID Connect token that GitHub mints for that
+workflow, so no PyPI API token exists in the repository or its secrets.
+
+One-time setup, by a PyPI owner of the project (or, before the first
+release, through "Add a new pending publisher" under the account's
+Publishing settings):
+
+| PyPI field | Value |
+|---|---|
+| PyPI project name | `custom-domain-sdk` |
+| Owner | `sireto` |
+| Repository name | `custom-domain` |
+| Workflow name | `publish-sdk.yml` |
+| Environment name | `pypi` |
+
+Then create the `pypi` environment in the repository settings
+(Settings, Environments) and restrict it to protected tags or to the
+maintainers who release, so that only an approved run can mint the token.
+A `testpypi` environment with the same publisher registered on
+test.pypi.org lets the manual run of the workflow ("Run workflow", target
+`testpypi`) rehearse a release without touching PyPI.
+
+Releasing a version:
+
+1. Set `version` in `sdk/pyproject.toml`, update `sdk/README.md` if the
+   contract changed, and merge that through a pull request.
+2. Tag the merge commit `sdk-v<version>` and push the tag:
+   `git tag sdk-v0.1.0 && git push origin sdk-v0.1.0`.
+3. The workflow refuses a tag that does not match the version, runs the SDK
+   tests, builds the sdist and wheel, checks their metadata, and publishes
+   them from the `pypi` environment. The run's summary lists the file
+   hashes.
+
+The tag is the only trigger for PyPI; a run started by hand never publishes
+there.

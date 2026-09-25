@@ -1,0 +1,90 @@
+# Publishes the custom-domain-sdk package to PyPI with Trusted Publishing:
+# GitHub mints a short-lived OIDC token for this workflow and PyPI accepts it
+# for the configured publisher (owner sireto, repository custom-domain, this
+# workflow file, environment "pypi"). No API token is stored anywhere.
+# See docs/operations.md, "Releasing the SDK".
+name: Publish SDK
+
+on:
+  push:
+    tags: ["sdk-v*"]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to publish a manual run (the tag push always targets PyPI)
+        type: choice
+        options: [testpypi]
+        default: testpypi
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Check that the tag matches the package version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(uv run python -c "import tomllib; print(tomllib.load(open('sdk/pyproject.toml','rb'))['project']['version'])")
+          test "${GITHUB_REF_NAME}" = "sdk-v${version}" \
+            || { echo "tag ${GITHUB_REF_NAME} does not match sdk/pyproject.toml version ${version}"; exit 1; }
+      - name: Test the SDK
+        run: uv run pytest tests/test_sdk.py tests/test_assertion.py
+      - name: Build distributions
+        run: uv build --package custom-domain-sdk --out-dir dist
+      - name: Check distributions
+        run: uvx twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/custom-domain-sdk/
+    permissions:
+      id-token: write   # Trusted Publishing (OIDC)
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          print-hash: true
+
+  publish-testpypi:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/custom-domain-sdk/
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
+          print-hash: true
+          skip-existing: true
