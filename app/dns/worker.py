@@ -127,13 +127,31 @@ def process_domain(
         dns_due = bool(types & set(DNS_CHECK_TYPES))
         edge_due = bool(types & set(EDGE_CHECK_TYPES))
         if dns_due:
+            queried = claim_version(domain)
             ownership = ownership_outcome(resolver, domain)
             routing = routing_outcome(resolver, domain)
             lock_application(session, application_id)
+            # Reload from the database, not from the identity map, so a claim
+            # re-issued during the queries is visible here.
+            session.expire_all()
             domain = _load(session, domain_id)
             if domain is None:
                 session.rollback()
                 return False  # deleted while we were querying
+            if claim_version(domain) != queried:
+                # The observations belong to the old token and target: discard
+                # them and make the DNS checks due again for the new claim.
+                logger.info("discarding dns results for %s: claim changed", domain.hostname)
+                session.execute(
+                    update(DomainCheck)
+                    .where(
+                        DomainCheck.domain_id == domain_id,
+                        DomainCheck.check_type.in_(DNS_CHECK_TYPES),
+                    )
+                    .values(next_check_at=utcnow())
+                )
+                session.commit()
+                return False
             apply_dns_outcomes(session, domain, ownership, routing, now=utcnow())
             session.commit()
 
@@ -150,6 +168,7 @@ def process_domain(
             return True
         certificate = certificate_outcome(prober, domain, settings, now=utcnow())
         lock_application(session, application_id)
+        session.expire_all()
         domain = _load(session, domain_id)
         if domain is None or not eligible_for_edge_checks(domain):
             session.rollback()
@@ -157,6 +176,14 @@ def process_domain(
         apply_edge_outcomes(session, domain, certificate, origin_outcome(domain), now=utcnow())
         session.commit()
         return True
+
+
+def claim_version(domain: Domain) -> tuple | None:
+    """Identity of the live claim the DNS observations were made against."""
+    claim = domain.active_claim
+    if claim is None:
+        return None
+    return (claim.id, claim.token, claim.cname_target)
 
 
 def run_due_checks(
