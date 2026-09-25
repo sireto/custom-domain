@@ -202,7 +202,9 @@ def test_cli_bootstrap_and_libpq_url(cli_env, capsys, monkeypatch, tmp_path):
     document = json.loads(target.read_text())
     assert document["storage"]["password"] == "topsecret"
     assert document["admin"] == {"listen": "localhost:2019"}
-    assert document["apps"]["http"]["servers"]["edge"]["routes"] == []
+    assert [r["@id"] for r in document["apps"]["http"]["servers"]["edge"]["routes"]] == [
+        "edge-health"
+    ]
     assert oct(target.stat().st_mode & 0o777) == "0o600"
     capsys.readouterr()
 

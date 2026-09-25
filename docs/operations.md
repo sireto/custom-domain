@@ -199,8 +199,9 @@ Hardening requirement before production use, with either storage kind
 2. The gateway accepts only the shape the reconciler produces: an `apps`
    object whose HTTP server routes contain a single `reverse_proxy` handler
    per route, whose upstream is an origin registered and verified in the
-   database, with no other handler modules (`file_server`, `static_response`
-   with bodies, `templates`, admin or metrics endpoints), no changes to
+   database, plus the fixed body-less `static_response` health route, with no
+   other handler modules (`file_server`, `static_response` with bodies,
+   `templates`, admin or metrics endpoints), no changes to
    `admin`, `storage` or the TLS automation policy beyond the ACME email,
    and no listener other than the edge ports. Anything else is rejected and
    logged.

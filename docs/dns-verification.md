@@ -61,7 +61,7 @@ for one domain immediately and prints the diagnostics.
 | From | Both pass | Either fails |
 | --- | --- | --- |
 | `pending_dns` | claim verified (`dns_txt`), then `provisioning` | stays, backoff |
-| `provisioning` | stays; certificate and origin checks decide readiness | `pending_dns` |
+| `provisioning` | stays; the certificate and origin checks ([tls-readiness.md](tls-readiness.md)) then move it to `ready` | `pending_dns` |
 | `ready` | stays, revalidated every 6 hours | `attention_required` immediately; serving stops |
 | `attention_required` | `ready` again when the other checks still pass (`domain.recovered`) | stays; if ownership has failed for 24 hours on a verified claim, `suspended` |
 | `suspended` | `provisioning` (the domain must complete readiness again) | stays |

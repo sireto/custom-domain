@@ -175,7 +175,9 @@ def routing_outcome(resolver: Resolver, domain: Domain) -> Outcome:
     )
 
 
-def _schedule(check: DomainCheck | None, outcome: Outcome, now: datetime) -> tuple[datetime, dict]:
+def schedule_next(
+    check: DomainCheck | None, outcome: Outcome, now: datetime
+) -> tuple[datetime, dict]:
     previous = dict(check.details or {}) if check is not None else {}
     details: dict[str, Any] = dict(outcome.details)
     if outcome.passing:
@@ -200,7 +202,7 @@ def apply_dns_outcomes(
     recorded = []
     for check_type, outcome in ((CheckType.OWNERSHIP, ownership), (CheckType.ROUTING, routing)):
         existing = domain.check(check_type)
-        next_at, details = _schedule(existing, outcome, now)
+        next_at, details = schedule_next(existing, outcome, now)
         recorded.append(
             record_check(
                 session,

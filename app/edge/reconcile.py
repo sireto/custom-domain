@@ -22,7 +22,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.edge.caddy_client import CaddyClient, CaddyError, CaddyRejectedConfig, CaddyUnavailable
-from app.edge.config import SERVER_NAME, build_apps, config_digest, hostnames_in
+from app.edge.config import app_route_count, build_apps, config_digest, hostnames_in
 from app.edge.lock import acquire_reconcile_lock
 from app.edge.settings import EdgeSettings
 from app.models.types import utcnow
@@ -106,7 +106,7 @@ class Reconciler:
     def _apply(self, desired: dict[str, Any], now: datetime) -> ReconcileResult:
         digest = config_digest(desired)
         hostnames = len(hostnames_in({"apps": desired}))
-        routes = len(desired["http"]["servers"][SERVER_NAME]["routes"])
+        routes = app_route_count(desired)
 
         try:
             current = self.client.get_config()

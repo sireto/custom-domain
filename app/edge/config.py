@@ -22,11 +22,13 @@ from urllib.parse import urlparse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.edge.settings import EdgeSettings
+from app.edge.settings import HEALTH_PATH, EdgeSettings
 from app.models import Application, ApplicationStatus, Domain, DomainStatus, VerifiedOrigin
 from app.services.domains import is_serveable
 
 SERVER_NAME = "edge"
+EDGE_HEALTH_HEADER = "X-Custom-Domain-Edge"
+EDGE_HEALTH_VALUE = "1"
 
 
 @dataclass(frozen=True)
@@ -93,8 +95,27 @@ def _route(group: RouteGroup) -> dict[str, Any]:
     }
 
 
+def health_route() -> dict[str, Any]:
+    """Answers the readiness probe on every hostname so it can tell this edge apart."""
+    return {
+        "@id": "edge-health",
+        "match": [{"path": [HEALTH_PATH]}],
+        "handle": [
+            {
+                "handler": "static_response",
+                "status_code": 204,
+                "headers": {EDGE_HEALTH_HEADER: [EDGE_HEALTH_VALUE]},
+            }
+        ],
+        "terminal": True,
+    }
+
+
 def _server(settings: EdgeSettings, routes: list[dict[str, Any]]) -> dict[str, Any]:
-    server: dict[str, Any] = {"listen": [f":{settings.https_port}"], "routes": routes}
+    server: dict[str, Any] = {
+        "listen": [f":{settings.https_port}"],
+        "routes": [health_route(), *routes],
+    }
     if settings.disable_https:
         server["automatic_https"] = {"disable": True}
     return server
@@ -106,10 +127,16 @@ def build_apps(session: Session, settings: EdgeSettings) -> dict[str, Any]:
     apps: dict[str, Any] = {
         "http": {"servers": {SERVER_NAME: _server(settings, [_route(g) for g in groups])}}
     }
-    if settings.acme_email and not settings.disable_https:
+    if not settings.disable_https:
+        issuer: dict[str, Any] = {"module": "acme"}
+        if settings.acme_email:
+            issuer["email"] = settings.acme_email
+        # Certificates are issued on demand, at the first TLS handshake for a
+        # hostname, and only when the ask endpoint approves that hostname.
         apps["tls"] = {
             "automation": {
-                "policies": [{"issuers": [{"module": "acme", "email": settings.acme_email}]}]
+                "on_demand": {"permission": {"module": "http", "endpoint": settings.ask_url}},
+                "policies": [{"on_demand": True, "issuers": [issuer]}],
             }
         }
     return apps
@@ -140,6 +167,12 @@ def build_caddy_config(session: Session, settings: EdgeSettings) -> dict[str, An
     config = build_bootstrap(settings)
     config["apps"] = build_apps(session, settings)
     return config
+
+
+def app_route_count(apps: dict[str, Any]) -> int:
+    """Number of application routes (excluding the fixed health route)."""
+    routes = apps.get("http", {}).get("servers", {}).get(SERVER_NAME, {}).get("routes", [])
+    return sum(1 for route in routes if str(route.get("@id", "")).startswith("app-"))
 
 
 def config_digest(config: dict[str, Any] | None) -> str:

@@ -3,12 +3,14 @@ from datetime import timedelta
 
 from app.dns.worker import (
     LEASE,
-    DnsWorker,
+    ChecksWorker,
     due_domain_ids,
     lease_domain,
     process_domain,
     run_due_checks,
 )
+from app.edge.probe import EdgeProbeFailed
+from app.edge.settings import EdgeSettings
 from app.models import CheckType, DomainStatus
 from app.models.types import utcnow
 from app.services.domains import claim_domain, delete_domain, request_recheck
@@ -20,6 +22,17 @@ def _refresh(session):
     # (SQLite keeps a snapshot for the life of a transaction).
     session.commit()
     session.expire_all()
+
+
+class NoEdge:
+    """Prober that never reaches an edge; keeps worker tests off the network."""
+
+    def probe(self, hostname):
+        raise EdgeProbeFailed("connection_failed", "no edge in tests")
+
+
+SETTINGS = EdgeSettings(reconcile_enabled=True, legacy_api_enabled=False)
+KW = {"prober": NoEdge(), "settings": SETTINGS}
 
 
 def _publish(resolver, domain):
@@ -69,7 +82,7 @@ def test_run_due_checks_processes_and_reschedules(session, session_factory, make
     session.commit()
     _publish(resolver, ok)
 
-    result = run_due_checks(session_factory, resolver)
+    result = run_due_checks(session_factory, resolver, **KW)
     assert result.processed == 2 and result.failed == 0
     _refresh(session)
     assert ok.status == DomainStatus.PROVISIONING
@@ -83,11 +96,11 @@ def test_run_due_checks_processes_and_reschedules(session, session_factory, make
     )
 
     # Nothing is due until the backoff elapses; a manual recheck brings it forward.
-    assert run_due_checks(session_factory, resolver).processed == 0
+    assert run_due_checks(session_factory, resolver, **KW).processed == 0
     request_recheck(session, acme, bad.id)
     session.commit()
     _publish(resolver, bad)
-    assert run_due_checks(session_factory, resolver).processed == 1
+    assert run_due_checks(session_factory, resolver, **KW).processed == 1
     _refresh(session)
     assert bad.status == DomainStatus.PROVISIONING
 
@@ -110,7 +123,7 @@ def test_domain_deleted_during_queries_is_not_updated(session, session_factory, 
 
     resolver = DeletingResolver()
     _publish(resolver, domain)
-    assert process_domain(session_factory, resolver, domain.id) is False
+    assert process_domain(session_factory, resolver, domain.id, **KW) is False
     _refresh(session)
     assert domain.deleted_at is not None and domain.status == DomainStatus.DELETING
 
@@ -129,7 +142,7 @@ def test_concurrent_workers_share_the_batch_without_duplicates(
 
     def worker():
         barrier.wait()
-        totals.append(run_due_checks(session_factory, resolver).processed)
+        totals.append(run_due_checks(session_factory, resolver, **KW).processed)
 
     threads = [threading.Thread(target=worker) for _ in range(3)]
     for t in threads:
@@ -147,7 +160,7 @@ def test_worker_loop_runs_and_stops(session, session_factory, make_application):
     session.commit()
     resolver = FakeResolver()
     _publish(resolver, domain)
-    worker = DnsWorker(session_factory, resolver)
+    worker = ChecksWorker(session_factory, resolver, **KW)
     stop = threading.Event()
     thread = threading.Thread(target=worker.run_forever, args=(stop, 60))
     thread.start()
@@ -158,3 +171,54 @@ def test_worker_loop_runs_and_stops(session, session_factory, make_application):
     stop.set()
     thread.join(5)
     assert worker.last_result is not None and worker.last_result.processed == 1
+
+
+def test_worker_runs_edge_checks_after_dns_and_reaches_ready(
+    session, session_factory, make_application
+):
+    from app.models import CheckType
+    from app.services.applications import (
+        activate_origin,
+        record_origin_verification,
+        register_origin,
+    )
+    from tests.test_edge_checks import FakeProber
+
+    acme = make_application("acme")
+    origin = register_origin(session, acme, host="app.acme.example")
+    record_origin_verification(session, origin, verified=True)
+    activate_origin(session, origin)
+    domain = claim_domain(session, acme, "forms.customer.example", "w")
+    session.commit()
+    resolver = FakeResolver()
+    _publish(resolver, domain)
+    prober = FakeProber()
+
+    result = run_due_checks(session_factory, resolver, prober=prober, settings=SETTINGS)
+    assert result.processed == 1 and result.failed == 0
+    _refresh(session)
+    assert domain.status == DomainStatus.READY
+    assert prober.calls == ["forms.customer.example"]
+    assert domain.check(CheckType.CERTIFICATE).status.value == "passing"
+    assert domain.check(CheckType.ORIGIN).status.value == "passing"
+
+    # Nothing due afterwards; the probe is not repeated until revalidation.
+    assert (
+        run_due_checks(session_factory, resolver, prober=prober, settings=SETTINGS).processed == 0
+    )
+    assert prober.calls == ["forms.customer.example"]
+
+
+def test_worker_skips_edge_checks_for_unverified_domains(
+    session, session_factory, make_application
+):
+    from tests.test_edge_checks import FakeProber
+
+    acme = make_application("acme")
+    domain = claim_domain(session, acme, "forms.customer.example", "w")
+    session.commit()
+    prober = FakeProber()
+    result = run_due_checks(session_factory, FakeResolver(), prober=prober, settings=SETTINGS)
+    assert result.processed == 1
+    _refresh(session)
+    assert domain.status == DomainStatus.PENDING_DNS and prober.calls == []

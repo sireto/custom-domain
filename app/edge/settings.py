@@ -15,6 +15,9 @@ from typing import Any, Literal
 DEFAULT_ADMIN_URL = "http://localhost:2019"
 DEFAULT_HTTPS_PORT = 443
 DEFAULT_RECONCILE_INTERVAL = 30.0
+DEFAULT_ASK_URL = "http://localhost:9000/internal/tls/ask"
+DEFAULT_PROBE_TIMEOUT = 15.0
+HEALTH_PATH = "/.well-known/custom-domain-edge-health"
 REDIS_ENCRYPTION_KEY_LENGTH = 32
 
 StorageKind = Literal["file", "redis"]
@@ -53,6 +56,14 @@ class EdgeSettings:
     reconcile_enabled: bool = False
     reconcile_interval: float = DEFAULT_RECONCILE_INTERVAL
     legacy_api_enabled: bool = True
+    # On-demand TLS: Caddy asks this URL before issuing a certificate.
+    ask_url: str = DEFAULT_ASK_URL
+    ask_trusted_hosts: tuple[str, ...] = ("127.0.0.1", "::1")
+    # Readiness probe: where to connect (default: the hostname itself) and
+    # which CA file to trust (default: system store).
+    probe_address: str | None = None
+    probe_ca_file: str | None = None
+    probe_timeout: float = DEFAULT_PROBE_TIMEOUT
     _validated: bool = field(default=False, repr=False, compare=False)
 
     @classmethod
@@ -84,6 +95,11 @@ class EdgeSettings:
                 env.get("EDGE_RECONCILE_INTERVAL", DEFAULT_RECONCILE_INTERVAL)
             ),
             legacy_api_enabled=legacy,
+            ask_url=env.get("EDGE_ASK_URL", DEFAULT_ASK_URL).strip() or DEFAULT_ASK_URL,
+            ask_trusted_hosts=_csv(env, "EDGE_ASK_TRUSTED_HOSTS") or ("127.0.0.1", "::1"),
+            probe_address=env.get("EDGE_PROBE_ADDRESS", "").strip() or None,
+            probe_ca_file=env.get("EDGE_PROBE_CA_FILE", "").strip() or None,
+            probe_timeout=float(env.get("EDGE_PROBE_TIMEOUT", DEFAULT_PROBE_TIMEOUT)),
         )
         settings.validate()
         return settings
@@ -108,6 +124,10 @@ class EdgeSettings:
             raise EdgeConfigurationError("EDGE_RECONCILE_INTERVAL must be at least 1 second")
         if not 0 < self.https_port < 65536:
             raise EdgeConfigurationError("EDGE_HTTPS_PORT must be between 1 and 65535")
+        if self.probe_timeout < 1:
+            raise EdgeConfigurationError("EDGE_PROBE_TIMEOUT must be at least 1 second")
+        if self.probe_address and ":" not in self.probe_address:
+            raise EdgeConfigurationError("EDGE_PROBE_ADDRESS must be host:port")
 
     def storage_config(self) -> dict[str, Any] | None:
         """The Caddy ``storage`` block, or None for Caddy's default file storage."""

@@ -105,7 +105,8 @@ examples, error codes, webhook payloads and the migration from the legacy
 `/domains` endpoint, is in [docs/api-v1.md](docs/api-v1.md); the OpenAPI
 document is [docs/openapi.json](docs/openapi.json) and is served at
 `/v1/openapi.json` with Swagger UI at `/v1/docs`. DNS verification, its diagnostics and the status rules it drives are in
-[docs/dns-verification.md](docs/dns-verification.md). Certificate storage,
+[docs/dns-verification.md](docs/dns-verification.md); on-demand certificates and the
+HTTPS readiness probe are in [docs/tls-readiness.md](docs/tls-readiness.md). Certificate storage,
 multi-instance coordination, backup and restore are covered by
 [docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md)
 and [docs/operations.md](docs/operations.md).
