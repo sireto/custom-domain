@@ -281,3 +281,67 @@ def test_page_domains_lookahead_is_not_clamped(session, domain):
     assert len(rows) == 1 and not has_more
     rows, has_more = page_domains(session, acme, limit=MAX_PAGE_SIZE * 5)
     assert len(rows) == MAX_PAGE_SIZE and has_more
+
+
+def _concurrent_rechecks(session_factory, application_id, domain_ids, workers):
+    import threading
+
+    from app.models import Application
+
+    barrier = threading.Barrier(workers)
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def worker(index: int) -> None:
+        with session_factory() as s:
+            app_row = s.get(Application, application_id)
+            s.commit()  # end the read transaction; the recheck must start fresh
+            barrier.wait()
+            try:
+                request_recheck(s, app_row, domain_ids[index % len(domain_ids)])
+                s.commit()
+                result = "accepted"
+            except RateLimited:
+                s.rollback()
+                result = "limited"
+        with lock:
+            outcomes.append(result)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(workers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    assert len(outcomes) == workers
+    return outcomes
+
+
+def test_concurrent_rechecks_on_one_domain_admit_exactly_one(session_factory, session, domain):
+    outcomes = _concurrent_rechecks(session_factory, domain.application_id, [domain.id], 6)
+    assert outcomes.count("accepted") == 1
+    assert outcomes.count("limited") == 5
+    with session_factory() as s:
+        events = s.scalars(
+            select(DomainEvent).where(
+                DomainEvent.domain_id == domain.id,
+                DomainEvent.event_type == EventType.RECHECK_REQUESTED.value,
+            )
+        ).all()
+        assert len(events) == 1
+
+
+def test_concurrent_rechecks_respect_the_application_budget(
+    session_factory, session, domain, monkeypatch
+):
+    from app.services import domains as domain_service
+
+    monkeypatch.setattr(domain_service, "RECHECK_MAX_PER_WINDOW", 2)
+    acme = domain.application
+    ids = [domain.id]
+    for index in range(5):
+        ids.append(claim_domain(session, acme, f"c{index}.customer.example", "w").id)
+    session.commit()
+
+    outcomes = _concurrent_rechecks(session_factory, acme.id, ids, 6)
+    assert outcomes.count("accepted") == 2
+    assert outcomes.count("limited") == 4

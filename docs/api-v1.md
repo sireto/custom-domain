@@ -122,8 +122,9 @@ the domain as it is now; the outcome arrives by polling or webhook.
 Manual rechecks are rate limited: at most one per domain every 60 seconds
 and 60 per application per hour. Over either limit the response is
 `429 rate_limited` with a `Retry-After` header (also given as
-`details.retry_after_seconds`). A deleted domain cannot be rechecked and
-returns `409 invalid_status_transition`.
+`details.retry_after_seconds`). Decisions are serialized per application, so
+a burst of concurrent requests cannot exceed the limit. A deleted domain
+cannot be rechecked and returns `409 invalid_status_transition`.
 
 ### Ready
 

@@ -28,7 +28,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -545,6 +545,9 @@ def request_recheck(
     exceeding either raises ``RateLimited`` before anything is written.
     """
     now = now or utcnow()
+    # Take the application lock before any read so concurrent rechecks for the
+    # same application are decided one at a time within this transaction.
+    lock_application(session, application.id)
     domain = get_domain(session, application, domain_id, include_deleted=True)
     if domain.is_deleted or domain.status == DomainStatus.DELETING:
         raise InvalidStatusTransition("Deleted domains are not rechecked")
@@ -554,6 +557,22 @@ def request_recheck(
     session.flush()
     record_event(session, domain, EventType.RECHECK_REQUESTED, {"requested_by": "api"}, now=now)
     return domain
+
+
+def lock_application(session: Session, application_id: uuid.UUID) -> None:
+    """Serialize decisions for one application until the transaction ends.
+
+    A no-op UPDATE takes a row-level lock on PostgreSQL and the write lock on
+    SQLite, so it works the same on both backends. Callers must issue it as
+    the first statement of the transaction; a later read would otherwise
+    hold a stale snapshot on SQLite. The lock is released at commit or
+    rollback.
+    """
+    session.execute(
+        update(Application)
+        .where(Application.id == application_id)
+        .values(updated_at=Application.updated_at)
+    )
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
