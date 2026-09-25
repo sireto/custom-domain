@@ -114,7 +114,9 @@ def test_config_routes_only_serveable_hostnames_per_application(session, fleet):
     ]
 
     _health, acme_route, globex_route, _unmatched = server["routes"]
-    assert acme_route["match"] == [{"host": ["a.customer.example", "b.customer.example"]}]
+    assert acme_route["match"] == [
+        {"host": ["a.customer.example", "b.customer.example", "drift.customer.example"]}
+    ]
     assert acme_route["terminal"] is True
     strip, assert_step, proxy = acme_route["handle"]
     assert strip["handler"] == "headers" and assert_step["rewrite"]["uri"].endswith("/assert")
@@ -129,6 +131,7 @@ def test_config_routes_only_serveable_hostnames_per_application(session, fleet):
     assert hostnames_in(config) == {
         "a.customer.example",
         "b.customer.example",
+        "drift.customer.example",  # attention_required: routed, but not served
         "one.globex-customer.example",
     }
 
@@ -139,6 +142,7 @@ def test_suspended_application_drops_out_of_the_config(session, fleet):
     assert hostnames_in(build_caddy_config(session, SETTINGS)) == {
         "a.customer.example",
         "b.customer.example",
+        "drift.customer.example",
     }
 
 
@@ -371,7 +375,7 @@ def test_reconcile_applies_then_converges(session, fleet, reconciler):
     reconciler, caddy = reconciler
     first = reconciler.run_once()
     assert first.ok and first.changed
-    assert first.routes == 2 and first.hostnames == 3
+    assert first.routes == 2 and first.hostnames == 4
     assert len(caddy.loads) == 1 and caddy.full_loads == 0
     assert hostnames_in(caddy.running) == hostnames_in({"apps": caddy.loads[0]})
     assert "admin" in caddy.running  # bootstrap keys untouched

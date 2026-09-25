@@ -68,6 +68,9 @@ MAX_PAGE_SIZE = 200
 RECHECK_MIN_INTERVAL = timedelta(seconds=60)
 RECHECK_WINDOW = timedelta(hours=1)
 RECHECK_MAX_PER_WINDOW = 60
+# Registrations: a per-application budget per window, counted from events.
+REGISTRATION_WINDOW = timedelta(hours=1)
+REGISTRATION_MAX_PER_WINDOW = 120
 
 ALLOWED_TRANSITIONS: dict[DomainStatus, frozenset[DomainStatus]] = {
     DomainStatus.PENDING_DNS: frozenset(
@@ -141,6 +144,10 @@ def claim_domain(
         raise InvalidReference(f"Reference must be 1-{MAX_REFERENCE_LENGTH} characters")
     canonical = canonicalize(hostname)
     now = now or utcnow()
+    # Serialize registrations per application: the budget check below and the
+    # insert happen under the application lock (see lock_application).
+    lock_application(session, application.id)
+    _enforce_registration_limit(session, application, now)
 
     domain = Domain(
         application_id=application.id,
@@ -439,6 +446,11 @@ def record_check(
     check.observed_at = observed_at
     check.next_check_at = next_check_at
     session.flush()
+    from app import observability
+
+    observability.checks_total.labels(
+        check=check_type.value, status=status.value, error_code=check.error_code or ""
+    ).inc()
     record_event(
         session,
         domain,
@@ -491,6 +503,9 @@ def transition_status(
     domain.status = new_status
     domain.updated_at = now
     session.flush()
+    from app import observability
+
+    observability.status_transitions_total.labels(to=new_status.value, reason=reason or "").inc()
     record_event(
         session,
         domain,
@@ -575,6 +590,24 @@ def lock_application(session: Session, application_id: uuid.UUID) -> None:
     )
 
 
+def _enforce_registration_limit(session: Session, application: Application, now: datetime) -> None:
+    window_start = now - REGISTRATION_WINDOW
+    filters = [
+        DomainEvent.application_id == application.id,
+        DomainEvent.event_type == EventType.DOMAIN_CREATED.value,
+        DomainEvent.created_at > window_start,
+    ]
+    count = session.scalar(select(func.count()).select_from(DomainEvent).where(*filters))
+    if count is not None and count >= REGISTRATION_MAX_PER_WINDOW:
+        oldest = _as_utc(session.scalar(select(func.min(DomainEvent.created_at)).where(*filters)))
+        wait = (oldest + REGISTRATION_WINDOW - now).total_seconds() if oldest else 60
+        raise RateLimited(
+            f"At most {REGISTRATION_MAX_PER_WINDOW} registrations per application per "
+            f"{int(REGISTRATION_WINDOW.total_seconds() // 3600)} hour(s)",
+            retry_after=math.ceil(wait),
+        )
+
+
 def _as_utc(value: datetime | None) -> datetime | None:
     if value is not None and value.tzinfo is None:
         return value.replace(tzinfo=UTC)
@@ -655,6 +688,11 @@ def record_event(
     )
     session.add(event)
     session.flush()
+    # Transactional outbox: webhook deliveries for this event are created in
+    # the same transaction (docs/webhooks.md).
+    from app.services.webhooks import enqueue_for_event
+
+    enqueue_for_event(session, domain, event)
     return event
 
 

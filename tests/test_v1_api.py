@@ -26,6 +26,7 @@ def make_client(session_factory, monkeypatch):
             "EDGE_RECONCILE_ENABLED", os.environ.get("EDGE_RECONCILE_ENABLED", "false")
         )
         monkeypatch.setenv("DNS_WORKER_ENABLED", "false")
+        monkeypatch.setenv("WEBHOOK_WORKER_ENABLED", "false")
         app = create_app()
 
         def override():
@@ -322,8 +323,11 @@ def test_idempotency_key_expires_without_the_purge_job(client, session, tenant):
     assert stale.status_code == 422 and _error(stale)["code"] == "idempotency_key_reused"
 
 
-def test_pagination_lookahead_at_maximum_page_size(client, session, tenant):
+def test_pagination_lookahead_at_maximum_page_size(client, session, tenant, monkeypatch):
+    from app.services import domains as domain_service
     from app.services.domains import MAX_PAGE_SIZE, claim_domain
+
+    monkeypatch.setattr(domain_service, "REGISTRATION_MAX_PER_WINDOW", 10_000)
 
     application, headers = tenant()
     for index in range(MAX_PAGE_SIZE + 1):

@@ -216,6 +216,26 @@ def test_cli_bootstrap_and_libpq_url(cli_env, capsys, monkeypatch, tmp_path):
     assert capsys.readouterr().out.strip() == "postgresql://u:p@db:5432/cd"
 
 
+def test_cli_worker_once_and_workspace_probe_flag(cli_env, capsys, monkeypatch):
+    monkeypatch.setenv("ENABLE_LEGACY_API", "true")  # reconciler off; checks only
+    _run(
+        "application",
+        "create",
+        "--slug",
+        "acme",
+        "--name",
+        "Acme",
+        "--cname-target",
+        "acme.edge.example.net",
+    )
+    assert _run("application", "set-workspace-probe", "--application", "acme", "--disabled") == 0
+    assert "not required" in capsys.readouterr().out
+    assert _run("application", "set-workspace-probe", "--application", "acme", "--enabled") == 0
+    assert "probe required" in capsys.readouterr().out
+    assert _run("worker", "run", "--once") == 0
+    assert "checks: 0 processed" in capsys.readouterr().out
+
+
 def test_cli_origin_verify_activate_and_credential_rotate(cli_env, capsys, monkeypatch):
     from tests.test_origin_verification import TokenServer
 

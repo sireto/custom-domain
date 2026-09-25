@@ -11,7 +11,9 @@ dependencies = [
     "fastapi[standard]>=0.141.1",
     "httpx>=0.28.1",
     "idna>=3.20",
+    "prometheus-client>=0.26.0",
     "psycopg[binary]>=3.3.6",
+    "publicsuffixlist>=1.0.2.20260925",
     "python-dotenv>=1.2.3",
     "requests>=2.34.2",
     "sqlalchemy>=2.0",
@@ -28,6 +30,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.uv.workspace]
+members = ["sdk"]
+
+[tool.uv.sources]
+custom-domain-sdk = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -52,6 +60,7 @@ ignore = ["B008"]
 
 [dependency-groups]
 dev = [
+    "custom-domain-sdk",
     "pytest>=9.1.1",
     "ruff>=0.16.9",
 ]

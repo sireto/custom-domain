@@ -18,6 +18,7 @@ DEFAULT_RECONCILE_INTERVAL = 30.0
 DEFAULT_ASK_URL = "http://localhost:9000/internal/tls/ask"
 DEFAULT_PROBE_TIMEOUT = 15.0
 HEALTH_PATH = "/.well-known/custom-domain-edge-health"
+WORKSPACE_PATH = "/.well-known/custom-domain-workspace"
 DEFAULT_ASSERT_UPSTREAM = "localhost:9000"
 ASSERT_PATH = "/internal/edge/assert"
 REDIS_ENCRYPTION_KEY_LENGTH = 32
@@ -75,7 +76,11 @@ class EdgeSettings:
     legacy_api_enabled: bool = True
     # On-demand TLS: Caddy asks this URL before issuing a certificate.
     ask_url: str = DEFAULT_ASK_URL
+    # Client addresses or CIDR networks allowed to call the internal endpoints.
     ask_trusted_hosts: tuple[str, ...] = ("127.0.0.1", "::1")
+    # Shared secret the edge sends on assert and origin-list subrequests; when
+    # set, the API requires it in addition to the address check.
+    edge_token: str | None = None
     # Readiness probe: where to connect (default: the hostname itself) and
     # which CA file to trust (default: system store).
     probe_address: str | None = None
@@ -121,6 +126,7 @@ class EdgeSettings:
             legacy_api_enabled=legacy,
             ask_url=env.get("EDGE_ASK_URL", DEFAULT_ASK_URL).strip() or DEFAULT_ASK_URL,
             ask_trusted_hosts=_csv(env, "EDGE_ASK_TRUSTED_HOSTS") or ("127.0.0.1", "::1"),
+            edge_token=env.get("EDGE_TOKEN", "").strip() or None,
             probe_address=env.get("EDGE_PROBE_ADDRESS", "").strip() or None,
             probe_ca_file=env.get("EDGE_PROBE_CA_FILE", "").strip() or None,
             probe_timeout=float(env.get("EDGE_PROBE_TIMEOUT", DEFAULT_PROBE_TIMEOUT)),
@@ -167,6 +173,27 @@ class EdgeSettings:
             )
         if not 5 <= self.assertion_ttl <= 600:
             raise EdgeConfigurationError("EDGE_ASSERTION_TTL must be between 5 and 600 seconds")
+
+    def trusts(self, address: str | None) -> bool:
+        """Whether a client address is on the trusted list (exact address or CIDR)."""
+        if not address:
+            return False
+        if address in self.ask_trusted_hosts:
+            return True
+        import ipaddress
+
+        try:
+            client = ipaddress.ip_address(address)
+        except ValueError:
+            return False
+        for entry in self.ask_trusted_hosts:
+            if "/" in entry:
+                try:
+                    if client in ipaddress.ip_network(entry, strict=False):
+                        return True
+                except ValueError:
+                    continue
+        return False
 
     def signing_keys(self) -> dict[str, bytes]:
         return {key_id: secret.encode("utf-8") for key_id, secret in self.assertion_keys}

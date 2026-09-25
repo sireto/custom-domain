@@ -25,6 +25,7 @@ from app.services.errors import (
     ServiceError,
 )
 from app.services.idempotency import IdempotencyInProgress, IdempotencyKeyReused
+from app.services.webhooks import DeliveryNotFound, InvalidWebhook, WebhookNotFound
 
 
 class ApiError(Exception):
@@ -59,6 +60,9 @@ SERVICE_ERROR_STATUS: list[tuple[type[ServiceError], int]] = [
     (IdempotencyKeyReused, 422),
     (InvalidReference, 422),
     (RateLimited, 429),
+    (WebhookNotFound, 404),
+    (DeliveryNotFound, 404),
+    (InvalidWebhook, 422),
 ]
 
 

@@ -134,6 +134,7 @@ def client(session_factory, monkeypatch):
     monkeypatch.setenv("ENABLE_LEGACY_API", "true")
     monkeypatch.setenv("EDGE_RECONCILE_ENABLED", "false")
     monkeypatch.setenv("DNS_WORKER_ENABLED", "false")
+    monkeypatch.setenv("WEBHOOK_WORKER_ENABLED", "false")
     app = create_app()
 
     def override():
@@ -201,6 +202,23 @@ def test_assert_endpoint_signs_only_serveable_hosts(client, session, make_applic
         == 403
     )
     assert client.get(ASSERT_PATH).status_code == 403
+
+    # Provisioning (claim verified) hosts are routed only for the workspace probe path.
+    from app.services.domains import mark_claim_verified
+    from app.services.domains import transition_status as _transition
+
+    mark_claim_verified(session, pending)
+    _transition(session, pending, DomainStatus.PROVISIONING)
+    session.commit()
+    probe_headers = {
+        **_assert_headers("pending.customer.example"),
+        "X-Forwarded-Uri": "/.well-known/custom-domain-workspace?x=1",
+    }
+    assert client.get(ASSERT_PATH, headers=probe_headers).status_code == 200
+    page_headers = {**_assert_headers("pending.customer.example"), "X-Forwarded-Uri": "/dashboard"}
+    assert client.get(ASSERT_PATH, headers=page_headers).status_code == 403
+    _transition(session, pending, DomainStatus.PENDING_DNS)
+    session.commit()
     placeholder = _assert_headers("g.customer.example", "{http.request.tls.server_name}")
     assert client.get(ASSERT_PATH, headers=placeholder).status_code == 200  # plain HTTP
     assert pending.status == DomainStatus.PENDING_DNS

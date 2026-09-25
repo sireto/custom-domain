@@ -29,6 +29,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 # Dependencies first so they cache independently of application code.
 COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY sdk ./sdk
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY app ./app

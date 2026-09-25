@@ -40,6 +40,11 @@ class Application(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Hostname customers point their CNAME at. One per application so the
     # instructions and the routing lookup are both application specific (#6).
     cname_target: Mapped[str] = mapped_column(String(253), nullable=False)
+    # Whether readiness requires the origin to answer the workspace probe
+    # (docs/lifecycle.md). Off only for origins that cannot implement it.
+    workspace_probe_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
 
     origins: Mapped[list[VerifiedOrigin]] = relationship(
         back_populates="application", cascade="all, delete-orphan"

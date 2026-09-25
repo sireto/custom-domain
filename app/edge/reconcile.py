@@ -70,6 +70,11 @@ class Reconciler:
         with self._lock:
             result = self._run()
         self.last_result = result
+        from app import observability
+
+        observability.reconcile_total.labels(
+            outcome=result.error or ("applied" if result.changed else "unchanged")
+        ).inc()
         if result.ok:
             if result.changed:
                 logger.info(

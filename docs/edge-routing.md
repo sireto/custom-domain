@@ -9,10 +9,14 @@ proof (#5) and readiness (#6, #7).
    `strict_sni_host`, refuses any request whose `Host` differs from the SNI
    (HTTP 421). Certificates exist only for authorized hostnames (#7).
 2. Route: the derived configuration has one route per application whose
-   host matcher lists that application's serveable hostnames (live,
-   `ready`, verified claim, all checks passing, active application with a
-   verified active origin). There is no catch-all proxy: a hostname that
-   matches no application route hits a terminal 404 route, never an origin.
+   host matcher lists that application's routable hostnames: live, claim
+   verified, application active with a verified active origin, status
+   `provisioning`, `ready` or `attention_required`. Routing is wider than
+   serving on purpose: before a domain is `ready` the assert step below
+   admits only the workspace probe path, so the lifecycle worker can prove
+   tenant selection through the edge. There is no catch-all proxy: a
+   hostname that matches no application route hits a terminal 404 route,
+   never an origin.
 3. Strip: every `X-Custom-Domain-*` header the client sent is deleted.
 4. Assert: Caddy makes a subrequest to `GET /internal/edge/assert` on the
    management API with the request's `Host`, TLS SNI and request id. The
@@ -67,7 +71,10 @@ domain:
    from `Host`, a query parameter or any other header.
 
 `app.edge.assertion.verify()` implements exactly this and the Python SDK
-(#11) ships it for origins. Origins that receive requests on their own
+(#11) ships it for origins. Origins must also serve `GET /.well-known/custom-domain-workspace`
+with the reference from the verified assertion; the lifecycle worker uses it to
+prove correct workspace selection before a domain becomes ready
+([lifecycle.md](lifecycle.md)). Origins that receive requests on their own
 domain as well should apply the check only when the header is present and
 serve their own domain otherwise, or, better, restrict the custom-domain
 listener to the edge (see below).
@@ -119,7 +126,8 @@ port 80 are redirected to HTTPS by Caddy before any of the above.
 | `EDGE_ASSERTION_KEYS` | required when the edge is enabled | `<id>:<secret>,...`, first signs. |
 | `EDGE_ASSERTION_TTL` | `60` | Assertion lifetime in seconds (5 to 600). |
 | `EDGE_ASSERT_UPSTREAM` | `localhost:9000` | Where Caddy sends the assert subrequest. |
-| `EDGE_ASK_TRUSTED_HOSTS` | `127.0.0.1,::1` | Client addresses allowed to call the internal endpoints. |
+| `EDGE_ASK_TRUSTED_HOSTS` | `127.0.0.1,::1` | Client addresses or CIDR networks allowed to call the internal endpoints. |
+| `EDGE_TOKEN` | unset | When set, the edge sends it on the assert subrequest and the API requires it. |
 
 Generate a secret with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 

@@ -61,6 +61,15 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument("--cname-target", required=True, help="hostname customers CNAME to")
     create.set_defaults(func=_application_create)
     application.add_parser("list").set_defaults(func=_application_list)
+    probe_flag = application.add_parser(
+        "set-workspace-probe",
+        help="require (or not) the origin's workspace echo for readiness",
+    )
+    probe_flag.add_argument("--application", required=True)
+    group = probe_flag.add_mutually_exclusive_group(required=True)
+    group.add_argument("--enabled", action="store_true")
+    group.add_argument("--disabled", action="store_true")
+    probe_flag.set_defaults(func=_application_set_workspace_probe)
 
     credential = sub.add_parser("credential", help="manage API credentials").add_subparsers(
         dest="credential_command"
@@ -167,6 +176,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output", default="-", help="file path (created 0600), or - for stdout"
     )
     bootstrap.set_defaults(func=_edge_bootstrap)
+    gateway = edge_sub.add_parser(
+        "gateway", help="run the validating configuration gateway in front of Caddy's admin API"
+    )
+    gateway.add_argument("--listen", default="0.0.0.0:2019", help="host:port to serve on")
+    gateway.add_argument("--caddy-admin", default="http://127.0.0.1:2020")
+    gateway.add_argument("--api-url", required=True, help="management API base URL")
+    gateway.set_defaults(func=_edge_gateway)
 
     checks = sub.add_parser("checks", help="lifecycle checks").add_subparsers(dest="checks_command")
     run_checks = checks.add_parser("run", help="run all due DNS checks once")
@@ -182,6 +198,15 @@ def _build_parser() -> argparse.ArgumentParser:
     edge_check.add_argument("--application", required=True)
     edge_check.add_argument("--hostname", required=True)
     edge_check.set_defaults(func=_checks_edge)
+
+    worker = sub.add_parser(
+        "worker", help="run the lifecycle checks and edge reconciler outside the API process"
+    )
+    worker_sub = worker.add_subparsers(dest="worker_command")
+    worker_run = worker_sub.add_parser("run")
+    worker_run.add_argument("--once", action="store_true", help="one pass, then exit")
+    worker_run.add_argument("--interval", type=float, help="seconds between passes")
+    worker_run.set_defaults(func=_worker_run)
 
     openapi = sub.add_parser("openapi", help="API contract").add_subparsers(dest="openapi_command")
     export = openapi.add_parser("export", help="write the OpenAPI document as JSON")
@@ -208,6 +233,77 @@ def _application_list(args) -> int:
                 f"{application.slug}\t{application.status.value}\t"
                 f"{application.cname_target}\t{application.id}"
             )
+    return 0
+
+
+def _application_set_workspace_probe(args) -> int:
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        application.workspace_probe_enabled = bool(args.enabled)
+        session.commit()
+        state = "required" if application.workspace_probe_enabled else "not required"
+        print(f"workspace probe {state} for {application.slug}")
+    return 0
+
+
+def _worker_run(args) -> int:
+    import threading
+
+    from app.dns.settings import DnsSettings
+    from app.dns.worker import ChecksWorker
+    from app.edge.caddy_client import CaddyClient
+    from app.edge.reconcile import Reconciler
+    from app.services.edge_checks import SystemEdgeProber
+
+    settings = _edge_settings()
+    if settings is None:
+        return 2
+    dns_settings = DnsSettings.from_env()
+    reconciler = None
+    if settings.reconcile_enabled:
+        reconciler = Reconciler(get_session_factory(), CaddyClient(settings.admin_url), settings)
+    worker = ChecksWorker(
+        get_session_factory(),
+        _resolver(),
+        prober=SystemEdgeProber(settings),
+        settings=settings,
+        batch_size=dns_settings.batch_size,
+        on_status_change=reconciler.run_once if reconciler else None,
+    )
+    from app.webhooks.worker import WebhookWorker
+
+    webhooks = WebhookWorker(get_session_factory())
+    if args.once:
+        result = worker.run_once()
+        line = f"checks: {result.processed} processed, {result.failed} failed, "
+        line += f"{result.status_changes} status change(s)"
+        if reconciler is not None:
+            edge = reconciler.run_once()
+            line += f"; edge: {'applied' if edge.changed else edge.error or 'unchanged'}"
+        sent = webhooks.run_once()
+        line += f"; webhooks: {sent.delivered} delivered, {sent.failed} failed"
+        print(line)
+        return 0 if result.failed == 0 else 3
+    interval = args.interval or dns_settings.worker_interval
+    stop = threading.Event()
+    threads = [
+        threading.Thread(target=worker.run_forever, args=(stop, interval), daemon=True),
+        threading.Thread(target=webhooks.run_forever, args=(stop, 5.0), daemon=True),
+    ]
+    if reconciler is not None:
+        threads.append(
+            threading.Thread(
+                target=reconciler.run_forever, args=(stop, settings.reconcile_interval), daemon=True
+            )
+        )
+    for thread in threads:
+        thread.start()
+    print(f"worker running every {interval:g}s (Ctrl-C to stop)")
+    try:
+        while True:
+            stop.wait(3600)
+    except KeyboardInterrupt:
+        stop.set()
     return 0
 
 
@@ -452,6 +548,26 @@ def _edge_bootstrap(args) -> int:
         handle.write(document)
     os.chmod(args.output, 0o600)
     print(f"wrote {args.output}")
+    return 0
+
+
+def _edge_gateway(args) -> int:
+    import os
+
+    import uvicorn
+
+    from app.edge.gateway import api_origins_provider, create_gateway_app
+
+    settings = _edge_settings()
+    if settings is None:
+        return 2
+    host, _, port = args.listen.rpartition(":")
+    app = create_gateway_app(
+        settings,
+        caddy_admin_url=args.caddy_admin,
+        origins_provider=api_origins_provider(args.api_url, os.environ.get("EDGE_TOKEN") or None),
+    )
+    uvicorn.run(app, host=host or "0.0.0.0", port=int(port), log_level="info")
     return 0
 
 
