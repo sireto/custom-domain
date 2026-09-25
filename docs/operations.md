@@ -13,6 +13,58 @@ Companion to [ADR 0001](decisions/0001-certificate-storage.md) and
 | Running Caddy `apps` configuration | Derived; rebuilt from the database by the reconciler | Hostnames and origins only |
 | Legacy `domains/caddy.json` | `https_domains` volume; written only by the legacy API | Hostnames and upstreams |
 
+## Application onboarding
+
+Applications, their origins and their credentials are managed by the operator
+with the CLI; there is no self-service endpoint. One verified origin per
+application receives all of its customer traffic; v1 has no per-domain
+upstream.
+
+1. **Create the application** with the CNAME target its customers will use:
+   `custom-domain application create --slug acme --name "Acme Forms" --cname-target acme.edge.example.net`
+2. **Register the origin**:
+   `custom-domain origin register --application acme --host app.acme.example`
+   (scheme `https`, port 443 by default). The command prints a verification
+   token. IP literals, wildcards and malformed hosts are rejected.
+3. **Prove control of the origin.** The SaaS operator serves the token as the
+   plain-text body of
+   `GET https://app.acme.example/.well-known/custom-domain-origin-verification`,
+   then runs `custom-domain origin verify --application acme --host app.acme.example --activate`.
+   The probe resolves the host once, refuses any address that is not publicly
+   routable (loopback, private, link-local, cloud metadata, multicast,
+   reserved), connects to the resolved address rather than by name so a DNS
+   answer cannot change between check and connection, verifies TLS against
+   the system trust store with the origin host as SNI, follows no redirects,
+   caps the body at 4 KiB and times out after 5 seconds. Failures are recorded
+   on the origin (`origin list` shows them) with a stable code:
+
+   | Code | Meaning and fix |
+   | --- | --- |
+   | `dns_resolution_failed` | The host has no address; check the name. |
+   | `private_address_blocked` | Resolves to a non-public address. Only a trusted self-hosted deployment may set `ORIGIN_ALLOW_PRIVATE=true` (or pass `--allow-private`). |
+   | `connection_failed` | TCP connection refused or reset on every address. |
+   | `timeout` | No connection or no answer within the timeout. |
+   | `tls_handshake_failed` | Not speaking TLS on that port, or protocol mismatch. |
+   | `tls_verification_failed` | Certificate not trusted or not valid for the host. Fix the certificate; TLS verification is never disabled. |
+   | `unexpected_status` | Not HTTP 200 (redirects count as failures). |
+   | `token_mismatch` | Body is not the token. |
+   | `response_too_large` | Body over 4 KiB. |
+
+   A later failed re-verification deactivates the origin, and the edge stops
+   routing the application until it is verified and activated again. The
+   same address policy applies on the serving path: at every reconciliation
+   the origin's name is resolved again, the edge dials the resolved public
+   address (presenting the origin's name as SNI and verifying its
+   certificate), and an origin whose DNS now points at a private, link-local
+   or metadata address is dropped from the routes instead of being dialed.
+4. **Issue a credential**: `custom-domain credential issue --application acme --label backend`.
+   The secret is shown once. Clients send it as `Authorization: Bearer`; it
+   is never accepted in a query string or cookie.
+5. **Rotate** without downtime:
+   `custom-domain credential rotate --application acme --id <old id> --grace-hours 24`
+   issues a replacement and lets the old credential expire after the grace
+   period. `credential revoke` stops one immediately.
+
 ## Reconciliation
 
 Caddy starts from a bootstrap configuration (admin listener on
@@ -212,7 +264,11 @@ same privileges as Caddy, protect its credentials accordingly, and do not
 run it on a host or network where reading customer certificate keys would be
 unacceptable.
 
-- The Caddy admin API must never be published outside the container.
+- The Caddy admin API must never be published outside the container, and the
+  management API on port 9000 must not be a public port: the compose file
+  binds it to `127.0.0.1` so only the host (or an authenticated reverse proxy
+  on the host) reaches it. It is authenticated, but it is also where
+  credentials are used and domains are managed, so keep it off the internet.
 - Redis: require AUTH, enable TLS when crossing networks, restrict network
   access to the edge instances, and set `CADDY_REDIS_ENCRYPTION_KEY` so
   values are AES-encrypted at rest (values are still decrypted in memory by

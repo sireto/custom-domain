@@ -77,6 +77,14 @@ def _build_parser() -> argparse.ArgumentParser:
     listing = credential.add_parser("list")
     listing.add_argument("--application", required=True)
     listing.set_defaults(func=_credential_list)
+    rotate = credential.add_parser(
+        "rotate", help="issue a replacement and expire the old credential after a grace period"
+    )
+    rotate.add_argument("--application", required=True)
+    rotate.add_argument("--id", required=True, help="credential to replace")
+    rotate.add_argument("--label", help="label for the new credential (default: same as old)")
+    rotate.add_argument("--grace-hours", type=float, default=24.0)
+    rotate.set_defaults(func=_credential_rotate)
 
     origin = sub.add_parser("origin", help="manage application origins").add_subparsers(
         dest="origin_command"
@@ -87,6 +95,29 @@ def _build_parser() -> argparse.ArgumentParser:
     register.add_argument("--scheme", default="https")
     register.add_argument("--port", type=int)
     register.set_defaults(func=_origin_register)
+    origin_list = origin.add_parser("list")
+    origin_list.add_argument("--application", required=True)
+    origin_list.set_defaults(func=_origin_list)
+    verify = origin.add_parser(
+        "verify", help="prove control of the origin by fetching its verification token"
+    )
+    verify.add_argument("--application", required=True)
+    verify.add_argument("--id", help="origin id (or use --host)")
+    verify.add_argument("--host", help="origin host")
+    verify.add_argument("--activate", action="store_true", help="activate when verified")
+    verify.add_argument(
+        "--allow-private",
+        action="store_true",
+        help="allow non-public origin addresses (trusted self-hosted deployments only; "
+        "ORIGIN_ALLOW_PRIVATE=true has the same effect)",
+    )
+    verify.add_argument("--timeout", type=float, default=5.0)
+    verify.set_defaults(func=_origin_verify)
+    activate = origin.add_parser("activate", help="route the application's traffic to this origin")
+    activate.add_argument("--application", required=True)
+    activate.add_argument("--id")
+    activate.add_argument("--host")
+    activate.set_defaults(func=_origin_activate)
 
     legacy = sub.add_parser("legacy", help="import from the volume-based deployment")
     legacy_sub = legacy.add_subparsers(dest="legacy_command")
@@ -200,6 +231,88 @@ def _credential_list(args) -> int:
     return 0
 
 
+def _credential_rotate(args) -> int:
+    from datetime import timedelta
+
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        new, secret, old = app_service.rotate_credential(
+            session,
+            application,
+            uuid.UUID(args.id),
+            label=args.label,
+            grace=timedelta(hours=args.grace_hours),
+        )
+        session.commit()
+        print(f"new credential id: {new.id}")
+        print(f"prefix:            {new.key_prefix}")
+        print("secret (shown once, store it now):")
+        print(secret)
+        print(f"old credential {old.key_prefix} expires at {old.expires_at.isoformat()}")
+    return 0
+
+
+def _origin_list(args) -> int:
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        for origin in app_service.list_origins(session, application):
+            state = "active" if origin.is_active else "inactive"
+            error = f"\t{origin.last_error_code}" if origin.last_error_code else ""
+            print(f"{origin.url}\t{origin.status.value}\t{state}\t{origin.id}{error}")
+    return 0
+
+
+def _origin_verify(args) -> int:
+    from app.services.origin_verification import (
+        WELL_KNOWN_PATH,
+        OriginVerificationFailed,
+        allow_private_from_env,
+        verify_origin,
+    )
+
+    allow_private = args.allow_private or allow_private_from_env()
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        origin = app_service.get_origin(
+            session,
+            application,
+            origin_id=uuid.UUID(args.id) if args.id else None,
+            host=args.host,
+        )
+        try:
+            verify_origin(session, origin, allow_private=allow_private, timeout=args.timeout)
+        except OriginVerificationFailed as exc:
+            session.commit()  # keep the diagnostic on the origin row
+            print(f"verification failed [{exc.code}]: {exc.message}", file=sys.stderr)
+            print(
+                f"expected: GET {origin.scheme}://{origin.host}:{origin.port}{WELL_KNOWN_PATH} "
+                f"-> 200 text/plain body {origin.verification_token}",
+                file=sys.stderr,
+            )
+            return 3
+        if args.activate:
+            app_service.activate_origin(session, origin)
+        session.commit()
+        state = "verified and active" if args.activate else "verified"
+        print(f"origin {origin.url} {state} ({origin.id})")
+    return 0
+
+
+def _origin_activate(args) -> int:
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        origin = app_service.get_origin(
+            session,
+            application,
+            origin_id=uuid.UUID(args.id) if args.id else None,
+            host=args.host,
+        )
+        app_service.activate_origin(session, origin)
+        session.commit()
+        print(f"origin {origin.url} is now active for {application.slug}")
+    return 0
+
+
 def _origin_register(args) -> int:
     with get_session_factory()() as session:
         application = app_service.get_application_by_slug(session, args.application)
@@ -209,6 +322,13 @@ def _origin_register(args) -> int:
         session.commit()
         print(f"registered origin {origin.url} ({origin.id}), status {origin.status.value}")
         print(f"verification token: {origin.verification_token}")
+        print(
+            "next: serve that token as the plain-text body of "
+            f"{origin.scheme}://{origin.host}:{origin.port}"
+            "/.well-known/custom-domain-origin-verification, then run "
+            f"`custom-domain origin verify --application {application.slug} "
+            f"--host {origin.host} --activate`"
+        )
     return 0
 
 
