@@ -635,12 +635,23 @@ def record_event(
     *,
     now: datetime | None = None,
 ) -> DomainEvent:
+    stamp = now or utcnow()
+    # Events are ordered by created_at. Several events recorded in one unit of
+    # work share the caller's clock, so nudge the timestamp past the domain's
+    # latest event to keep the order total and identical on every backend.
+    last = _as_utc(
+        session.scalar(
+            select(func.max(DomainEvent.created_at)).where(DomainEvent.domain_id == domain.id)
+        )
+    )
+    if last is not None and stamp <= last:
+        stamp = last + timedelta(microseconds=1)
     event = DomainEvent(
         domain_id=domain.id,
         application_id=domain.application_id,
         event_type=str(event_type),
         payload=payload,
-        created_at=now or utcnow(),
+        created_at=stamp,
     )
     session.add(event)
     session.flush()

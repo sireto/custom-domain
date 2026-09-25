@@ -53,6 +53,14 @@ class Application(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     def active_origin(self) -> VerifiedOrigin | None:
         return next((origin for origin in self.origins if origin.is_active), None)
 
+    @property
+    def serving_origin(self) -> VerifiedOrigin | None:
+        """The active origin, but only while its verification still holds."""
+        origin = self.active_origin
+        if origin is None or origin.status != OriginStatus.VERIFIED:
+            return None
+        return origin
+
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Application {self.slug} {self.status}>"
 

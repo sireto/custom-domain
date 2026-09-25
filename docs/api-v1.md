@@ -272,10 +272,13 @@ Steps for an existing deployment:
    `upstream`, and read `status` and `checks` instead of assuming a new
    hostname serves immediately. Add `Idempotency-Key` to creates that may be
    retried.
-5. Set `ENABLE_LEGACY_API=false` and redeploy. The legacy routes return 404
-   and the global `API_KEY` is no longer needed.
-6. The legacy endpoints are removed once the edge derives its configuration
-   from the database (#7 to #9); a release note will announce the version.
+5. Set `ENABLE_LEGACY_API=false` and redeploy. The legacy routes return 404,
+   the global `API_KEY` is no longer needed, and the edge reconciler starts
+   deriving the Caddy configuration from the database
+   ([operations.md](operations.md#reconciliation)).
+6. The legacy endpoints are removed in a later release once #7 to #9 make
+   imported domains reach `ready` through the new path; a release note will
+   announce the version.
 
 Rollback at any step before 6: set `ENABLE_LEGACY_API=true` (the default) and
 redeploy; the legacy path still reads and writes `domains/caddy.json`.

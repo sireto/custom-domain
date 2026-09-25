@@ -165,3 +165,48 @@ def test_cli_legacy_import_is_all_or_nothing_unless_acknowledged(cli_env, capsys
     captured = capsys.readouterr()
     assert "existing\tforms.customer.example" in captured.out
     assert "imported\tother.customer.example\tpending_dns\tws_2" in captured.out
+
+
+def test_cli_edge_config_and_dry_run(cli_env, capsys, monkeypatch):
+    monkeypatch.setenv("ENABLE_LEGACY_API", "false")
+    monkeypatch.setenv("CADDY_STORAGE", "redis")
+    monkeypatch.setenv("CADDY_REDIS_ADDRESS", "redis:6379")
+    monkeypatch.setenv("CADDY_REDIS_PASSWORD", "topsecret")
+    assert _run("edge", "config") == 0
+    out = capsys.readouterr().out
+    assert '"module": "redis"' in out and "topsecret" not in out and '"***"' in out
+
+    assert _run("edge", "reconcile", "--dry-run") == 0
+    assert "0 route(s), 0 hostname(s)" in capsys.readouterr().out
+
+    monkeypatch.setenv("CADDY_ADMIN_URL", "http://127.0.0.1:1")
+    assert _run("edge", "reconcile") == 3
+    assert "caddy_unavailable" in capsys.readouterr().err
+
+    monkeypatch.setenv("EDGE_RECONCILE_ENABLED", "true")
+    monkeypatch.setenv("ENABLE_LEGACY_API", "true")
+    assert _run("edge", "config") == 2
+    assert "cannot both be true" in capsys.readouterr().err
+
+
+def test_cli_bootstrap_and_libpq_url(cli_env, capsys, monkeypatch, tmp_path):
+    monkeypatch.setenv("CADDY_STORAGE", "redis")
+    monkeypatch.setenv("CADDY_REDIS_ADDRESS", "redis:6379")
+    monkeypatch.setenv("CADDY_REDIS_PASSWORD", "topsecret")
+    assert _run("edge", "bootstrap") == 0
+    out = capsys.readouterr().out
+    assert '"admin"' in out and "topsecret" not in out
+
+    target = tmp_path / "bootstrap.json"
+    assert _run("edge", "bootstrap", "--output", str(target)) == 0
+    document = json.loads(target.read_text())
+    assert document["storage"]["password"] == "topsecret"
+    assert document["admin"] == {"listen": "localhost:2019"}
+    assert document["apps"]["http"]["servers"]["edge"]["routes"] == []
+    assert oct(target.stat().st_mode & 0o777) == "0o600"
+    capsys.readouterr()
+
+    assert _run("db", "libpq-url") == 2  # SQLite in this test
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@db:5432/cd")
+    assert _run("db", "libpq-url") == 0
+    assert capsys.readouterr().out.strip() == "postgresql://u:p@db:5432/cd"

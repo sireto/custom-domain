@@ -43,7 +43,7 @@ services:
       - .env
     volumes:
       - https_domains:/app/domains
-      - https_data:/root/.local/share
+      - https_data:/var/lib/custom-domain
       - https_db:/app/data
 
 volumes:
@@ -57,6 +57,11 @@ volumes:
 networks:
   frontend:
 ```
+The `https_data` volume holds Caddy's certificate store. Deployments created
+before the mount path changed from `/root/.local/share` keep the same volume;
+only the mount path in the compose file changes, and the container fixes the
+file ownership on start.
+
 Now you can run the compose file:
 ```bash
 docker-compose up -d
@@ -99,7 +104,10 @@ the migration path from volume-based deployments are described in
 examples, error codes, webhook payloads and the migration from the legacy
 `/domains` endpoint, is in [docs/api-v1.md](docs/api-v1.md); the OpenAPI
 document is [docs/openapi.json](docs/openapi.json) and is served at
-`/v1/openapi.json` with Swagger UI at `/v1/docs`.
+`/v1/openapi.json` with Swagger UI at `/v1/docs`. Certificate storage,
+multi-instance coordination, backup and restore are covered by
+[docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md)
+and [docs/operations.md](docs/operations.md).
 
 # Source Code
 The full source code is available on GitHub <br/>

@@ -2,6 +2,7 @@
 
 from app.models.application import ApiCredential, Application, VerifiedOrigin
 from app.models.domain import Domain, DomainCheck, DomainEvent, OwnershipClaim
+from app.models.edge import EdgeLock
 from app.models.enums import (
     ApplicationStatus,
     CheckStatus,
@@ -24,6 +25,7 @@ __all__ = [
     "DomainCheck",
     "DomainEvent",
     "DomainStatus",
+    "EdgeLock",
     "EventType",
     "IdempotencyKey",
     "OriginStatus",
