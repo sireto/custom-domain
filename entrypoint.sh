@@ -35,10 +35,11 @@ start_caddy() {
         XDG_CONFIG_HOME="$CADDY_HOME/.config" caddy start --config "$BOOTSTRAP"
 }
 
-scrubbed_env() {
-    env -u CADDY_REDIS_PASSWORD -u CADDY_REDIS_USERNAME -u CADDY_REDIS_ENCRYPTION_KEY \
-        -u CADDY_REDIS_TLS_SERVER_CERTS_PEM HOME=/app "$@"
-}
+# exec cannot call a shell function, so the privilege drop is spelled out on
+# each exec line: run as app with the Redis credentials removed.
+AS_APP=(setpriv --reuid=app --regid=app --init-groups env
+        -u CADDY_REDIS_PASSWORD -u CADDY_REDIS_USERNAME -u CADDY_REDIS_ENCRYPTION_KEY
+        -u CADDY_REDIS_TLS_SERVER_CERTS_PEM HOME=/app)
 
 mkdir -p /app/data /app/domains
 chown -R app:app /app/data /app/domains
@@ -46,25 +47,25 @@ chown -R app:app /app/data /app/domains
 case "$ROLE" in
   all)
     start_caddy
-    exec run_as app scrubbed_env bash -c \
+    exec "${AS_APP[@]}" bash -c \
         'custom-domain db upgrade && exec uvicorn app.main:app --host 0.0.0.0 --port 9000'
     ;;
   api)
     export DNS_WORKER_ENABLED="${DNS_WORKER_ENABLED:-false}"
     export WEBHOOK_WORKER_ENABLED="${WEBHOOK_WORKER_ENABLED:-false}"
     export EDGE_RECONCILE_ENABLED="${EDGE_RECONCILE_ENABLED:-false}"
-    exec run_as app scrubbed_env bash -c \
+    exec "${AS_APP[@]}" bash -c \
         'custom-domain db upgrade && exec uvicorn app.main:app --host 0.0.0.0 --port 9000'
     ;;
   worker)
-    exec run_as app scrubbed_env custom-domain worker run
+    exec "${AS_APP[@]}" custom-domain worker run
     ;;
   edge)
     # Caddy's admin API listens on 127.0.0.1:2020 in this container; the gateway
     # on :2019 is what the reconciler talks to.
     export CADDY_ADMIN_URL="${CADDY_ADMIN_URL:-http://127.0.0.1:2020}"
     start_caddy
-    exec run_as app scrubbed_env custom-domain edge gateway \
+    exec "${AS_APP[@]}" custom-domain edge gateway \
         --listen 0.0.0.0:2019 --caddy-admin "$CADDY_ADMIN_URL" --api-url "${API_URL:?set API_URL}"
     ;;
   *)
