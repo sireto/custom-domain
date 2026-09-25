@@ -93,6 +93,9 @@ def process_domain(
         # follows is not a stale snapshot (matters on SQLite) and so results
         # for one application are applied one at a time.
         lock_application(session, application_id)
+        # Reload from the database, not from the identity map, so a claim
+        # re-issued during the queries is visible here.
+        session.expire_all()
         domain = session.scalar(_domain_query(include_deleted=False).where(Domain.id == domain_id))
         if domain is None or domain.status == DomainStatus.DELETING:
             session.rollback()
