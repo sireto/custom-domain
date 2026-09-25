@@ -4,7 +4,7 @@ Python client and origin helpers for the Custom Domain API. Pure Python 3.10+
 with `httpx`; no dependency on the service itself.
 
 ```
-pip install custom-domain-sdk        # once published; from this repo: pip install ./sdk
+pip install custom-domain-sdk        # from PyPI; from a checkout: pip install ./sdk
 ```
 
 ## Quick start: register a workspace domain
