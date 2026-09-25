@@ -93,7 +93,7 @@ class RouteGroup:
 
 
 def serveable_route_groups(session: Session) -> list[RouteGroup]:
-    """Hostnames to route, grouped per application, in a deterministic order."""
+    """Routable hostnames (see ``routable``), grouped per application, in a stable order."""
     applications = session.scalars(
         select(Application)
         .where(Application.status == ApplicationStatus.ACTIVE)
