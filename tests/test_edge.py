@@ -39,6 +39,27 @@ from app.services.domains import (
 SETTINGS = EdgeSettings(reconcile_enabled=True, legacy_api_enabled=False)
 
 
+@pytest.fixture(autouse=True)
+def pinned_origins(monkeypatch):
+    """Origins resolve to fixed public addresses; tests never touch DNS."""
+    from app.edge import config as edge_config
+
+    table = {"app.acme.example": "203.0.113.10", "globex.internal": "198.51.100.7"}
+
+    def fake_pinned_dial(host, port, *, allow_private=False):
+        from app.services.origin_verification import OriginVerificationFailed
+
+        address = table.get(host)
+        if address is None:
+            raise OriginVerificationFailed("dns_resolution_failed", f"{host} does not resolve")
+        if address.startswith("10.") and not allow_private:
+            raise OriginVerificationFailed("private_address_blocked", f"{host} is private")
+        return f"{address}:{port}", host
+
+    monkeypatch.setattr(edge_config, "pinned_dial", fake_pinned_dial)
+    return table
+
+
 def _make_ready(session, domain):
     mark_claim_verified(session, domain)
     for check_type in CheckType:
@@ -93,13 +114,14 @@ def test_config_routes_only_serveable_hostnames_per_application(session, fleet):
     assert acme_route["handle"] == [
         {
             "handler": "reverse_proxy",
-            "upstreams": [{"dial": "app.acme.example:443"}],
-            "transport": {"protocol": "http", "tls": {}},
+            "upstreams": [{"dial": "203.0.113.10:443"}],
+            "transport": {"protocol": "http", "tls": {"server_name": "app.acme.example"}},
+            "headers": {"request": {"set": {"Host": ["{http.request.host}"]}}},
         }
     ]
     assert globex_route["match"] == [{"host": ["one.globex-customer.example"]}]
     assert "transport" not in globex_route["handle"][0]
-    assert globex_route["handle"][0]["upstreams"] == [{"dial": "globex.internal:8080"}]
+    assert globex_route["handle"][0]["upstreams"] == [{"dial": "198.51.100.7:8080"}]
     assert hostnames_in(config) == {
         "a.customer.example",
         "b.customer.example",
@@ -496,3 +518,14 @@ def test_stale_snapshot_cannot_restore_a_deleted_hostname(session, fleet, sessio
     assert "a.customer.example" in hostnames_in({"apps": caddy.loads[-2]})
     assert "a.customer.example" not in hostnames_in({"apps": caddy.loads[-1]})
     assert instance_a.holder and instance_a.holder == instance_b.holder  # same process
+
+
+def test_origin_rebound_to_a_private_address_is_not_routed(session, fleet, pinned_origins):
+    assert "a.customer.example" in hostnames_in(build_caddy_config(session, SETTINGS))
+    # The operator's DNS now points the verified origin at an internal address.
+    pinned_origins["app.acme.example"] = "10.0.0.5"
+    routed = hostnames_in(build_caddy_config(session, SETTINGS))
+    assert "a.customer.example" not in routed and "one.globex-customer.example" in routed
+    # And a name that stops resolving is dropped too, without failing the build.
+    del pinned_origins["globex.internal"]
+    assert hostnames_in(build_caddy_config(session, SETTINGS)) == set()

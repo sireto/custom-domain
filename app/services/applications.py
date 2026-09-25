@@ -11,7 +11,7 @@ import hmac
 import re
 import secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -190,6 +190,68 @@ def revoke_credential(
         credential.revoked_at = now or utcnow()
         session.flush()
     return credential
+
+
+def rotate_credential(
+    session: Session,
+    application: Application,
+    credential_id: uuid.UUID,
+    *,
+    label: str | None = None,
+    grace: timedelta = timedelta(hours=24),
+    now: datetime | None = None,
+) -> tuple[ApiCredential, str, ApiCredential]:
+    """Issue a replacement credential and let the old one expire after ``grace``.
+
+    Returns ``(new_credential, plaintext_secret, old_credential)``. The old
+    credential keeps working during the grace period so clients can switch
+    without downtime; it is not extended if it already expires sooner.
+    """
+    now = now or utcnow()
+    old = session.scalar(
+        select(ApiCredential).where(
+            ApiCredential.id == credential_id,
+            ApiCredential.application_id == application.id,
+        )
+    )
+    if old is None:
+        raise CredentialNotFound()
+    new, secret = issue_credential(session, application, label=label or old.label)
+    cutoff = now + grace
+    if old.revoked_at is None and (old.expires_at is None or old.expires_at > cutoff):
+        old.expires_at = cutoff
+    session.flush()
+    return new, secret, old
+
+
+def get_origin(
+    session: Session,
+    application: Application,
+    *,
+    origin_id: uuid.UUID | None = None,
+    host: str | None = None,
+) -> VerifiedOrigin:
+    query = select(VerifiedOrigin).where(VerifiedOrigin.application_id == application.id)
+    if origin_id is not None:
+        query = query.where(VerifiedOrigin.id == origin_id)
+    elif host is not None:
+        query = query.where(VerifiedOrigin.host == canonicalize(host, allow_apex=True))
+    else:
+        raise InvalidOrigin("Give an origin id or host")
+    origin = session.scalar(query.order_by(VerifiedOrigin.created_at.desc()))
+    if origin is None:
+        raise InvalidOrigin("No such origin for this application")
+    return origin
+
+
+def list_origins(session: Session, application: Application) -> list[VerifiedOrigin]:
+    return list(
+        session.scalars(
+            select(VerifiedOrigin)
+            .where(VerifiedOrigin.application_id == application.id)
+            .order_by(VerifiedOrigin.created_at)
+        )
+    )
 
 
 # --- origins ----------------------------------------------------------------

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -25,6 +26,13 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.edge.settings import HEALTH_PATH, EdgeSettings
 from app.models import Application, ApplicationStatus, Domain, DomainStatus, VerifiedOrigin
 from app.services.domains import is_serveable
+from app.services.origin_verification import (
+    OriginVerificationFailed,
+    allow_private_from_env,
+    pinned_dial,
+)
+
+logger = logging.getLogger(__name__)
 
 SERVER_NAME = "edge"
 EDGE_HEALTH_HEADER = "X-Custom-Domain-Edge"
@@ -34,7 +42,8 @@ EDGE_HEALTH_VALUE = "1"
 @dataclass(frozen=True)
 class RouteGroup:
     application_slug: str
-    origin: str  # host:port
+    origin: str  # pinned address:port the edge dials
+    origin_host: str  # the origin's name, presented as SNI and Host
     origin_tls: bool
     hostnames: tuple[str, ...]
 
@@ -69,10 +78,26 @@ def serveable_route_groups(session: Session) -> list[RouteGroup]:
         hostnames = tuple(d.hostname for d in domains if is_serveable(d))
         if not hostnames:
             continue
+        try:
+            dial, origin_host = pinned_dial(
+                origin.host, origin.port, allow_private=allow_private_from_env()
+            )
+        except OriginVerificationFailed as exc:
+            # The origin no longer resolves to an acceptable address: do not
+            # route to it. Its next verification records the diagnostic.
+            logger.warning(
+                "not routing application %s: origin %s %s: %s",
+                application.slug,
+                origin.url,
+                exc.code,
+                exc.message,
+            )
+            continue
         groups.append(
             RouteGroup(
                 application_slug=application.slug,
-                origin=f"{origin.host}:{origin.port}",
+                origin=dial,
+                origin_host=origin_host,
                 origin_tls=origin.scheme == "https",
                 hostnames=hostnames,
             )
@@ -86,7 +111,9 @@ def _route(group: RouteGroup) -> dict[str, Any]:
         "upstreams": [{"dial": group.origin}],
     }
     if group.origin_tls:
-        handler["transport"] = {"protocol": "http", "tls": {}}
+        # Verified TLS to the origin by its name, while dialing the pinned address.
+        handler["transport"] = {"protocol": "http", "tls": {"server_name": group.origin_host}}
+    handler["headers"] = {"request": {"set": {"Host": ["{http.request.host}"]}}}
     return {
         "@id": f"app-{group.application_slug}",
         "match": [{"host": list(group.hostnames)}],

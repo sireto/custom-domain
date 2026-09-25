@@ -27,6 +27,13 @@ field. Revoked or expired credentials, and credentials of a suspended
 application, are rejected with `401 unauthorized`. Credentials are not
 accepted in the query string or in cookies.
 
+Credentials are rotated with `custom-domain credential rotate`, which issues a
+replacement and keeps the old one valid for a grace period (24 hours by
+default) so clients can switch without downtime; `credential revoke` stops
+one immediately. Traffic for the application's domains goes to its single
+verified origin, enrolled and proven with `custom-domain origin register` and
+`origin verify` (see [operations.md](operations.md#application-onboarding)).
+
 ## Resources
 
 ### Domain
