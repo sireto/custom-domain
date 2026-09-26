@@ -1,8 +1,31 @@
-{% extends "base.html" %}{% block title %}Doctor{% endblock %}
+{% extends "base.html" %}{% block title %}Health checks{% endblock %}
 {% block content %}
-<h1>Doctor</h1>
-<p class="muted">{{ ok }} ok, {{ warn }} warning(s), {{ fail }} failure(s). The same checks as <code>custom-domain doctor</code>; reload to run again.</p>
-<div class="card"><table><tr><th></th><th>Check</th><th>Detail</th></tr>
-{% for f in findings %}<tr><td class="{{ f.status }}"><b>{{ f.status|upper }}</b></td><td>{{ f.check }}</td><td>{{ f.detail }}</td></tr>{% endfor %}
-</table></div>
+<div class="page-head">
+  <div><h1>Health checks</h1><p>The same checks as <code>custom-domain doctor</code>: database, settings, the edge, certificates and every application's DNS. Run just now.</p></div>
+  <div class="actions"><a class="btn btn-primary" href="/portal/doctor">Run again</a></div>
+</div>
+{% if fail %}<div class="alert alert-fail"><div><b>{{ fail }} problem{{ 's' if fail != 1 }} to fix</b><p class="body">Customers may be affected. Each item below says what to change.</p></div></div>
+{% elif warn %}<div class="alert alert-warn"><div><b>{{ warn }} warning{{ 's' if warn != 1 }}</b><p class="body">Nothing is broken, but these need a look.</p></div></div>
+{% else %}<div class="alert alert-ok"><div><b>Everything passes</b><p class="body">{{ ok }} checks ran without a finding.</p></div></div>{% endif %}
+
+{% if problems %}
+<div class="card">
+  <div class="card-head"><div><h2>Findings</h2></div></div>
+  <div class="table-wrap"><table>
+    {% for f in problems %}<tr>
+      <td style="width:130px"><span class="badge t-{{ 'fail' if f.status == 'fail' else 'warn' }}">{{ 'Problem' if f.status == 'fail' else 'Warning' }}</span></td>
+      <td><b>{{ f.check }}</b><div class="small" style="margin-top:2px;color:var(--fg-2)">{{ f.detail }}</div></td>
+    </tr>{% endfor %}
+  </table></div>
+</div>
+{% endif %}
+
+<div class="card">
+  <details {{ 'open' if not problems }}>
+    <summary class="card-head" style="cursor:pointer;border-bottom:0"><div><h2>{{ passed|length }} passed</h2></div></summary>
+    <div class="table-wrap" style="border-top:1px solid var(--line)"><table>
+      {% for f in passed %}<tr><td style="width:130px"><span class="badge t-ok">OK</span></td><td><b>{{ f.check }}</b><div class="small muted">{{ f.detail }}</div></td></tr>{% endfor %}
+    </table></div>
+  </details>
+</div>
 {% endblock %}

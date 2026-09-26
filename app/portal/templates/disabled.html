@@ -1,7 +1,12 @@
-{% extends "base.html" %}{% block title %}Portal disabled{% endblock %}
-{% block content %}
-<h1>The portal is disabled</h1>
-<div class="card">
-<p>Set <code>PORTAL_PASSWORD</code> (at least 12 characters) in the service's environment and restart it. The command line (<code>custom-domain --help</code>) offers the same actions meanwhile.</p>
-</div>
+{% extends "_auth.html" %}{% block title %}Portal disabled{% endblock %}
+{% block auth %}
+<div class="card"><div class="card-body" style="padding:26px">
+  <h1 style="font-size:19px;margin:0 0 8px">The portal is not enabled</h1>
+  <p class="muted" style="margin:0 0 14px">No operator password is configured for this deployment.</p>
+  <div class="callout"><ol>
+    <li>Set <code>PORTAL_PASSWORD</code> (at least 12 characters) in the deployment's <code>.env</code>.</li>
+    <li>Restart the API: <code>docker compose -f compose.production.yml up -d api worker</code>.</li>
+  </ol></div>
+  <p class="muted small" style="margin:14px 0 0">Meanwhile the <code>custom-domain</code> command on the server offers the same actions.</p>
+</div></div>
 {% endblock %}

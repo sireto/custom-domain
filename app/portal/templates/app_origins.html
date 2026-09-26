@@ -1,0 +1,61 @@
+{% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Origins · {{ application.name }}{% endblock %}
+{% block crumbs %}{{ ui.app_crumbs(application, 'Origins') }}{% endblock %}
+{% block content %}
+{{ ui.app_head(application, app_state, 'The origin is your product\'s backend. The edge forwards every customer request to the active origin, with the workspace it belongs to.') }}
+{{ ui.app_tabs(application, 'origins', tab_counts) }}
+{% set base = '/portal/applications/' ~ application.slug ~ '/origins/' %}
+
+{% for o in origins if not o.is_active and o.status.value in ('pending', 'failed') %}
+<div class="card" style="border-color:var(--{{ 'fail' if o.status.value == 'failed' else 'progress' }}-line)">
+  <div class="card-head"><div><h2>Verify <code>{{ o.url }}</code></h2><p>Prove you control this origin before it can receive traffic.</p></div>{{ ui.badge(p.origin_state(o)) }}</div>
+  <div class="card-body">
+    <div class="callout"><ol>
+      <li>Make the origin answer <b>GET</b> {{ ui.copy(o.url ~ well_known) }}</li>
+      <li>with status 200, content type <code>text/plain</code>, and exactly this body: {{ ui.copy(o.verification_token) }}</li>
+      <li>Then press <b>Verify and activate</b>. The SDK's middleware serves the token for you when configured with it.</li>
+    </ol></div>
+    {% if o.last_error_code %}<div class="observed" style="margin-top:12px"><b>Last attempt failed:</b> {{ o.last_error_message or o.last_error_code }} <span class="muted">(<code>{{ o.last_error_code }}</code>, {{ ui.when(o.last_checked_at) }})</span></div>{% endif %}
+  </div>
+  <div class="card-foot actions" style="justify-content:space-between">
+    {{ ui.confirm(base ~ o.id ~ '/delete', csrf, 'Delete', 'Remove this origin registration?', 'Delete origin') }}
+    {{ ui.post(base ~ o.id ~ '/verify', csrf, 'Verify and activate', 'btn-primary', {'activate': 'true'}) }}
+  </div>
+</div>
+{% endfor %}
+
+<div class="card">
+  <div class="card-head"><div><h2>Origins</h2><p>Only one origin is active at a time. Activating another switches traffic to it immediately.</p></div></div>
+  {% if origins %}
+  <div class="table-wrap"><table>
+    <tr><th>URL</th><th>Status</th><th>Verified</th><th>Last check</th><th></th></tr>
+    {% for o in origins %}<tr>
+      <td><code>{{ o.url }}</code></td>
+      <td>{{ ui.badge(p.origin_state(o)) }}</td>
+      <td class="small">{{ ui.when(o.verified_at) }}</td>
+      <td class="small">{{ ui.when(o.last_checked_at) }}{% if o.last_error_code %}<div class="muted"><code>{{ o.last_error_code }}</code></div>{% endif %}</td>
+      <td class="num"><div class="actions" style="justify-content:flex-end">
+        {% if o.status.value == 'verified' and not o.is_active %}{{ ui.post(base ~ o.id ~ '/activate', csrf, 'Activate', 'btn-sm btn-primary') }}{% endif %}
+        {% if o.status.value in ('verified', 'retired') and not o.is_active %}{{ ui.post(base ~ o.id ~ '/verify', csrf, 'Re-verify', 'btn-sm') }}{% endif %}
+        {% if o.is_active %}{{ ui.confirm(base ~ o.id ~ '/retire', csrf, 'Retire', 'Stop sending traffic to this origin. Until another origin is active, none of this application\'s hostnames is served.', 'Retire origin') }}
+        {% else %}{{ ui.confirm(base ~ o.id ~ '/delete', csrf, 'Delete', 'Remove this origin registration? It carries no traffic.', 'Delete origin') }}{% endif %}
+      </div></td>
+    </tr>{% endfor %}
+  </table></div>
+  {% else %}
+  {{ ui.empty('No origin yet', 'Register the backend server of ' ~ application.name ~ ' below. Customer hostnames cannot go live until it is verified and active.', 'server') }}
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head"><div><h2>Register an origin</h2><p>The host the edge connects to. It must be reachable from this server and serve your product for any workspace.</p></div></div>
+  <form method="post" action="/portal/applications/{{ application.slug }}/origins"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="card-body form-row">
+      <div class="fixed"><label for="scheme">Scheme</label><select id="scheme" name="scheme" style="width:110px"><option value="https">https</option><option value="http">http</option></select></div>
+      <div class="grow"><label for="host">Host</label><input type="text" id="host" name="host" required placeholder="app.acme.example"></div>
+      <div class="fixed"><label for="port">Port</label><input type="number" id="port" name="port" min="1" max="65535" placeholder="443" style="width:100px"></div>
+      <div class="fixed"><button type="submit" class="btn-primary">Register</button></div>
+    </div>
+    <div class="card-foot small muted">Leave the port empty for the scheme's default (443 or 80). You get a verification token to serve from the origin next.</div>
+  </form>
+</div>
+{% endblock %}

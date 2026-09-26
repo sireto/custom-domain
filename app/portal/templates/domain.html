@@ -1,21 +1,56 @@
-{% extends "base.html" %}{% block title %}{{ domain.hostname }}{% endblock %}
+{% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}{{ domain.hostname }}{% endblock %}
+{% block crumbs %}<a href="/portal/applications">Applications</a><span class="crumb-sep">/</span><a href="/portal/applications/{{ application.slug }}{{ '/domains' if application.is_deleted }}">{{ application.name }}</a><span class="crumb-sep">/</span><a href="/portal/applications/{{ application.slug }}/domains">Domains</a><span class="crumb-sep">/</span><span class="current">{{ domain.hostname }}</span>{% endblock %}
 {% block content %}
-<p><a href="/portal/applications/{{ application.slug }}">← {{ application.slug }}</a></p>
-<h1><code>{{ domain.hostname }}</code> <span class="pill">{{ domain.status.value }}</span></h1>
-<div class="grid">
-<div class="card"><h2 style="margin-top:0">Checks</h2>
-<table><tr><th>Check</th><th>Status</th><th>Error</th><th>Message</th><th>Observed</th><th>Next</th></tr>
-{% for c in domain.checks|sort(attribute='check_type.value') %}<tr><td>{{ c.check_type.value }}</td><td class="{{ 'ok' if c.status.value == 'passing' else ('fail' if c.status.value == 'failing' else 'muted') }}">{{ c.status.value }}</td><td><code>{{ c.error_code or '' }}</code></td><td>{{ c.message or '' }}</td><td class="muted">{{ c.observed_at.strftime('%Y-%m-%d %H:%M') if c.observed_at else '' }}</td><td class="muted">{{ c.next_check_at.strftime('%Y-%m-%d %H:%M') if c.next_check_at else '' }}</td></tr>{% endfor %}
-</table></div>
-<div class="card"><h2 style="margin-top:0">DNS records the customer publishes</h2>
-<table><tr><th>Type</th><th>Name</th><th>Value</th></tr>
-{% for r in records %}<tr><td>{{ r.type }}</td><td><code>{{ r.name }}</code></td><td><code>{{ r.value }}</code></td></tr>{% else %}<tr><td colspan="3" class="muted">None (deleted domain).</td></tr>{% endfor %}
-</table>
-<p class="muted">Reference <code>{{ domain.reference }}</code> · created {{ domain.created_at.strftime('%Y-%m-%d %H:%M') }} UTC{% if domain.deleted_at %} · deleted {{ domain.deleted_at.strftime('%Y-%m-%d %H:%M') }} UTC{% endif %}</p>
+{% set base = '/portal/applications/' ~ application.slug ~ '/domains/' ~ domain.id %}
+<div class="page-head">
+  <div><h1>{{ domain.hostname }} {{ ui.badge(state) }}</h1><p>Workspace <code>{{ domain.reference }}</code> in {{ application.name }} · registered {{ ui.when(domain.created_at) }}</p></div>
+  {% if not domain.is_deleted and not application.is_deleted %}<div class="actions">
+    {{ ui.post(base ~ '/recheck', csrf, 'Check now', 'btn') }}
+    {{ ui.confirm(base ~ '/reissue', csrf, 'Issue new records', 'The customer will have to publish a new TXT value (and the current CNAME target). Until then the hostname is not served. Use this if the old token leaked or the CNAME target changed.', 'Issue new records', danger=true, small=false) }}
+    {{ ui.confirm(base ~ '/delete', csrf, 'Delete', 'The edge stops serving ' ~ domain.hostname ~ ' at once. The hostname can be registered again later, with new DNS records.', 'Delete hostname', danger=true, small=false) }}
+  </div>{% endif %}
 </div>
+
+<div class="alert alert-{{ {'ok':'ok','fail':'fail','warn':'warn','progress':'info'}.get(state.tone, 'info') }}"><div><b>{{ state.label }}</b><p class="body">{{ state.help }}</p></div></div>
+
+{% if records %}
+<div class="card">
+  <div class="card-head"><div><h2>DNS records for the customer</h2><p>Send these to the customer. Both must stay in place for as long as the hostname is used.</p></div></div>
+  <div class="card-body">
+    {% for r in records %}
+    <div class="record">
+      <div class="record-head"><div class="split"><span class="tag">{{ r.type }}</span><b>{{ r.purpose }}</b></div>{{ ui.badge(r.state) }}</div>
+      <dl class="kv">
+        <dt>Name</dt><dd>{{ ui.copy(r.name) }}{% if r.host_label and r.host_label != r.name %}<div class="hint">If the customer's DNS zone is <code>{{ r.zone }}</code>, most providers want only <span class="copy-inline">{{ r.host_label }}</span> in the "Name" or "Host" field.</div>{% endif %}</dd>
+        <dt>Value</dt><dd>{{ ui.copy(r.value) }}</dd>
+      </dl>
+      {% if r.detail %}<div class="observed"><b>What DNS shows now:</b> {{ r.detail }}{% if r.observed %}<div style="margin-top:4px">Found: {% for v in r.observed %}<code>{{ v }}</code>{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}</div>{% endif %}
+      <div class="hint">{{ r.help }}</div>
+    </div>
+    {% endfor %}
+  </div>
 </div>
-<h2>Events</h2>
-<div class="card"><table><tr><th>Time</th><th>Event</th><th>Details</th></tr>
-{% for e in events %}<tr><td class="muted">{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td><td>{{ e.event_type }}</td><td><code>{{ e.payload }}</code></td></tr>{% endfor %}
-</table></div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head"><div><h2>Checks</h2><p>A hostname is served only while all four pass. The worker re-runs them on a schedule; <b>Check now</b> asks for the next run immediately.</p></div></div>
+  <div class="table-wrap"><table>
+    <tr><th>Check</th><th>Status</th><th>Details</th><th>Last run</th><th>Next run</th></tr>
+    {% for c in checks %}<tr>
+      <td><b>{{ c.label }}</b><div class="muted small">{{ c.purpose }}</div></td>
+      <td>{{ ui.badge(c.state) }}</td>
+      <td class="small">{% if c.message %}{{ c.message }}{% elif c.state.tone == 'ok' %}<span class="muted">OK</span>{% else %}<span class="muted">—</span>{% endif %}{% if c.error_code %}<div class="muted"><code>{{ c.error_code }}</code></div>{% endif %}</td>
+      <td class="small">{{ ui.when(c.observed_at) }}</td>
+      <td class="small">{% if not domain.is_deleted %}{{ ui.when(c.next_check_at) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>{% endfor %}
+  </table></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><div><h2>History</h2><p>Newest first.</p></div></div>
+  {% if events %}<ul class="timeline">
+    {% for e, title, detail in events %}<li><time>{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}</time><div><b>{{ title }}</b>{% if detail %} <span class="muted">· {{ detail }}</span>{% endif %}</div></li>{% endfor %}
+  </ul>{% else %}<div class="card-body muted">No events.</div>{% endif %}
+</div>
+{% if domain.is_deleted %}<p class="muted small">Deleted {{ ui.when(domain.deleted_at) }}. This record is purged after {{ ui.when(domain.purge_after) }}.</p>{% endif %}
 {% endblock %}

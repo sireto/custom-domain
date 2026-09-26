@@ -1,0 +1,45 @@
+{% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Domains · {{ application.name }}{% endblock %}
+{% block crumbs %}{{ ui.app_crumbs(application, 'Domains') }}{% endblock %}
+{% block content %}
+{{ ui.app_head(application, app_state, 'Customer hostnames served for this application. Open one to see its DNS records and checks.') }}
+{{ ui.app_tabs(application, 'domains', tab_counts) }}
+
+<div class="card">
+  <div class="card-head">
+    <div class="chips">{% for value, label in filters %}{% set n = domain_counts[p.DomainStatus(value)] if value else tab_counts.domains %}<a class="chip {{ 'active' if value == domain_status }}" href="?status={{ value }}{{ '&q=' ~ q|urlencode if q }}">{{ label }} <span class="muted">{{ n }}</span></a>{% endfor %}</div>
+    <form method="get" action="" class="form-row" style="gap:6px"><input type="hidden" name="status" value="{{ domain_status }}"><div class="fixed"><input type="search" name="q" value="{{ q }}" placeholder="Search hostname or workspace" style="width:240px"></div><div class="fixed"><button type="submit" class="btn-sm">Search</button></div></form>
+  </div>
+  {% if domains %}
+  <div class="table-wrap"><table>
+    <tr><th>Hostname</th><th>Workspace</th><th>Status</th><th>DNS records</th><th>Checks</th><th>Updated</th></tr>
+    {% for d in domains %}<tr>
+      <td><a class="row-link" href="/portal/applications/{{ application.slug }}/domains/{{ d.id }}">{{ d.hostname }}</a></td>
+      <td><code>{{ d.reference }}</code></td>
+      <td>{{ ui.badge(p.domain_state(d)) }}</td>
+      <td>{% if not d.is_deleted %}{{ ui.badge(p.dns_summary(d)) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td><span class="dots">{% for c in p.check_views(d) %}{{ ui.dot(c.state, c.label) }}{% endfor %}</span></td>
+      <td class="muted small">{{ ui.when(d.updated_at) }}</td>
+    </tr>{% endfor %}
+  </table></div>
+  {% if offset or has_more %}<div class="card-foot split" style="justify-content:space-between"><span class="muted small">Showing {{ offset + 1 }}–{{ offset + domains|length }}</span><span class="actions">{% if offset %}<a class="btn btn-sm" href="?status={{ domain_status }}&q={{ q|urlencode }}&offset={{ [offset - 50, 0]|max }}">Previous</a>{% endif %}{% if has_more %}<a class="btn btn-sm" href="?status={{ domain_status }}&q={{ q|urlencode }}&offset={{ offset + 50 }}">Next</a>{% endif %}</span></div>{% endif %}
+  {% elif q or domain_status %}
+  {{ ui.empty('No matching hostnames', 'Nothing matches this filter. Clear it to see every hostname.', 'globe') }}
+  {% else %}
+  {{ ui.empty('No hostnames yet', 'Your product registers customer hostnames through the API or SDK with an API key. You can also add one below, for a test or a migration.', 'globe') }}
+  {% endif %}
+</div>
+
+{% if not application.is_deleted %}
+<div class="card">
+  <div class="card-head"><div><h2>Register a hostname</h2><p>Normally done by your product through the API. The customer then publishes the two DNS records shown on the hostname's page.</p></div></div>
+  <form method="post" action="/portal/applications/{{ application.slug }}/domains"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="card-body form-row">
+      <div class="grow"><label for="hostname">Customer hostname</label><input type="text" id="hostname" name="hostname" required placeholder="forms.customer.example"></div>
+      <div class="grow"><label for="reference">Workspace reference</label><input type="text" id="reference" name="reference" required maxlength="255" placeholder="ws_8f3a1c"></div>
+      <div class="fixed"><button type="submit" class="btn-primary">Register</button></div>
+    </div>
+    <div class="card-foot small muted">The workspace reference is your product's identifier for the customer's workspace. The edge passes it to your backend with every request for this hostname.</div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

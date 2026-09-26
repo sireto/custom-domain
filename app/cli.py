@@ -65,7 +65,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the name customers CNAME to (default: EDGE_HOSTNAME)",
     )
     create.set_defaults(func=_application_create)
-    application.add_parser("list").set_defaults(func=_application_list)
+    app_list = application.add_parser("list")
+    app_list.add_argument(
+        "--deleted",
+        action="store_true",
+        help="list deleted applications whose records are still retained",
+    )
+    app_list.set_defaults(func=_application_list)
     probe_flag = application.add_parser(
         "set-workspace-probe",
         help="require (or not) the origin's workspace echo for readiness",
@@ -89,6 +95,23 @@ def _build_parser() -> argparse.ArgumentParser:
         "update both records",
     )
     target_flag.set_defaults(func=_application_set_cname_target)
+    rename = application.add_parser("rename", help="change an application's display name")
+    rename.add_argument("--application", required=True)
+    rename.add_argument("--name", required=True)
+    rename.set_defaults(func=_application_rename)
+    remove = application.add_parser(
+        "delete",
+        help="delete an application and its domains; keys and webhooks are revoked, origins "
+        "retired, and the records kept for the 90-day retention period",
+    )
+    remove.add_argument("--application", required=True)
+    remove.add_argument("--confirm", required=True, help="repeat the application's slug to confirm")
+    remove.add_argument(
+        "--delete-domains",
+        action="store_true",
+        help="also delete its live domains (refused without this while any exist)",
+    )
+    remove.set_defaults(func=_application_delete)
 
     credential = sub.add_parser("credential", help="manage API credentials").add_subparsers(
         dest="credential_command"
@@ -113,6 +136,10 @@ def _build_parser() -> argparse.ArgumentParser:
     rotate.add_argument("--label", help="label for the new credential (default: same as old)")
     rotate.add_argument("--grace-hours", type=float, default=24.0)
     rotate.set_defaults(func=_credential_rotate)
+    cred_delete = credential.add_parser("delete", help="remove a revoked or expired credential")
+    cred_delete.add_argument("--application", required=True)
+    cred_delete.add_argument("--id", required=True)
+    cred_delete.set_defaults(func=_credential_delete)
 
     origin = sub.add_parser("origin", help="manage application origins").add_subparsers(
         dest="origin_command"
@@ -146,6 +173,16 @@ def _build_parser() -> argparse.ArgumentParser:
     activate.add_argument("--id")
     activate.add_argument("--host")
     activate.set_defaults(func=_origin_activate)
+    retire = origin.add_parser("retire", help="stop routing traffic to this origin")
+    retire.add_argument("--application", required=True)
+    retire.add_argument("--id")
+    retire.add_argument("--host")
+    retire.set_defaults(func=_origin_retire)
+    origin_delete = origin.add_parser("delete", help="remove an origin that carries no traffic")
+    origin_delete.add_argument("--application", required=True)
+    origin_delete.add_argument("--id")
+    origin_delete.add_argument("--host")
+    origin_delete.set_defaults(func=_origin_delete)
 
     legacy = sub.add_parser("legacy", help="import from the volume-based deployment")
     legacy_sub = legacy.add_subparsers(dest="legacy_command")
@@ -299,6 +336,14 @@ def _application_create(args) -> int:
 
 def _application_list(args) -> int:
     with get_session_factory()() as session:
+        if getattr(args, "deleted", False):
+            for application in app_service.list_deleted_applications(session):
+                print(
+                    f"{application.slug}\t{application.name}\t"
+                    f"deleted {application.deleted_at.isoformat()}\t"
+                    f"kept until {application.purge_after.isoformat()}\t{application.id}"
+                )
+            return 0
         for application in app_service.list_applications(session):
             print(
                 f"{application.slug}\t{application.status.value}\t"
@@ -612,6 +657,67 @@ def _dev_demo(args) -> int:
     if not ready and args.wait > 0:
         print("not every domain is ready yet; the worker keeps checking", file=sys.stderr)
         return 3
+    return 0
+
+
+def _application_rename(args) -> int:
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        app_service.rename_application(session, application, args.name)
+        session.commit()
+        print(f"renamed {application.slug} to {application.name!r}")
+    return 0
+
+
+def _application_delete(args) -> int:
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        removed = app_service.delete_application(
+            session, application, confirm_slug=args.confirm, delete_domains=args.delete_domains
+        )
+        session.commit()
+        print(
+            f"deleted application {args.application} and {removed} live domain(s); the "
+            "records are kept for 90 days, then removed by `domain purge-tombstones`"
+        )
+    return 0
+
+
+def _credential_delete(args) -> int:
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        app_service.delete_credential(session, application, uuid.UUID(args.id))
+        session.commit()
+        print(f"deleted credential {args.id}")
+    return 0
+
+
+def _selected_origin(session, args):
+    application = app_service.get_application_by_slug(session, args.application)
+    return app_service.get_origin(
+        session,
+        application,
+        origin_id=uuid.UUID(args.id) if args.id else None,
+        host=args.host,
+    )
+
+
+def _origin_retire(args) -> int:
+    with get_session_factory()() as session:
+        origin = _selected_origin(session, args)
+        app_service.retire_origin(session, origin)
+        session.commit()
+        print(f"retired origin {origin.url}")
+    return 0
+
+
+def _origin_delete(args) -> int:
+    with get_session_factory()() as session:
+        origin = _selected_origin(session, args)
+        url = origin.url
+        app_service.delete_origin(session, origin)
+        session.commit()
+        print(f"deleted origin {url}")
     return 0
 
 

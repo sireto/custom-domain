@@ -34,6 +34,14 @@ class ApplicationSuspended(ServiceError):
     code = "application_suspended"
 
 
+class ApplicationNotEmpty(ServiceError):
+    code = "application_not_empty"
+
+
+class ConfirmationMismatch(ServiceError):
+    code = "confirmation_mismatch"
+
+
 class HostnameAlreadyClaimed(ServiceError):
     code = "hostname_already_claimed"
 
@@ -68,6 +76,14 @@ class OriginConflict(ServiceError):
 
 class OriginNotVerified(ServiceError):
     code = "origin_not_verified"
+
+
+class OriginInUse(ServiceError):
+    code = "origin_in_use"
+
+
+class CredentialInUse(ServiceError):
+    code = "credential_in_use"
 
 
 class RateLimited(ServiceError):
