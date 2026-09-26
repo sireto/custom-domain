@@ -104,21 +104,31 @@ and never publishes to PyPI.
 ## Upgrading
 
 `custom-domain upgrade <version>` on the host re-runs the installer from
-that release: it moves `CUSTOM_DOMAIN_IMAGE` in `.env` to the version,
-adds any settings the release introduced (with generated values where they
-are secrets), refreshes the Compose file, then pulls and restarts the
-stack. Existing data and secrets are never touched. The Compose file is
-replaced only when the installed copy is unmodified since the installer
-wrote it (the installer keeps a checksum); a copy you changed is kept and
-the release's file is written next to it as `compose.production.yml.new`
-for you to merge, after which running the upgrade again records the result.
-Releases can change the Compose file (a published port, a shared setting),
-so upgrading by editing the image tag alone is not enough.
+that release. It refreshes the Compose file, adds any settings the release
+introduced to `.env` (with generated values where they are secrets), moves
+`CUSTOM_DOMAIN_IMAGE` to the version, then pulls and restarts the stack.
+Existing data and secrets are never touched. Values given on the command
+line or in the environment win over `/etc/custom-domain-install.env`, so
+the version cloud-init wrote at creation does not hold an upgrade back.
 
-Installations made before the installer existed (a hand-copied Compose
-file) upgrade the same way: run `deploy/install.sh` from the release once;
-it treats the present Compose file as modified and leaves the new one
-beside it.
+The Compose file is part of a release (a published port, a setting the
+three containers must share), so the installer treats it carefully:
+
+- **Unmodified since the installer wrote it** (it keeps a checksum in
+  `deploy/.compose.production.yml.installed`): replaced by the release's
+  file, and the upgrade proceeds.
+- **Modified locally, or installed by hand before the installer existed:**
+  the upgrade **stops before changing anything**, exits with status 3, and
+  writes the release's file next to yours as `compose.production.yml.new`.
+  Merge it into `compose.production.yml` (keeping your changes), then run
+  `custom-domain upgrade <version> --accept-compose`: the merged file is
+  recorded as the installed one and the upgrade continues. Later upgrades
+  compare against that merged file, so they stop again only when a release
+  changes the Compose file while yours still differs from it.
+
+Upgrading by editing the image tag alone is not enough and is no longer
+documented: running the new image with an old Compose file is exactly the
+failure the installer's stop prevents.
 
 ## Images
 

@@ -30,13 +30,37 @@
 #                           when there is one; empty means SSH tunnel only)
 #   SKIP_FIREWALL=1         do not touch ufw (when the provider firewall is used instead)
 #   SKIP_DOCKER_INSTALL=1   Docker is already installed and running
+#   CUSTOM_DOMAIN_ACCEPT_COMPOSE=1
+#                           accept the Compose file as it is on disk (after merging a
+#                           release's compose.production.yml.new into it) and continue
+#
+# Values given in the environment win over /etc/custom-domain-install.env, so
+# `custom-domain upgrade 0.4.0` installs 0.4.0 even when cloud-init wrote an
+# older version into that file at creation.
 set -euo pipefail
 
-if [ -f /etc/custom-domain-install.env ]; then
+CONFIG_FILE="${CUSTOM_DOMAIN_INSTALL_ENV:-/etc/custom-domain-install.env}"
+SETTINGS="CUSTOM_DOMAIN_VERSION CUSTOM_DOMAIN_REF CUSTOM_DOMAIN_DIR CUSTOM_DOMAIN_SOURCE \
+ACME_EMAIL EDGE_HOSTNAME PORTAL_ALLOWED_IPS SKIP_FIREWALL SKIP_DOCKER_INSTALL \
+CUSTOM_DOMAIN_ACCEPT_COMPOSE"
+if [ -f "${CONFIG_FILE}" ]; then
+    # Remember what the caller set explicitly, load the file, then put the
+    # explicit values back: the file is the default, never an override.
+    for name in ${SETTINGS}; do
+        if [ -n "$(eval "printf '%s' \"\${${name}+x}\"")" ]; then
+            eval "_explicit_${name}=\"\${${name}}\""
+            eval "_given_${name}=1"
+        fi
+    done
     set -a
-    # shellcheck disable=SC1091
-    . /etc/custom-domain-install.env
+    # shellcheck disable=SC1090
+    . "${CONFIG_FILE}"
     set +a
+    for name in ${SETTINGS}; do
+        if [ -n "$(eval "printf '%s' \"\${_given_${name}:-}\"")" ]; then
+            eval "${name}=\"\${_explicit_${name}}\""
+        fi
+    done
 fi
 
 VERSION_GIVEN="${CUSTOM_DOMAIN_VERSION:-}"
@@ -120,9 +144,29 @@ elif [ -f "${CHECKSUM_FILE}" ] && [ "$(checksum "${COMPOSE_FILE}")" = "$(cat "${
     log "Updating the Compose file to this release (the installed one was unmodified)"
     install -m 0644 "${fresh_compose}" "${COMPOSE_FILE}"
     checksum "${COMPOSE_FILE}" >"${CHECKSUM_FILE}"
+elif [ "${CUSTOM_DOMAIN_ACCEPT_COMPOSE:-0}" = "1" ]; then
+    # The operator merged the release's changes into their copy: that copy is
+    # the installed one from now on.
+    log "Accepting the Compose file as it is on disk"
+    checksum "${COMPOSE_FILE}" >"${CHECKSUM_FILE}"
+    rm -f "${COMPOSE_FILE}.new"
 else
     install -m 0644 "${fresh_compose}" "${COMPOSE_FILE}.new"
-    warn "${COMPOSE_FILE} was modified locally and is kept; this release's file is at ${COMPOSE_FILE}.new. Merge the two (diff them) and run again."
+    rm -f "${fresh_compose}"
+    cat >&2 <<EOF
+
+!!  ${COMPOSE_FILE} differs from the file this installer wrote (it was edited, or
+!!  the installation predates the installer). Nothing was changed: the image,
+!!  the configuration and the running stack are as they were, because a release
+!!  can require Compose changes (a published port, a shared setting) and running
+!!  the new image with the old file would break it.
+!!
+!!  This release's Compose file is at ${COMPOSE_FILE}.new. Merge it into
+!!  ${COMPOSE_FILE} (keep your local changes), then run:
+!!      custom-domain upgrade ${VERSION_GIVEN:-<version>} --accept-compose
+!!  which records the merged file as the installed one and continues.
+EOF
+    exit 3
 fi
 rm -f "${fresh_compose}"
 
@@ -198,11 +242,20 @@ cat >"${BIN_DIR}/custom-domain" <<EOF
 #!/usr/bin/env bash
 # Custom Domain on this host. Written by deploy/install.sh.
 if [ "\${1:-}" = "upgrade" ]; then
-    version="\${2:-}"
+    # custom-domain upgrade [version] [--accept-compose]
+    shift
+    version=""; accept=""
+    for arg in "\$@"; do
+        case "\$arg" in
+            --accept-compose) accept=1 ;;
+            *) version="\$arg" ;;
+        esac
+    done
     ref="\${version:-main}"; [ "\$ref" = latest ] && ref=main
     tmp="\$(mktemp)"
     curl -fsSL "https://raw.githubusercontent.com/sireto/custom-domain/\${ref}/deploy/install.sh" -o "\$tmp"
-    CUSTOM_DOMAIN_VERSION="\$version" CUSTOM_DOMAIN_DIR="${DIR}" exec bash "\$tmp"
+    CUSTOM_DOMAIN_VERSION="\$version" CUSTOM_DOMAIN_DIR="${DIR}" \
+        CUSTOM_DOMAIN_ACCEPT_COMPOSE="\${accept:-0}" exec bash "\$tmp"
 fi
 exec ${COMPOSE} exec api custom-domain "\$@"
 EOF

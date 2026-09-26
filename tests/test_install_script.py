@@ -77,6 +77,7 @@ def test_fresh_install_writes_everything_and_starts_the_stack(tmp_path):
     assert oct((deploy / ".env").stat().st_mode & 0o777) == "0o600"
     wrapper = (tmp_path / "bin" / "custom-domain").read_text()
     assert "exec api custom-domain" in wrapper and '"upgrade"' in wrapper
+    assert "--accept-compose" in wrapper and "CUSTOM_DOMAIN_ACCEPT_COMPOSE" in wrapper
     log = (tmp_path / "docker.log").read_text()
     assert "pull -q" in log and "up -d --wait" in log
     assert "https://edge.example.net/portal" in result.stdout.lower()
@@ -126,15 +127,68 @@ def test_upgrade_refreshes_compose_adds_settings_and_moves_the_image(tmp_path):
     assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.9.9"
 
 
-def test_upgrade_keeps_a_locally_modified_compose_file(tmp_path):
+def test_upgrade_stops_on_a_locally_modified_compose_file_until_accepted(tmp_path):
     assert run_install(tmp_path, "0.9.8").returncode == 0
     deploy = tmp_path / "opt" / "deploy"
+    (tmp_path / "docker.log").unlink()
     customized = (deploy / "compose.production.yml").read_text() + "# operator change\n"
     (deploy / "compose.production.yml").write_text(customized)
+
+    # Nothing changes: the image stays, docker is not called, the exit code says why.
     result = run_install(tmp_path, "0.9.9")
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 3
     assert (deploy / "compose.production.yml").read_text() == customized
     assert (deploy / "compose.production.yml.new").read_text() == (
         ROOT / "deploy" / "compose.production.yml"
     ).read_text()
-    assert "modified locally" in result.stderr
+    assert "Nothing was changed" in result.stderr and "--accept-compose" in result.stderr
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.9.8"
+    calls = (tmp_path / "docker.log").read_text() if (tmp_path / "docker.log").exists() else ""
+    assert "pull" not in calls and "up -d" not in calls  # only the `compose version` probe
+
+    # The operator merges (here: keeps their change on top of the release's file)
+    # and accepts: the merged file is recorded as installed and the upgrade runs.
+    merged = (ROOT / "deploy" / "compose.production.yml").read_text() + "# operator change\n"
+    (deploy / "compose.production.yml").write_text(merged)
+    accepted = run_install(tmp_path, "0.9.9", CUSTOM_DOMAIN_ACCEPT_COMPOSE="1")
+    assert accepted.returncode == 0, accepted.stderr
+    assert (deploy / "compose.production.yml").read_text() == merged
+    assert not (deploy / "compose.production.yml.new").exists()
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.9.9"
+    assert "up -d --wait" in (tmp_path / "docker.log").read_text()
+    # The merged file is now the baseline: the next run does not stop again.
+    assert run_install(tmp_path, "0.9.9").returncode == 0
+
+
+def test_installation_that_predates_the_installer_is_treated_as_modified(tmp_path):
+    """A hand-copied Compose file with no checksum recorded: stop, do not restart."""
+    deploy = tmp_path / "opt" / "deploy"
+    deploy.mkdir(parents=True)
+    (deploy / "compose.production.yml").write_text("services:\n  api:\n    image: old\n")
+    (deploy / ".env").write_text(
+        "DATABASE_URL=x\nCUSTOM_DOMAIN_IMAGE=ghcr.io/sireto/custom-domain:0.3.0\n"
+    )
+    result = run_install(tmp_path, "0.9.9")
+    assert result.returncode == 3 and "predates the installer" in result.stderr
+    assert (deploy / "compose.production.yml.new").exists()
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.3.0"
+    calls = (tmp_path / "docker.log").read_text() if (tmp_path / "docker.log").exists() else ""
+    assert "pull" not in calls and "up -d" not in calls
+
+
+def test_explicit_version_wins_over_the_cloud_init_config_file(tmp_path):
+    """cloud-init leaves the original version in /etc/custom-domain-install.env;
+    `custom-domain upgrade 0.9.9` must still install 0.9.9."""
+    config = tmp_path / "install.env"
+    config.write_text(
+        "CUSTOM_DOMAIN_VERSION=0.3.1\nACME_EMAIL=from-file@example.net\nEDGE_HOSTNAME=edge.example.net\n"
+    )
+    first = run_install(tmp_path, None, CUSTOM_DOMAIN_INSTALL_ENV=str(config))
+    assert first.returncode == 0, first.stderr
+    env = env_of(tmp_path)
+    assert env["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.3.1"  # the file's default
+    assert env["ACME_EMAIL"] == "from-file@example.net"
+    upgraded = run_install(tmp_path, "0.9.9", CUSTOM_DOMAIN_INSTALL_ENV=str(config))
+    assert upgraded.returncode == 0, upgraded.stderr
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.9.9"
+    assert "Image set to ghcr.io/sireto/custom-domain:0.9.9" in upgraded.stdout
