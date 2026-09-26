@@ -149,6 +149,9 @@ def create_app() -> FastAPI:
     app.include_router(internal_router)
     app.include_router(webhooks_router)
     app.webhooks.include_router(webhooks)
+    from app.portal.views import install as install_portal
+
+    install_portal(app)
 
     if _env_flag("ENABLE_LEGACY_API", True):
         _mount_legacy(app)

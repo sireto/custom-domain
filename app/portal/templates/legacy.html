@@ -1,0 +1,32 @@
+{% extends "base.html" %}{% block title %}Legacy import{% endblock %}
+{% block content %}
+<h1>Import hostnames from the legacy deployment</h1>
+{% if report %}
+<div class="card">
+<p><b>{{ 'Dry run: nothing written.' if dry_run else ('Blocked: some hostnames were skipped and partial imports are not allowed; nothing written.' if blocked else 'Imported into ' ~ application_slug ~ '.') }}</b>
+{{ report.imported|length }} {{ 'to import' if not committed else 'imported' }}, {{ report.existing|length }} existing, {{ report.skipped|length }} skipped.</p>
+<table><tr><th>Outcome</th><th>Hostname</th><th>Detail</th></tr>
+{% for d in report.imported %}<tr><td class="ok">{{ 'would import' if not committed else 'imported' }}</td><td><code>{{ d.hostname }}</code></td><td>{{ d.status.value }} · reference {{ d.reference }}</td></tr>{% endfor %}
+{% for d in report.existing %}<tr><td class="muted">existing</td><td><code>{{ d.hostname }}</code></td><td>{{ d.status.value }} · reference {{ d.reference }}</td></tr>{% endfor %}
+{% for hostname, reason in report.skipped %}<tr><td class="fail">skipped</td><td><code>{{ hostname }}</code></td><td>{{ reason }}</td></tr>{% endfor %}
+</table></div>
+{% endif %}
+<div class="card">
+<form method="post" action="/portal/legacy" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="application">Application</label>
+  <select id="application" name="application" required>{% for a in applications %}<option value="{{ a.slug }}">{{ a.slug }} · {{ a.name }}</option>{% endfor %}</select>
+  <label for="config">Legacy <code>caddy.json</code> (from the <code>https_domains</code> volume)</label>
+  <input type="file" id="config" name="config" accept="application/json" required>
+  <label for="references">Reference map: JSON object of hostname to workspace reference (optional when the hostname is the reference)</label>
+  <textarea id="references" name="references" placeholder='{"forms.customer.example": "ws_8f3a1c"}'></textarea>
+  <div class="row">
+    <div class="fixed"><label for="port">Upstream port</label><input type="number" id="port" name="port" value="443" style="width:90px"></div>
+  </div>
+  <label><input type="checkbox" name="hostname_as_reference" value="true"> use the hostname as the reference when the map has no entry</label>
+  <label><input type="checkbox" name="grandfather" value="true"> grandfather: treat existing hostnames as ownership-verified by import (customers then have 24 hours to add the TXT record)</label>
+  <label><input type="checkbox" name="allow_skipped" value="true"> commit a partial import even if some hostnames are skipped</label>
+  <label><input type="checkbox" name="dry_run" value="true" checked> dry run (report only)</label>
+  <p><button type="submit">Run</button></p>
+</form>
+</div>
+{% endblock %}

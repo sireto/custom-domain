@@ -64,6 +64,11 @@ the certificate for its own name on the first handshake. A `TLS` or
 `certificate` error that persists points at issuance: check the edge
 container's log for the ACME error and that `ACME_EMAIL` is set.
 
+Or use the portal: from your machine, `ssh -N -L 9000:127.0.0.1:9000 root@<server>`
+and open http://localhost:9000/portal with the `PORTAL_PASSWORD` from
+`/opt/custom-domain/deploy/.env`. The doctor and everything in step 4 are
+pages there ([portal.md](portal.md)).
+
 ## 4. Onboard the first application
 
 ```

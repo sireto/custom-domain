@@ -31,6 +31,8 @@ services:
       CADDY_STORAGE: file
       # Where `custom-domain dev demo` leaves the sample origin's configuration.
       CUSTOM_DOMAIN_DEMO_ENV: /demo/sample.env
+      # Operator portal at http://127.0.0.1:9000/portal (local only; not a secret).
+      PORTAL_PASSWORD: ${PORTAL_PASSWORD:-local-development-only}
     volumes:
       - local_data:/var/lib/custom-domain
       - local_db:/app/data

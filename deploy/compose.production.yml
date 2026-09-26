@@ -47,13 +47,14 @@ services:
       EDGE_ASK_TRUSTED_HOSTS: 10.90.0.0/16
     depends_on:
       db: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:9000:9000"   # management API and portal: host only, use an SSH tunnel
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9000/v1/openapi.json', timeout=3).status == 200 else 1)"]
       interval: 15s
       timeout: 5s
       retries: 4
     networks: [backend, control]
-    # Not published: reach the management API through a host reverse proxy or a VPN.
 
   worker:
     image: ${CUSTOM_DOMAIN_IMAGE:-ghcr.io/sireto/custom-domain:latest}

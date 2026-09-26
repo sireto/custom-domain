@@ -347,3 +347,8 @@ def hostnames_in(config: dict[str, Any] | None) -> set[str]:
             for match in route.get("match", []):
                 hosts.update(match.get("host", []))
     return hosts
+
+
+def redact_apps_summary(apps: dict[str, Any]) -> dict[str, Any]:
+    """Counts for display: application routes and hostnames, no secrets."""
+    return {"routes": app_route_count(apps), "hostnames": len(hostnames_in({"apps": apps}))}
