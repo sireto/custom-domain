@@ -14,6 +14,9 @@
 #                           version, or main when the version is latest)
 #   CUSTOM_DOMAIN_DIR       install directory (default: /opt/custom-domain)
 #   CUSTOM_DOMAIN_SOURCE    local checkout to copy deploy files from instead of downloading
+#   PORTAL_ALLOWED_IPS      addresses or networks that may open the portal through the
+#                           edge (default: the address you are installing from over SSH,
+#                           when there is one; empty means SSH tunnel only)
 #   SKIP_FIREWALL=1         do not touch ufw (when the provider firewall is used instead)
 #   SKIP_DOCKER_INSTALL=1   Docker is already installed and running
 set -euo pipefail
@@ -88,6 +91,10 @@ if [ ! -f "${DIR}/deploy/compose.production.yml" ]; then
 fi
 
 secret() { openssl rand -hex "$1"; }
+if [ -z "${PORTAL_ALLOWED_IPS+x}" ] && [ -n "${SSH_CONNECTION:-}" ]; then
+    # Interactive install over SSH: allow the portal from where the operator is.
+    PORTAL_ALLOWED_IPS="${SSH_CONNECTION%% *}"
+fi
 if [ ! -f "${DIR}/deploy/.env" ]; then
     log "Generating configuration and secrets"
     pg_password="$(secret 24)"
@@ -100,6 +107,7 @@ ACME_EMAIL=${ACME_EMAIL:-}
 EDGE_ASSERTION_KEYS=1:$(secret 32)
 EDGE_TOKEN=$(secret 24)
 PORTAL_PASSWORD=$(secret 16)
+PORTAL_ALLOWED_IPS=${PORTAL_ALLOWED_IPS:-}
 CADDY_REDIS_PASSWORD=$(secret 24)
 CADDY_REDIS_ENCRYPTION_KEY=$(secret 32)
 CUSTOM_DOMAIN_IMAGE=${IMAGE}
@@ -139,9 +147,9 @@ Next steps
   1. Create a DNS record for the name customers will CNAME to (for example
      edge.example.net): A ${ip4:-<ipv4>}${ip6:+ and AAAA ${ip6}}.
   2. Check the deployment:        custom-domain doctor
-     or open the portal from your machine through an SSH tunnel:
+     or open the portal (password: PORTAL_PASSWORD in ${DIR}/deploy/.env):
+${PORTAL_ALLOWED_IPS:+       https://<the name from step 1>/portal   from ${PORTAL_ALLOWED_IPS} (PORTAL_ALLOWED_IPS), or}
        ssh -N -L 9000:127.0.0.1:9000 root@${ip4:-<server>}   then   http://localhost:9000/portal
-     (password: PORTAL_PASSWORD in ${DIR}/deploy/.env)
   3. Create an application:       custom-domain application create --slug acme --name "Acme" --cname-target edge.example.net
      register its origin:         custom-domain origin register --application acme --host app.acme.example --scheme https --port 443
      verify and activate it:      custom-domain origin verify --application acme --host app.acme.example --activate

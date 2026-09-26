@@ -123,10 +123,12 @@ done so). Compose does not re-pull an existing tag: run
 
 Every action of the `custom-domain` command is also a page under `/portal`
 of the management API, once `PORTAL_PASSWORD` is set (the installer
-generates one into `deploy/.env`). The production layout publishes the API
-on `127.0.0.1:9000` of the host only, so the portal is reached over an SSH
-tunnel: `ssh -N -L 9000:127.0.0.1:9000 root@<server>`, then
-http://localhost:9000/portal. See [portal.md](portal.md).
+generates one into `deploy/.env`). With `PORTAL_ALLOWED_IPS` set, the edge
+serves it at `https://<edge name>/portal` for those addresses only (the
+installer fills in the address you install from); the API is also
+published on `127.0.0.1:9000` of the host, so an SSH tunnel
+(`ssh -N -L 9000:127.0.0.1:9000 root@<server>`, then
+http://localhost:9000/portal) always works. See [portal.md](portal.md).
 
 ## Secrets
 

@@ -228,6 +228,69 @@ def _route(group: RouteGroup, settings: EdgeSettings) -> dict[str, Any]:
     }
 
 
+PORTAL_PATHS = ["/portal", "/portal/*"]
+
+
+def portal_hosts(session: Session) -> list[str]:
+    """Every edge name of an active application: where the portal is served."""
+    from app.services.applications import edge_names
+
+    names: list[str] = []
+    for application in session.scalars(
+        select(Application)
+        .where(Application.status == ApplicationStatus.ACTIVE)
+        .order_by(Application.slug)
+    ):
+        for name in edge_names(session, application):
+            if name not in names:
+                names.append(name)
+    return sorted(names)
+
+
+def portal_routes(settings: EdgeSettings, hosts: list[str]) -> list[dict[str, Any]]:
+    """The operator portal on the edge's own names, for allowed client addresses only.
+
+    Two routes: the allowed one proxies ``/portal`` to the management API
+    (Caddy adds X-Forwarded-For with the real peer address, which the API
+    checks again); the second answers 403 to everyone else on those paths,
+    so a refused client gets a clear answer rather than the 404 fallback.
+    Empty when no address is allowed or no edge name exists.
+    """
+    return portal_routes_for(hosts, settings.portal_ranges(), settings.assert_upstream)
+
+
+def portal_routes_for(hosts: list[str], ranges: list[str], upstream: str) -> list[dict[str, Any]]:
+    """``portal_routes`` from its parts; the gateway builds the expected pair this way."""
+    if not ranges or not hosts:
+        return []
+    return [
+        {
+            "@id": "portal",
+            "match": [
+                {
+                    "host": list(hosts),
+                    "path": list(PORTAL_PATHS),
+                    "remote_ip": {"ranges": list(ranges)},
+                }
+            ],
+            "handle": [
+                {
+                    "handler": "reverse_proxy",
+                    "upstreams": [{"dial": upstream}],
+                    "headers": {"request": {"set": {"Host": ["{http.request.host}"]}}},
+                }
+            ],
+            "terminal": True,
+        },
+        {
+            "@id": "portal-denied",
+            "match": [{"host": list(hosts), "path": list(PORTAL_PATHS)}],
+            "handle": [{"handler": "static_response", "status_code": 403}],
+            "terminal": True,
+        },
+    ]
+
+
 def health_route() -> dict[str, Any]:
     """Answers the readiness probe on every hostname so it can tell this edge apart."""
     return {
@@ -274,7 +337,9 @@ def _server(settings: EdgeSettings, routes: list[dict[str, Any]]) -> dict[str, A
 def build_apps(session: Session, settings: EdgeSettings) -> dict[str, Any]:
     """The ``apps`` subtree the reconciler manages: routing and TLS automation."""
     groups = serveable_route_groups(session)
-    apps: dict[str, Any] = {"http": http_app(settings, [_route(g, settings) for g in groups])}
+    routes = portal_routes(settings, portal_hosts(session)) if settings.portal_allowed_ips else []
+    routes.extend(_route(g, settings) for g in groups)
+    apps: dict[str, Any] = {"http": http_app(settings, routes)}
     if not settings.disable_https:
         # Certificates are issued on demand, at the first TLS handshake for a
         # hostname, and only when the ask endpoint approves that hostname.
