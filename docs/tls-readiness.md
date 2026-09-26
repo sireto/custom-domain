@@ -116,3 +116,12 @@ uv run custom-domain checks edge --application acme --hostname forms.customer.ex
 | `EDGE_PROBE_CA_FILE` | system store | CA bundle to trust for the probe. |
 | `EDGE_PROBE_TIMEOUT` | `15` | Seconds for connect, handshake and request. |
 | `EDGE_TLS_ISSUER` | `acme` | `internal` uses Caddy's local CA (development and staging); point `EDGE_PROBE_CA_FILE` at its root certificate. |
+
+## The edge's own names
+
+The ask endpoint also allows a certificate for the CNAME target of any
+active application (`custom-domain application create --cname-target`).
+No application route matches such a name, so the edge only answers the
+health path on it; `custom-domain doctor` uses that to confirm, over
+HTTPS, that the name customers CNAME to reaches this edge and that
+issuance works.

@@ -19,6 +19,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.dns.settings import DnsSettings
+from app.edge.config import EDGE_HEALTH_HEADER, EDGE_HEALTH_VALUE
 from app.edge.settings import HEALTH_PATH, EdgeSettings
 from app.models import Application, ApplicationStatus, EdgeLock
 from app.models.types import utcnow
@@ -277,6 +278,13 @@ def _application_findings(
 def _cname_target_findings(
     application: Application, settings: EdgeSettings, http_get: HttpGet, resolve: Resolve
 ) -> list[Finding]:
+    """Does the name customers CNAME to reach this edge?
+
+    Only this edge answers the health path with ``X-Custom-Domain-Edge: 1``;
+    a plain HTTPS redirect from port 80 proves nothing, since any web server
+    does that. Over HTTPS the edge obtains a certificate for its own name on
+    the first handshake, so a fresh deployment may need a second run.
+    """
     target = application.cname_target
     check = f"cname target {target}"
     try:
@@ -292,7 +300,17 @@ def _cname_target_findings(
         ]
     if not addresses:
         return [Finding(check, "fail", "resolves to no address")]
-    url = f"http://{target}{HEALTH_PATH}"
+    where = ", ".join(addresses)
+    scheme = "http" if settings.disable_https else "https"
+    port = ""
+    if (
+        settings.disable_https
+        and settings.https_port != 80
+        or not settings.disable_https
+        and settings.https_port != 443
+    ):
+        port = f":{settings.https_port}"
+    url = f"{scheme}://{target}{port}{HEALTH_PATH}"
     try:
         status, headers = http_get(url)
     except Exception as exc:
@@ -300,23 +318,20 @@ def _cname_target_findings(
             Finding(
                 check,
                 "fail",
-                f"resolves to {', '.join(addresses)} but port 80 there does not answer "
-                f"({type(exc).__name__}): open ports 80 and 443 to the edge",
+                f"resolves to {where} but {url} does not answer ({type(exc).__name__}: {exc}); "
+                "open ports 80 and 443 to the edge, and if the certificate is still being "
+                "issued run doctor again in a minute",
             )
         ]
-    location = {k.lower(): v for k, v in headers.items()}.get("location", "")
-    if settings.disable_https:
-        expected = status == 204
-    else:
-        expected = status in (301, 302, 307, 308) and location.startswith("https://")
-    if expected:
-        return [Finding(check, "ok", f"resolves to {', '.join(addresses)} and reaches this edge")]
+    marker = {k.lower(): v for k, v in headers.items()}.get(EDGE_HEALTH_HEADER.lower())
+    if status == 204 and marker == EDGE_HEALTH_VALUE:
+        return [Finding(check, "ok", f"resolves to {where} and reaches this edge")]
     return [
         Finding(
             check,
-            "warn",
-            f"resolves to {', '.join(addresses)}, but port 80 answered HTTP {status} rather "
-            "than this edge: is the record pointing at another server?",
+            "fail",
+            f"resolves to {where}, but {url} answered HTTP {status} without this edge's "
+            "marker: the record points at another server",
         )
     ]
 

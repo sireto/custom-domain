@@ -11,17 +11,20 @@ In the Hetzner Cloud console, **Servers → Add Server**:
 - **Location**: the one closest to your customers' origins.
 - **Image**: Ubuntu 24.04 (22.04 and Debian 12 also work).
 - **Type**: shared vCPU, CX22 or larger.
-- **Networking**: public IPv4 and IPv6. Under **Primary IPs**, create the
-  IPv4 as a separate Primary IP (not auto-deleted with the server): this is
-  the address customers' CNAMEs resolve to, and it must outlive any server
-  you replace later.
+- **Networking**: public IPv4 and IPv6. Under **Primary IPs**, create both
+  the IPv4 and the IPv6 as separate Primary IPs with auto-delete off: these
+  are the addresses customers' CNAMEs resolve to, and both must outlive any
+  server you replace later. (A server's default IPv6 is deleted with it;
+  only a retained Primary IPv6 can be moved.)
 - **Firewall**: create one with inbound rules for TCP 22, TCP 80, TCP 443
   and UDP 443, and attach it. Leave outbound open.
 - **SSH key**: yours.
 - **Cloud config**: paste [deploy/cloud-init.yaml](../deploy/cloud-init.yaml)
   after editing the values in its `write_files` block: your `ACME_EMAIL`,
-  the image version to run, and `SKIP_FIREWALL=1` since the Hetzner firewall
-  is in front (ufw would only duplicate it).
+  the release to install (`CUSTOM_DOMAIN_VERSION` and `CUSTOM_DOMAIN_REF`
+  name the same release and move together; never point them at a branch),
+  and `SKIP_FIREWALL=1` since the Hetzner firewall is in front (ufw would
+  only duplicate it).
 
 Create the server. Installation runs unattended and takes a few minutes
 (Docker, the images, the stack); its log is `/var/log/custom-domain-install.log`.
@@ -30,7 +33,8 @@ Create the server. Installation runs unattended and takes a few minutes
 
 In your DNS, create the name customers will CNAME to, for example
 `edge.example.net`: an `A` record to the Primary IPv4 and an `AAAA` record to
-the server's IPv6. This name is the `--cname-target` of every application.
+the Primary IPv6 (the retained one, not an address that belongs to the
+server). This name is the `--cname-target` of every application.
 
 ## 3. Check it
 
@@ -71,6 +75,11 @@ backend, which registers customer hostnames through the API or SDK.
   `custom-domain` command on the host, or put an authenticated reverse
   proxy in front if applications must reach the API from outside; then also
   open that proxy's port in the Hetzner firewall.
-- **Replacing the server**: create a new one the same way, restore the
-  database and `.env`, and move the Primary IP to it. Customers' DNS does
-  not change.
+- **Upgrading the installer**: `CUSTOM_DOMAIN_REF` in the cloud config only
+  matters at creation; on a running server, upgrades are the `.env` edit
+  above.
+- **Replacing the server**: create a new one the same way (without new
+  Primary IPs), restore the database and `.env`, then move both the Primary
+  IPv4 and the Primary IPv6 to it. Customers' DNS does not change. If the
+  old server used its own IPv6 instead of a Primary IPv6, update the `AAAA`
+  record as part of the switch, or drop it.

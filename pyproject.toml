@@ -1,6 +1,6 @@
 [project]
 name = "custom-domain"
-version = "0.2.0"
+version = "0.3.0"
 description = "API-first custom domain service for multi-tenant SaaS, backed by Caddy."
 readme = "README.md"
 requires-python = ">=3.12"

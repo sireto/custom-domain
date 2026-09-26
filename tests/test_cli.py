@@ -421,10 +421,11 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
             return 200, {}
         if url == doctor_module.ACME_DIRECTORY:
             return 200, {}
-        if url.startswith("http://edge.acme.example/"):
-            return 308, {"Location": "https://edge.acme.example/.well-known/x"}
-        if url.startswith("http://edge.globex.example/"):
-            return 200, {}
+        if url == "https://edge.acme.example/.well-known/custom-domain-edge-health":
+            return 204, {"X-Custom-Domain-Edge": "1"}
+        if url.startswith("https://edge.globex.example/"):
+            # Another server: a redirect to HTTPS without the edge's marker.
+            return 308, {"Location": "https://edge.globex.example/"}
         raise OSError("unreachable")
 
     def fake_resolve(host):
@@ -465,9 +466,11 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
     assert by_check["application acme"].ok
     assert by_check["cname target edge.acme.example"].ok
     assert by_check["application globex"].status == "warn"  # no origin
-    assert by_check["cname target edge.globex.example"].status == "warn"  # another server
+    # A plain redirect is what any web server does; only the edge's marker passes.
+    assert by_check["cname target edge.globex.example"].status == "fail"
+    assert "without this edge's marker" in by_check["cname target edge.globex.example"].detail
     assert by_check["cname target edge.nowhere.example"].status == "fail"
-    assert doctor_module.summarize(findings)[2] == 1
+    assert doctor_module.summarize(findings)[2] == 2
 
     # The command prints the table and fails when a check fails; with the
     # edge gateway unreachable (no edge here) it reports that as a failure.

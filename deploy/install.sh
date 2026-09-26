@@ -7,8 +7,9 @@
 #
 # Settings (environment variables, or /etc/custom-domain-install.env):
 #   ACME_EMAIL              contact for the certificate authority (recommended)
-#   CUSTOM_DOMAIN_VERSION   image tag to run (default: latest; pin a version in production)
-#   CUSTOM_DOMAIN_REF       git ref the Compose file is fetched from (default: main)
+#   CUSTOM_DOMAIN_VERSION   image tag to run (default: latest; production pins a version)
+#   CUSTOM_DOMAIN_REF       git ref the Compose file is fetched from (default: main;
+#                           production pins the release tag v<version>)
 #   CUSTOM_DOMAIN_DIR       install directory (default: /opt/custom-domain)
 #   CUSTOM_DOMAIN_SOURCE    local checkout to copy deploy files from instead of downloading
 #   SKIP_FIREWALL=1         do not touch ufw (when the provider firewall is used instead)

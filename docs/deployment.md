@@ -64,6 +64,19 @@ servers; see [hosting-hetzner.md](hosting-hetzner.md) and
 migrations, edge gateway, certificate authority, reconciler, applications
 and whether their CNAME targets reach this edge.
 
+## Releasing the service
+
+A release is a git tag `v<version>` on `main` where `version` in
+`pyproject.toml` has been set to `<version>`. The tag publishes the image
+`ghcr.io/sireto/custom-domain:<version>` (and `<major>.<minor>`), and it is
+what `deploy/cloud-init.yaml` pins through `CUSTOM_DOMAIN_REF` (the tag) and
+`CUSTOM_DOMAIN_VERSION` (the image), so a user-data document only ever runs
+the installer and the Compose file of the release it names. To release:
+bump the version through a pull request, then
+`git tag v<version> <merge commit> && git push origin v<version>`, and set
+the two values in `deploy/cloud-init.yaml` to the new release in the next
+pull request.
+
 ## Images
 
 The service image is published to GitHub Container Registry by the

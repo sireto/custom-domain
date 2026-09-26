@@ -34,7 +34,7 @@ from app.dns.worker import run_due_checks
 from app.edge.caddy_client import CaddyClient
 from app.edge.config import build_bootstrap
 from app.edge.reconcile import Reconciler
-from app.edge.settings import EdgeSettings
+from app.edge.settings import HEALTH_PATH, EdgeSettings
 from app.main import create_app
 from app.services.applications import (
     activate_origin,
@@ -341,6 +341,13 @@ def test_two_applications_serve_the_right_workspaces_over_https(
         assert https_get(
             "alpha.customer.example", https_port, "/", str(ca_file), source="127.0.0.2"
         ) == (200, "bettercollected: Alpha workspace")
+
+        # --- the edge's own name: a certificate is issued for the CNAME target
+        # and the health path answers there, which is what `doctor` checks ---
+        assert https_get("bc.edge.localtest.me", https_port, HEALTH_PATH, str(ca_file)) == (
+            204,
+            "",
+        )
 
         # --- wrong host: no certificate is issued for an unknown name ---
         assert rejected("nobody.customer.example", https_port, str(ca_file))

@@ -14,9 +14,12 @@ In the DigitalOcean console, **Create → Droplets**:
 - **Authentication**: your SSH key.
 - **Advanced options → Add initialization scripts (free)**: paste
   [deploy/cloud-init.yaml](../deploy/cloud-init.yaml) after editing the
-  values in its `write_files` block: your `ACME_EMAIL` and the image version
-  to run. Keep `SKIP_FIREWALL=0` unless you attach a Cloud Firewall (below).
-- **Networking**: enable IPv6.
+  values in its `write_files` block: your `ACME_EMAIL` and the release to
+  install (`CUSTOM_DOMAIN_VERSION` and `CUSTOM_DOMAIN_REF` name the same
+  release and move together; never point them at a branch). Keep
+  `SKIP_FIREWALL=0` unless you attach a Cloud Firewall (below).
+- **Networking**: enable IPv6 if you intend to publish an `AAAA` record
+  (see the note under step 2).
 
 Create the Droplet. Installation runs unattended and takes a few minutes;
 its log is `/var/log/custom-domain-install.log`.
@@ -33,9 +36,14 @@ before creating the Droplet, or leave ufw on; both together also work.
 ## 2. Point a name at it
 
 In your DNS (DigitalOcean's or elsewhere), create the name customers will
-CNAME to, for example `edge.example.net`: an `A` record to the Reserved IP
-and an `AAAA` record to the Droplet's IPv6 address. This name is the
-`--cname-target` of every application.
+CNAME to, for example `edge.example.net`: an `A` record to the Reserved IP.
+This name is the `--cname-target` of every application.
+
+IPv6: DigitalOcean reserves IPv4 addresses only, so a Droplet's IPv6 address
+dies with the Droplet. Either publish no `AAAA` record (clients use IPv4),
+or publish one for the Droplet's IPv6 address and treat updating it as part
+of replacing the Droplet (below). Do not publish an `AAAA` record you are
+not prepared to move.
 
 ## 3. Check it
 
@@ -80,6 +88,11 @@ backend, which registers customer hostnames through the API or SDK.
 - **Management API**: port 9000 inside the Docker network only. Use the
   `custom-domain` command on the host, or put an authenticated reverse
   proxy in front if applications must reach the API from outside.
+- **Upgrading the installer**: `CUSTOM_DOMAIN_REF` in the user data only
+  matters at creation; on a running Droplet, upgrades are the `.env` edit
+  above.
 - **Replacing the Droplet**: create a new one the same way, restore the
   database and `.env`, and reassign the Reserved IP. Customers' DNS does
-  not change.
+  not change for IPv4. If an `AAAA` record exists, change it to the new
+  Droplet's IPv6 address before retiring the old one, since the old address
+  goes away with it.
