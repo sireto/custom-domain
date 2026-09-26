@@ -1,14 +1,16 @@
 # Builds the service image and publishes it to GitHub Container Registry as
 # ghcr.io/sireto/custom-domain, authenticated with the workflow's own token
 # (no registry secrets). Tags: `latest` and `sha-<commit>` for every push to
-# main, `<version>` and `<major>.<minor>` for a release tag `v<version>`.
-# Pull requests build the image to catch Dockerfile breakage but push nothing.
+# main, `<version>` and `<major>.<minor>` for a release tag `<version>`.
+# One release tag (a plain version such as 0.3.1, no prefix) releases both
+# this image and the SDK, and must equal the version in pyproject.toml and
+# sdk/pyproject.toml. Pull requests build the image but push nothing.
 name: Docker image
 
 on:
   push:
     branches: ["main"]
-    tags: ["v*"]
+    tags: ["[0-9]*"]
   pull_request:
     paths:
       - Dockerfile
@@ -33,6 +35,15 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        if: github.ref_type == 'tag'
+      - name: Check that the tag is the version everywhere
+        if: github.ref_type == 'tag'
+        run: |
+          service=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          sdk=$(uv run python -c "import tomllib; print(tomllib.load(open('sdk/pyproject.toml','rb'))['project']['version'])")
+          test "${GITHUB_REF_NAME}" = "${service}" && test "${GITHUB_REF_NAME}" = "${sdk}" \
+            || { echo "tag ${GITHUB_REF_NAME} must equal pyproject.toml (${service}) and sdk/pyproject.toml (${sdk})"; exit 1; }
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'

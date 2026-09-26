@@ -7,9 +7,11 @@
 #
 # Settings (environment variables, or /etc/custom-domain-install.env):
 #   ACME_EMAIL              contact for the certificate authority (recommended)
-#   CUSTOM_DOMAIN_VERSION   image tag to run (default: latest; production pins a version)
-#   CUSTOM_DOMAIN_REF       git ref the Compose file is fetched from (default: main;
-#                           production pins the release tag v<version>)
+#   CUSTOM_DOMAIN_VERSION   release to install: the image tag and, unless overridden, the
+#                           git tag the Compose file is fetched from (default: latest,
+#                           which follows main; production pins a version such as 0.3.1)
+#   CUSTOM_DOMAIN_REF       git ref to fetch deploy files from instead (default: the
+#                           version, or main when the version is latest)
 #   CUSTOM_DOMAIN_DIR       install directory (default: /opt/custom-domain)
 #   CUSTOM_DOMAIN_SOURCE    local checkout to copy deploy files from instead of downloading
 #   SKIP_FIREWALL=1         do not touch ufw (when the provider firewall is used instead)
@@ -24,7 +26,13 @@ if [ -f /etc/custom-domain-install.env ]; then
 fi
 
 VERSION="${CUSTOM_DOMAIN_VERSION:-latest}"
-REF="${CUSTOM_DOMAIN_REF:-main}"
+if [ -n "${CUSTOM_DOMAIN_REF:-}" ]; then
+    REF="${CUSTOM_DOMAIN_REF}"
+elif [ "${VERSION}" = "latest" ]; then
+    REF="main"
+else
+    REF="${VERSION}"   # release tags are plain versions
+fi
 DIR="${CUSTOM_DOMAIN_DIR:-/opt/custom-domain}"
 SOURCE="${CUSTOM_DOMAIN_SOURCE:-}"
 RAW="https://raw.githubusercontent.com/sireto/custom-domain/${REF}"
