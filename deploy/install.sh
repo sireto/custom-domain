@@ -81,6 +81,7 @@ COMPOSE_FILE="${DIR}/deploy/compose.production.yml"
 COMPOSE="docker compose -f ${COMPOSE_FILE}"
 ENV_FILE="${DIR}/deploy/.env"
 CHECKSUM_FILE="${DIR}/deploy/.compose.production.yml.installed"
+UPSTREAM_FILE="${DIR}/deploy/.compose.production.yml.upstream"
 
 log() { printf '\n==> %s\n' "$*"; }
 warn() { printf '\n!!  %s\n' "$*" >&2; }
@@ -121,8 +122,12 @@ if [ "${SKIP_FIREWALL:-0}" != "1" ] && command -v ufw >/dev/null 2>&1; then
 fi
 
 # --- Compose file ---------------------------------------------------------------
-# The installed copy is refreshed from the release unless the operator changed
-# it; a changed copy is kept and the release's version is left beside it.
+# Two checksums are kept beside the file: INSTALLED is the local file as the
+# installer last wrote or accepted it, UPSTREAM is the release's file it was
+# last reconciled with. A local file equal to INSTALLED is untouched by the
+# operator; if it is also the pristine release file, a new release replaces
+# it. An accepted (customized) file is never replaced: when a release changes
+# the upstream file the upgrade stops for another merge.
 mkdir -p "${DIR}/deploy"
 fetch_compose() {
     if [ -n "${SOURCE}" ]; then
@@ -132,32 +137,17 @@ fetch_compose() {
     fi
 }
 checksum() { sha256sum "$1" | cut -d' ' -f1; }
+record() { checksum "${COMPOSE_FILE}" >"${CHECKSUM_FILE}"; checksum "$1" >"${UPSTREAM_FILE}"; }
 fresh_compose="$(mktemp)"
 fetch_compose "${fresh_compose}"
-if [ ! -f "${COMPOSE_FILE}" ]; then
-    log "Installing the Compose file"
-    install -m 0644 "${fresh_compose}" "${COMPOSE_FILE}"
-    checksum "${COMPOSE_FILE}" >"${CHECKSUM_FILE}"
-elif [ "$(checksum "${COMPOSE_FILE}")" = "$(checksum "${fresh_compose}")" ]; then
-    checksum "${COMPOSE_FILE}" >"${CHECKSUM_FILE}"
-elif [ -f "${CHECKSUM_FILE}" ] && [ "$(checksum "${COMPOSE_FILE}")" = "$(cat "${CHECKSUM_FILE}")" ]; then
-    log "Updating the Compose file to this release (the installed one was unmodified)"
-    install -m 0644 "${fresh_compose}" "${COMPOSE_FILE}"
-    checksum "${COMPOSE_FILE}" >"${CHECKSUM_FILE}"
-elif [ "${CUSTOM_DOMAIN_ACCEPT_COMPOSE:-0}" = "1" ]; then
-    # The operator merged the release's changes into their copy: that copy is
-    # the installed one from now on.
-    log "Accepting the Compose file as it is on disk"
-    checksum "${COMPOSE_FILE}" >"${CHECKSUM_FILE}"
-    rm -f "${COMPOSE_FILE}.new"
-else
+fresh_sum="$(checksum "${fresh_compose}")"
+stop_for_merge() {
     install -m 0644 "${fresh_compose}" "${COMPOSE_FILE}.new"
     rm -f "${fresh_compose}"
     cat >&2 <<EOF
 
-!!  ${COMPOSE_FILE} differs from the file this installer wrote (it was edited, or
-!!  the installation predates the installer). Nothing was changed: the image,
-!!  the configuration and the running stack are as they were, because a release
+!!  ${COMPOSE_FILE} $1. Nothing was changed: the image, the
+!!  configuration and the running stack are as they were, because a release
 !!  can require Compose changes (a published port, a shared setting) and running
 !!  the new image with the old file would break it.
 !!
@@ -167,6 +157,29 @@ else
 !!  which records the merged file as the installed one and continues.
 EOF
     exit 3
+}
+if [ "${CUSTOM_DOMAIN_ACCEPT_COMPOSE:-0}" = "1" ] && [ -f "${COMPOSE_FILE}" ]; then
+    # The operator merged the release's changes into their copy: that copy is
+    # the installed one, and this release is the upstream it corresponds to.
+    log "Accepting the Compose file as it is on disk"
+    record "${fresh_compose}"
+    rm -f "${COMPOSE_FILE}.new"
+elif [ ! -f "${COMPOSE_FILE}" ]; then
+    log "Installing the Compose file"
+    install -m 0644 "${fresh_compose}" "${COMPOSE_FILE}"
+    record "${fresh_compose}"
+elif [ "$(checksum "${COMPOSE_FILE}")" = "${fresh_sum}" ]; then
+    record "${fresh_compose}"   # already this release's file
+elif [ ! -f "${CHECKSUM_FILE}" ] || [ "$(checksum "${COMPOSE_FILE}")" != "$(cat "${CHECKSUM_FILE}")" ]; then
+    stop_for_merge "differs from the file this installer wrote (it was edited, or the installation predates the installer)"
+elif [ -f "${UPSTREAM_FILE}" ] && [ "$(cat "${CHECKSUM_FILE}")" = "$(cat "${UPSTREAM_FILE}")" ]; then
+    log "Updating the Compose file to this release (the installed one was unmodified)"
+    install -m 0644 "${fresh_compose}" "${COMPOSE_FILE}"
+    record "${fresh_compose}"
+elif [ -f "${UPSTREAM_FILE}" ] && [ "$(cat "${UPSTREAM_FILE}")" = "${fresh_sum}" ]; then
+    log "Keeping the accepted Compose file (this release did not change it)"
+else
+    stop_for_merge "carries local changes and this release changes the upstream file"
 fi
 rm -f "${fresh_compose}"
 

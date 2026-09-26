@@ -48,6 +48,23 @@ def run_install(
     )
 
 
+def sha256(path: Path) -> str:
+    return subprocess.run(["sha256sum", str(path)], capture_output=True, text=True).stdout.split()[
+        0
+    ]
+
+
+def release_with_changed_compose(tmp_path: Path) -> Path:
+    """A fake newer release whose Compose file differs from the repository's."""
+    source = tmp_path / "release"
+    (source / "deploy").mkdir(parents=True, exist_ok=True)
+    (source / "deploy" / "compose.production.yml").write_text(
+        (ROOT / "deploy" / "compose.production.yml").read_text()
+        + "# upstream change in a later release\n"
+    )
+    return source
+
+
 def env_of(tmp_path: Path) -> dict[str, str]:
     lines = (tmp_path / "opt" / "deploy" / ".env").read_text().splitlines()
     return dict(line.split("=", 1) for line in lines if line and not line.startswith("#"))
@@ -67,6 +84,7 @@ def test_fresh_install_writes_everything_and_starts_the_stack(tmp_path):
         ROOT / "deploy" / "compose.production.yml"
     ).read_text()
     assert (deploy / ".compose.production.yml.installed").exists()
+    assert (deploy / ".compose.production.yml.upstream").exists()
     env = env_of(tmp_path)
     assert env["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.9.9"
     assert env["EDGE_HOSTNAME"] == "Edge.Example.Net"  # canonicalized by the service on load
@@ -92,12 +110,9 @@ def test_upgrade_refreshes_compose_adds_settings_and_moves_the_image(tmp_path):
     # (recorded as installed) and an .env without the newer settings.
     old_compose = "services:\n  api:\n    image: old\n"
     (deploy / "compose.production.yml").write_text(old_compose)
-    (deploy / ".compose.production.yml.installed").write_text(
-        subprocess.run(
-            ["sha256sum", str(deploy / "compose.production.yml")], capture_output=True, text=True
-        ).stdout.split()[0]
-        + "\n"
-    )
+    old_sum = sha256(deploy / "compose.production.yml")
+    (deploy / ".compose.production.yml.installed").write_text(old_sum + "\n")
+    (deploy / ".compose.production.yml.upstream").write_text(old_sum + "\n")
     env_text = (deploy / ".env").read_text()
     env_text = "\n".join(
         line for line in env_text.splitlines() if not line.startswith(("PORTAL_", "EDGE_HOSTNAME="))
@@ -156,8 +171,33 @@ def test_upgrade_stops_on_a_locally_modified_compose_file_until_accepted(tmp_pat
     assert not (deploy / "compose.production.yml.new").exists()
     assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.9.9"
     assert "up -d --wait" in (tmp_path / "docker.log").read_text()
-    # The merged file is now the baseline: the next run does not stop again.
+
+    # The accepted file is the baseline: a same-version rerun and a later release
+    # that does not change the Compose file both keep the customization.
     assert run_install(tmp_path, "0.9.9").returncode == 0
+    assert (deploy / "compose.production.yml").read_text() == merged
+    assert run_install(tmp_path, "0.9.10").returncode == 0
+    assert (deploy / "compose.production.yml").read_text() == merged
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.9.10"
+
+    # A later release that changes the upstream file stops for another merge
+    # instead of overwriting the customization.
+    later = release_with_changed_compose(tmp_path)
+    stopped = run_install(tmp_path, "0.9.11", CUSTOM_DOMAIN_SOURCE=str(later))
+    assert stopped.returncode == 3 and "changes the upstream file" in stopped.stderr
+    assert (deploy / "compose.production.yml").read_text() == merged
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.9.10"
+    assert (deploy / "compose.production.yml.new").read_text() == (
+        later / "deploy" / "compose.production.yml"
+    ).read_text()
+    merged_again = (later / "deploy" / "compose.production.yml").read_text() + "# operator change\n"
+    (deploy / "compose.production.yml").write_text(merged_again)
+    accepted_again = run_install(
+        tmp_path, "0.9.11", CUSTOM_DOMAIN_SOURCE=str(later), CUSTOM_DOMAIN_ACCEPT_COMPOSE="1"
+    )
+    assert accepted_again.returncode == 0, accepted_again.stderr
+    assert (deploy / "compose.production.yml").read_text() == merged_again
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.9.11"
 
 
 def test_installation_that_predates_the_installer_is_treated_as_modified(tmp_path):
