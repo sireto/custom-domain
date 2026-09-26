@@ -422,6 +422,13 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
             return 200, {}
         raise OSError("unreachable")
 
+    from app.edge.config import build_apps
+
+    def fake_fetch_json(url):
+        # The edge runs exactly what this instance derives.
+        with factory() as s:
+            return build_apps(s, settings)
+
     def fake_resolve(host, dns_settings):
         # Globally routable example addresses (example.com's), never documentation ranges.
         return {
@@ -452,10 +459,12 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
         http_get=fake_http_get,
         resolve=fake_resolve,
         probe_target=fake_probe,
+        fetch_json=fake_fetch_json,
     )
     by_check = {f.check: f for f in findings}
     assert by_check["database"].ok and by_check["migrations"].ok
     assert by_check["edge gateway"].ok and by_check["acme"].ok and by_check["edge token"].ok
+    assert by_check["edge config"].ok
     assert by_check["reconciler"].status == "warn"
     assert by_check["applications"].status == "warn"
     assert by_check["edge hostname"].status == "warn"  # EDGE_HOSTNAME not set
@@ -472,6 +481,33 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
     )
     by_check = {f.check: f for f in findings}
     assert by_check["edge hostname edge.acme.example"].ok
+
+    # The edge running something else (the gateway rejecting the reconciler, as
+    # when EDGE_ASK_URL differs between containers) is a failure that says so.
+    def stale_fetch_json(url):
+        return {
+            "http": {
+                "servers": {"edge": {"routes": [{"@id": "edge-health"}, {"@id": "edge-unmatched"}]}}
+            }
+        }
+
+    findings = doctor_module.run_doctor(
+        factory,
+        named,
+        DnsSettings(),
+        http_get=fake_http_get,
+        resolve=fake_resolve,
+        probe_target=fake_probe,
+        fetch_json=stale_fetch_json,
+    )
+    by_check = {f.check: f for f in findings}
+    stale = by_check["edge config"]
+    assert (
+        stale.status == "fail"
+        and "config_rejected" in stale.detail
+        and "EDGE_ASK_URL" in stale.detail
+    )
+    assert "without TLS automation" in stale.detail
 
     # An address family this container cannot route to (IPv6 inside Docker) is
     # reported as unverifiable, not as a failure of the edge.
