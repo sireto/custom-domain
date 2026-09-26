@@ -29,7 +29,7 @@ write_files:
       EDGE_HOSTNAME=edge.example.net
       # The release to install (git tag, image tag and SDK version are one
       # number). Change it to upgrade a new server; "latest" follows main.
-      CUSTOM_DOMAIN_VERSION=0.3.1
+      CUSTOM_DOMAIN_VERSION=0.4.0
       # Set to 1 when the provider's firewall is used instead of ufw.
       SKIP_FIREWALL=0
       # Addresses or networks that may open the portal at https://<edge name>/portal.
