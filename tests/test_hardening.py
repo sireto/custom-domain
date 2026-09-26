@@ -135,7 +135,9 @@ def test_edge_token_required_when_configured(client, session, make_application):
     assert client.get("/internal/edge/origins").status_code == 403
     origins = client.get("/internal/edge/origins", headers={EDGE_TOKEN_HEADER: SETTINGS.edge_token})
     assert origins.status_code == 200 and origins.json() == {
-        "upstreams": [{"dial": "203.0.113.10:443", "host": "app.acme.example"}]
+        "upstreams": [{"dial": "203.0.113.10:443", "host": "app.acme.example"}],
+        "edge_names": ["acme.edge.example.net"],
+        "portal_ranges": [],
     }
 
     # The ask endpoint cannot carry headers: address trust only.
@@ -314,3 +316,65 @@ def test_gateway_app_forwards_only_valid_configs(valid_apps):
 
     app2 = create_gateway_app(SETTINGS, caddy_admin_url="http://caddy", origins_provider=broken)
     assert TestClient(app2).post("/config/apps", json=valid_apps).status_code == 503
+
+
+def test_gateway_accepts_only_the_reconcilers_portal_routes(session, make_application):
+    import copy
+
+    from app.edge.config import build_apps, portal_routes
+    from app.edge.gateway import ConfigRejected, EdgeFacts, validate_apps
+
+    acme = make_application("acme", cname_target="acme.edge.example.net")
+    _ready_domain(session, acme)
+    exposed = SETTINGS.__class__(
+        **{**SETTINGS.__dict__, "portal_allowed_ips": ("203.0.113.9", "198.51.100.0/24")}
+    )
+    apps = build_apps(session, exposed)
+    routes = apps["http"]["servers"]["edge"]["routes"]
+    assert [r["@id"] for r in routes[:3]] == ["edge-health", "portal", "portal-denied"]
+    assert routes[1]["match"][0]["remote_ip"]["ranges"] == ["203.0.113.9/32", "198.51.100.0/24"]
+    assert routes[1]["match"][0]["host"] == ["acme.edge.example.net"]
+
+    ranges = ("203.0.113.9/32", "198.51.100.0/24")
+    facts = EdgeFacts(
+        upstreams=ALLOWED, edge_names=frozenset({"acme.edge.example.net"}), portal_ranges=ranges
+    )
+    # The gateway validates against what the API states, not its own environment:
+    # the edge container needs no PORTAL_ALLOWED_IPS and no restart to change it.
+    validate_apps(apps, SETTINGS, facts)
+    validate_apps(apps, exposed, facts)
+
+    with pytest.raises(ConfigRejected):  # the API exposes no portal: routes refused
+        validate_apps(apps, SETTINGS, EdgeFacts(upstreams=ALLOWED, edge_names=facts.edge_names))
+    with pytest.raises(ConfigRejected):  # host the API does not vouch for
+        validate_apps(apps, exposed, EdgeFacts(upstreams=ALLOWED, portal_ranges=ranges))
+    with pytest.raises(ConfigRejected):  # a different allowlist than the API states
+        validate_apps(
+            apps,
+            exposed,
+            EdgeFacts(
+                upstreams=ALLOWED, edge_names=facts.edge_names, portal_ranges=("203.0.113.9/32",)
+            ),
+        )
+    for mutate in (
+        lambda a: a["http"]["servers"]["edge"]["routes"][1]["match"][0]["remote_ip"][
+            "ranges"
+        ].append("0.0.0.0/0"),
+        lambda a: a["http"]["servers"]["edge"]["routes"][1]["handle"][0]["upstreams"].__setitem__(
+            0, {"dial": "evil:1"}
+        ),
+        lambda a: a["http"]["servers"]["edge"]["routes"][1]["match"][0].__setitem__("path", ["/*"]),
+        lambda a: a["http"]["servers"]["edge"]["routes"].pop(2),
+    ):
+        bad = copy.deepcopy(apps)
+        mutate(bad)
+        with pytest.raises(ConfigRejected):
+            validate_apps(bad, exposed, facts)
+
+    # Without an allowlist the reconciler emits no portal routes.
+    plain = build_apps(session, SETTINGS)
+    assert [r["@id"] for r in plain["http"]["servers"]["edge"]["routes"]][:2] == [
+        "edge-health",
+        "app-acme",
+    ]
+    assert portal_routes(SETTINGS, ["acme.edge.example.net"]) == []

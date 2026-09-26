@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -38,12 +39,27 @@ class ConfigRejected(Exception):
         self.reason = reason
 
 
-def validate_apps(apps: Any, settings: EdgeSettings, allowed_upstreams: Mapping[str, str]) -> None:
-    """Raise ``ConfigRejected`` unless ``apps`` is exactly a reconciler-shaped subtree.
+@dataclass(frozen=True)
+class EdgeFacts:
+    """What the management API says the edge may route to.
 
-    ``allowed_upstreams`` maps each dialable ``address:port`` of a verified
-    active origin to that origin's name (``GET /internal/edge/origins``).
+    ``upstreams`` maps each dialable ``address:port`` of a verified active
+    origin to that origin's name; ``edge_names`` are the CNAME targets the
+    portal may be served on (``GET /internal/edge/origins``).
     """
+
+    upstreams: Mapping[str, str]
+    edge_names: frozenset[str] = frozenset()
+    # The portal allowlist as the API states it; the edge container needs no
+    # copy of PORTAL_ALLOWED_IPS, so changing it never requires an edge restart.
+    portal_ranges: tuple[str, ...] = ()
+
+
+def validate_apps(apps: Any, settings: EdgeSettings, facts: Mapping[str, str] | EdgeFacts) -> None:
+    """Raise ``ConfigRejected`` unless ``apps`` is exactly a reconciler-shaped subtree."""
+    if not isinstance(facts, EdgeFacts):
+        facts = EdgeFacts(upstreams=facts)
+    allowed_upstreams = facts.upstreams
     if not isinstance(apps, dict):
         raise ConfigRejected("apps must be an object")
     if set(apps) - {"http", "tls"}:
@@ -73,8 +89,32 @@ def validate_apps(apps: Any, settings: EdgeSettings, allowed_upstreams: Mapping[
         raise ConfigRejected("first route must be the health route")
     if routes[-1] != edge_config.unmatched_route():
         raise ConfigRejected("last route must be the unmatched route")
+    middle = list(routes[1:-1])
+    if (
+        middle
+        and isinstance(middle[0], dict)
+        and str(middle[0].get("@id", "")).startswith("portal")
+    ):
+        # The portal pair must be exactly what the reconciler emits for edge
+        # names the API vouches for, and only when addresses are allowed.
+        if not facts.portal_ranges:
+            raise ConfigRejected("portal routes are not allowed: the API exposes no portal")
+        match = middle[0].get("match")
+        hosts = (
+            match[0].get("host")
+            if isinstance(match, list) and match and isinstance(match[0], dict)
+            else None
+        )
+        if not isinstance(hosts, list) or not hosts or set(hosts) - set(facts.edge_names):
+            raise ConfigRejected("portal routes may only be served on the applications' edge names")
+        expected = edge_config.portal_routes_for(
+            sorted(hosts), list(facts.portal_ranges), settings.assert_upstream
+        )
+        if middle[:2] != expected:
+            raise ConfigRejected("portal routes must be exactly the reconciler's portal routes")
+        middle = middle[2:]
     seen_hosts: set[str] = set()
-    for route in routes[1:-1]:
+    for route in middle:
         _validate_app_route(route, settings, allowed_upstreams, seen_hosts)
 
     tls = apps.get("tls")
@@ -164,19 +204,24 @@ def _validate_app_route(
         )
 
 
-OriginsProvider = Callable[[], Mapping[str, str]]
+OriginsProvider = Callable[[], Mapping[str, str] | EdgeFacts]
 
 
 def api_origins_provider(api_url: str, token: str | None, timeout: float = 5.0) -> OriginsProvider:
-    """Fetch the verified active origins from the management API as ``{dial: host}``."""
+    """Fetch the verified active origins and edge names from the management API."""
 
-    def fetch() -> dict[str, str]:
+    def fetch() -> EdgeFacts:
         headers = {"X-Custom-Domain-Edge-Token": token} if token else {}
         response = httpx.get(
             f"{api_url.rstrip('/')}/internal/edge/origins", headers=headers, timeout=timeout
         )
         response.raise_for_status()
-        return {item["dial"]: item["host"] for item in response.json()["upstreams"]}
+        body = response.json()
+        return EdgeFacts(
+            upstreams={item["dial"]: item["host"] for item in body["upstreams"]},
+            edge_names=frozenset(body.get("edge_names", [])),
+            portal_ranges=tuple(body.get("portal_ranges", [])),
+        )
 
     return fetch
 

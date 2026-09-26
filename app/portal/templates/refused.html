@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block title %}Address not allowed{% endblock %}
+{% block content %}
+<h1>This address may not use the portal</h1>
+<div class="card">
+<p>Requests from <code>{{ address }}</code> are not on the operator allowlist (<code>PORTAL_ALLOWED_IPS</code>). Add the address there and restart the service, or use the SSH tunnel described in the documentation.</p>
+</div>
+{% endblock %}

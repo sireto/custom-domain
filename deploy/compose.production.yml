@@ -44,6 +44,9 @@ services:
       CONTAINER_ROLE: api
       ENABLE_LEGACY_API: "false"
       CADDY_ADMIN_URL: http://edge:2019
+      # The reconciler (here and in the worker) writes this upstream into every
+      # route; the gateway in the edge container accepts only that value.
+      EDGE_ASSERT_UPSTREAM: api:9000
       EDGE_ASK_TRUSTED_HOSTS: 10.90.0.0/16
     depends_on:
       db: { condition: service_healthy }
@@ -64,6 +67,7 @@ services:
       CONTAINER_ROLE: worker
       ENABLE_LEGACY_API: "false"
       CADDY_ADMIN_URL: http://edge:2019
+      EDGE_ASSERT_UPSTREAM: api:9000
     depends_on:
       db: { condition: service_healthy }
       api: { condition: service_healthy }

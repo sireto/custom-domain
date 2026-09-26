@@ -391,3 +391,67 @@ class session_scope:
 
     def __exit__(self, *exc):
         self.session.close()
+
+
+def test_portal_allowlist_applies_to_public_addresses(session_factory, monkeypatch):
+    """Private peers (tunnel, Docker network) always may; public ones only when allowed,
+    attributed through X-Forwarded-For only when the peer is a trusted edge. The
+    addresses are globally routable ones: documentation ranges count as non-global."""
+    from app.db.session import get_session
+    from app.main import create_app
+
+    for name in ("EDGE_RECONCILE_ENABLED", "DNS_WORKER_ENABLED", "WEBHOOK_WORKER_ENABLED"):
+        monkeypatch.setenv(name, "false")
+    monkeypatch.setenv("ENABLE_LEGACY_API", "true")
+    monkeypatch.setenv("PORTAL_PASSWORD", PASSWORD)
+    monkeypatch.setenv("PORTAL_ALLOWED_IPS", "93.184.216.34, 151.101.0.0/16")
+    monkeypatch.setenv("EDGE_ASK_TRUSTED_HOSTS", "127.0.0.1,10.90.0.0/16")
+    app = create_app()
+
+    def override():
+        s = session_factory()
+        try:
+            yield s
+        finally:
+            s.close()
+
+    app.dependency_overrides[get_session] = override
+    with TestClient(app) as _lifespan:
+        # A public peer not on the list is refused before the password is even checked.
+        refused = TestClient(app, client=("8.8.8.8", 1000))
+        assert refused.get("/portal/login").status_code == 403
+        assert "not on the operator allowlist" in refused.get("/portal/login").text
+        assert refused.post("/portal/login", data={"password": PASSWORD}).status_code == 403
+        # A public peer on the list may sign in.
+        allowed = TestClient(app, client=("151.101.65.140", 1000))
+        assert allowed.get("/portal/login").status_code == 200
+        assert sign_in(allowed).status_code == 303
+        # Through the edge (trusted peer): the forwarded address decides, and the cookie is
+        # Secure when the edge says HTTPS.
+        via_edge = TestClient(app, client=("10.90.0.5", 1000))
+        headers = {"X-Forwarded-For": "8.8.8.8", "X-Forwarded-Proto": "https"}
+        assert via_edge.get("/portal/login", headers=headers).status_code == 403
+        headers["X-Forwarded-For"] = "93.184.216.34"
+        assert via_edge.get("/portal/login", headers=headers).status_code == 200
+        signed = via_edge.post(
+            "/portal/login",
+            data={"password": PASSWORD, "next": "/portal"},
+            headers=headers,
+            follow_redirects=False,
+        )
+        assert signed.status_code == 303 and "Secure" in signed.headers["set-cookie"]
+        # An untrusted peer cannot borrow an allowed address through the header.
+        spoof = TestClient(app, client=("8.8.8.8", 1000))
+        assert (
+            spoof.get("/portal/login", headers={"X-Forwarded-For": "93.184.216.34"}).status_code
+            == 403
+        )
+        # Private peers (the SSH tunnel arrives from the Docker bridge) always may.
+        local = TestClient(app, client=("172.18.0.1", 1000))
+        assert local.get("/portal/login").status_code == 200
+        # The rate limit is per attributed address: the refused peer's failures do not
+        # count against the allowed one.
+        for _ in range(5):
+            allowed.post("/portal/login", data={"password": "wrong"})
+        assert allowed.post("/portal/login", data={"password": "wrong"}).status_code == 429
+        assert via_edge.get("/portal/login", headers=headers).status_code == 200

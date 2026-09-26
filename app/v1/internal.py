@@ -184,7 +184,14 @@ def edge_origins(
             continue
         upstreams.extend({"dial": dial, "host": host} for dial in dials)
     upstreams.sort(key=lambda u: (u["host"], u["dial"]))
-    return {"upstreams": upstreams}
+    from app.edge.config import portal_hosts
+
+    settings = _settings(request)
+    return {
+        "upstreams": upstreams,
+        "edge_names": portal_hosts(db),
+        "portal_ranges": settings.portal_ranges() if settings else [],
+    }
 
 
 @router.get("/metrics")

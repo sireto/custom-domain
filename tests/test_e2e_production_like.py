@@ -188,6 +188,8 @@ def test_two_applications_serve_the_right_workspaces_over_https(
         monkeypatch.setenv(name, "false")
     monkeypatch.setenv("ENABLE_LEGACY_API", "true")
     monkeypatch.setenv("ORIGIN_ALLOW_PRIVATE", "true")  # the origins listen on loopback
+    monkeypatch.setenv("PORTAL_PASSWORD", "operator-password-for-e2e")
+    monkeypatch.setenv("PORTAL_ALLOWED_IPS", "127.0.0.2")  # the operator's address, not 127.0.0.1
     api = create_app()
 
     def override():
@@ -253,6 +255,7 @@ def test_two_applications_serve_the_right_workspaces_over_https(
         assertion_keys=KEYS,
         edge_token=EDGE_TOKEN,
         ask_trusted_hosts=("127.0.0.1", "::1"),
+        portal_allowed_ips=("127.0.0.2",),
         probe_address=f"127.0.0.1:{https_port}",
         probe_ca_file=str(ca_file),
         reconcile_enabled=True,
@@ -348,6 +351,21 @@ def test_two_applications_serve_the_right_workspaces_over_https(
             204,
             "",
         )
+
+        # --- the operator portal on the edge's own name, for allowed addresses only ---
+        # Caddy refuses a peer outside PORTAL_ALLOWED_IPS on the portal paths ...
+        status, _ = https_get("bc.edge.localtest.me", https_port, "/portal/login", str(ca_file))
+        assert status == 403
+        # ... and proxies an allowed peer to the API's sign-in page.
+        status, body = https_get(
+            "bc.edge.localtest.me", https_port, "/portal/login", str(ca_file), source="127.0.0.2"
+        )
+        assert status == 200 and "Sign in" in body
+        # Customer hostnames are untouched: /portal there is the application's own path.
+        status, body = https_get(
+            "alpha.customer.example", https_port, "/portal/login", str(ca_file)
+        )
+        assert status == 404 and "Sign in" not in body
 
         # --- wrong host: no certificate is issued for an unknown name ---
         assert rejected("nobody.customer.example", https_port, str(ca_file))

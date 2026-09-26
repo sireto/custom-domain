@@ -60,10 +60,61 @@ def _state(request: Request) -> tuple[PortalSettings, Sessions, LoginLimiter]:
     return state.portal_settings, state.portal_sessions, state.portal_limiter
 
 
+def client_address(request: Request) -> str | None:
+    """The address a portal request is attributed to.
+
+    Through the edge (a trusted peer, see EDGE_ASK_TRUSTED_HOSTS) it is the
+    last X-Forwarded-For value, which Caddy sets to the real peer; otherwise
+    the connecting address itself. The sign-in rate limit and the allowlist
+    both use it.
+    """
+    peer = request.client.host if request.client else None
+    edge_settings = getattr(request.app.state, "edge_settings", None)
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if peer and forwarded and edge_settings is not None and edge_settings.trusts(peer):
+        return forwarded.split(",")[-1].strip() or peer
+    return peer
+
+
+def _via_https(request: Request) -> bool:
+    if request.url.scheme == "https":
+        return True
+    peer = request.client.host if request.client else None
+    edge_settings = getattr(request.app.state, "edge_settings", None)
+    return bool(
+        peer
+        and edge_settings is not None
+        and edge_settings.trusts(peer)
+        and request.headers.get("x-forwarded-proto", "").lower() == "https"
+    )
+
+
+class AddressRefused(Exception):
+    pass
+
+
+def _check_address(request: Request) -> str:
+    address = client_address(request)
+    edge_settings = getattr(request.app.state, "edge_settings", None)
+    if edge_settings is None:
+        import ipaddress
+
+        try:
+            allowed = not ipaddress.ip_address(address or "").is_global
+        except ValueError:
+            allowed = address == "testclient"
+    else:
+        allowed = edge_settings.portal_allows(address) or address == "testclient"
+    if not allowed:
+        raise AddressRefused()
+    return address or "unknown"
+
+
 def _session(request: Request) -> dict:
     settings, sessions, _ = _state(request)
     if not settings.enabled:
         raise PortalDisabled()
+    _check_address(request)
     data = sessions.read(request.cookies.get("cd_portal"))
     if data is None:
         raise RequireLogin(request.url.path)
@@ -112,6 +163,10 @@ def install(app) -> None:
     async def _disabled(request: _Request, _exc: PortalDisabled):
         return render(request, "disabled.html", status=503)
 
+    @app.exception_handler(AddressRefused)
+    async def _refused(request: _Request, _exc: AddressRefused):
+        return render(request, "refused.html", status=403, address=client_address(request))
+
 
 # --- sign in -------------------------------------------------------------------
 
@@ -121,6 +176,7 @@ def login_form(request: Request, next: str = "/portal"):
     settings, sessions, _ = _state(request)
     if not settings.enabled:
         raise PortalDisabled()
+    _check_address(request)
     if sessions.read(request.cookies.get("cd_portal")) is not None:
         return redirect(safe_next(next))
     return render(request, "login.html", next=safe_next(next))
@@ -131,7 +187,7 @@ def login(request: Request, password: str = Form(""), next: str = Form("/portal"
     settings, sessions, limiter = _state(request)
     if not settings.enabled:
         raise PortalDisabled()
-    client = request.client.host if request.client else "unknown"
+    client = _check_address(request)
     if not limiter.allowed(client):
         return render(
             request,
@@ -148,7 +204,7 @@ def login(request: Request, password: str = Form(""), next: str = Form("/portal"
     limiter.reset(client)
     value, _ = sessions.issue()
     response = redirect(safe_next(next))
-    sessions.set_cookie(response, value, secure=request.url.scheme == "https")
+    sessions.set_cookie(response, value, secure=_via_https(request))
     return response
 
 

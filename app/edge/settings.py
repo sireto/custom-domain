@@ -91,6 +91,9 @@ class EdgeSettings:
     assert_upstream: str = DEFAULT_ASSERT_UPSTREAM
     assertion_keys: tuple[tuple[str, str], ...] = ()
     assertion_ttl: int = 60
+    # Client addresses or networks allowed to reach the operator portal through
+    # the edge (https://<cname target>/portal). Empty: the portal is not exposed.
+    portal_allowed_ips: tuple[str, ...] = ()
     _validated: bool = field(default=False, repr=False, compare=False)
 
     @classmethod
@@ -134,6 +137,7 @@ class EdgeSettings:
             or DEFAULT_ASSERT_UPSTREAM,
             assertion_keys=_key_pairs(env.get("EDGE_ASSERTION_KEYS", "")),
             assertion_ttl=int(env.get("EDGE_ASSERTION_TTL", "60")),
+            portal_allowed_ips=_csv(env, "PORTAL_ALLOWED_IPS"),
         )
         settings.validate()
         return settings
@@ -173,6 +177,49 @@ class EdgeSettings:
             )
         if not 5 <= self.assertion_ttl <= 600:
             raise EdgeConfigurationError("EDGE_ASSERTION_TTL must be between 5 and 600 seconds")
+        import ipaddress
+
+        for entry in self.portal_allowed_ips:
+            try:
+                network = ipaddress.ip_network(entry, strict=False)
+            except ValueError as exc:
+                raise EdgeConfigurationError(
+                    f"PORTAL_ALLOWED_IPS entry {entry!r} is not an address or CIDR network"
+                ) from exc
+            if network.num_addresses > 1 and network.prefixlen == 0:
+                raise EdgeConfigurationError(
+                    "PORTAL_ALLOWED_IPS must not contain the whole address space"
+                )
+
+    def portal_allows(self, address: str | None) -> bool:
+        """Whether a client address may use the portal.
+
+        Private and loopback addresses always may (the SSH tunnel, the Docker
+        network); public addresses only when listed in ``PORTAL_ALLOWED_IPS``.
+        """
+        import ipaddress
+
+        if not address:
+            return False
+        try:
+            client = ipaddress.ip_address(address)
+        except ValueError:
+            return False
+        if not client.is_global:
+            return True
+        for entry in self.portal_allowed_ips:
+            try:
+                if client in ipaddress.ip_network(entry, strict=False):
+                    return True
+            except ValueError:
+                continue
+        return False
+
+    def portal_ranges(self) -> list[str]:
+        """The allowlist as CIDR strings, the form Caddy's remote_ip matcher takes."""
+        import ipaddress
+
+        return [str(ipaddress.ip_network(e, strict=False)) for e in self.portal_allowed_ips]
 
     def trusts(self, address: str | None) -> bool:
         """Whether a client address is on the trusted list (exact address or CIDR)."""

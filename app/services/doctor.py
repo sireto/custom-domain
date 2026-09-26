@@ -10,6 +10,7 @@ edge. Network calls are injectable so the checks are testable offline.
 
 from __future__ import annotations
 
+import os
 import socket
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -190,6 +191,19 @@ def _settings_findings(settings: EdgeSettings, dns_settings: DnsSettings) -> lis
         )
     else:
         findings.append(Finding("edge token", "ok", "set"))
+    portal = os.environ.get("PORTAL_PASSWORD", "").strip()
+    if not portal:
+        findings.append(Finding("portal", "warn", "disabled: set PORTAL_PASSWORD to enable it"))
+    elif settings.portal_allowed_ips:
+        findings.append(
+            Finding(
+                "portal",
+                "ok",
+                f"exposed at https://<edge name>/portal to {', '.join(settings.portal_ranges())}",
+            )
+        )
+    else:
+        findings.append(Finding("portal", "ok", "tunnel only (PORTAL_ALLOWED_IPS is empty)"))
     if dns_settings.verification_mode == "local":
         findings.append(
             Finding(

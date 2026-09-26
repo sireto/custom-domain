@@ -28,6 +28,9 @@ write_files:
       CUSTOM_DOMAIN_VERSION=0.3.1
       # Set to 1 when the provider's firewall is used instead of ufw.
       SKIP_FIREWALL=0
+      # Addresses or networks that may open the portal at https://<edge name>/portal.
+      # Comment out to reach it only over an SSH tunnel.
+      PORTAL_ALLOWED_IPS=203.0.113.9
 
 runcmd:
   - [sh, -c, ". /etc/custom-domain-install.env; ref=\"${CUSTOM_DOMAIN_REF:-${CUSTOM_DOMAIN_VERSION:-main}}\"; [ \"$ref\" = latest ] && ref=main; curl -fsSL \"https://raw.githubusercontent.com/sireto/custom-domain/${ref}/deploy/install.sh\" -o /root/custom-domain-install.sh"]
