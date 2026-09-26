@@ -218,6 +218,47 @@ def deliver_due(
     return DeliveryResult(batch_now, attempted, delivered, failed)
 
 
+def settle_deleted_applications(
+    session_factory: Callable[[], Session], *, now: datetime | None = None
+) -> int:
+    """Revoke the webhooks of deleted applications once none of their deliveries is pending.
+
+    Deleting an application leaves its webhooks active so the
+    ``domain.deleted`` events for its hostnames still reach the product;
+    after the last one is delivered or abandoned, nothing more can be sent.
+    Returns the number of subscriptions revoked.
+    """
+    from app.models import Application
+
+    now = now or utcnow()
+    pending = (
+        select(WebhookDelivery.id)
+        .where(
+            WebhookDelivery.subscription_id == WebhookSubscription.id,
+            WebhookDelivery.delivered_at.is_(None),
+            WebhookDelivery.abandoned_at.is_(None),
+        )
+        .exists()
+    )
+    deleted = (
+        select(Application.id)
+        .where(
+            Application.id == WebhookSubscription.application_id,
+            Application.deleted_at.is_not(None),
+        )
+        .exists()
+    )
+    with session_factory() as session:
+        result = session.execute(
+            update(WebhookSubscription)
+            .where(WebhookSubscription.revoked_at.is_(None), deleted, ~pending)
+            .values(revoked_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        session.commit()
+        return result.rowcount or 0
+
+
 class WebhookWorker:
     def __init__(
         self,
@@ -234,6 +275,7 @@ class WebhookWorker:
     def run_once(self) -> DeliveryResult:
         try:
             result = deliver_due(self.session_factory, sender=self.sender, limit=self.batch_size)
+            settle_deleted_applications(self.session_factory)
         except Exception as exc:
             logger.error("webhook worker run failed: %s", exc)
             result = DeliveryResult(utcnow(), 0, 0, 0)

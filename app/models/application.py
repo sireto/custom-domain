@@ -45,6 +45,11 @@ class Application(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     workspace_probe_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
     )
+    # A deleted application is archived, not removed: its domains are
+    # tombstones kept for the retention period like any other, and the row
+    # goes with them when they are purged (docs/data-model.md).
+    deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    purge_after: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
 
     origins: Mapped[list[VerifiedOrigin]] = relationship(
         back_populates="application", cascade="all, delete-orphan"
@@ -53,6 +58,10 @@ class Application(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="application", cascade="all, delete-orphan"
     )
     domains: Mapped[list[Domain]] = relationship(back_populates="application")
+
+    @property
+    def is_deleted(self) -> bool:
+        return self.deleted_at is not None
 
     @property
     def active_origin(self) -> VerifiedOrigin | None:

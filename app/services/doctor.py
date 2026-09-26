@@ -45,6 +45,8 @@ class Finding:
     check: str
     status: str  # "ok", "warn" or "fail"
     detail: str
+    # For edge-name checks: the addresses that answered as this edge.
+    reached: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -392,7 +394,9 @@ def _application_findings(
             )
         )
     with session_factory() as session:
-        applications = session.scalars(select(Application).order_by(Application.slug)).all()
+        applications = session.scalars(
+            select(Application).where(Application.deleted_at.is_(None)).order_by(Application.slug)
+        ).all()
         if not applications:
             findings.append(
                 Finding(
@@ -515,7 +519,26 @@ def _cname_target_findings(
         else:
             problems.append(f"{address}: HTTP {status} without this edge's marker")
     if not problems and not unverifiable:
-        return [Finding(check, "ok", f"{', '.join(addresses)} all answer {url} as this edge")]
+        return [
+            Finding(
+                check,
+                "ok",
+                f"{', '.join(addresses)} all answer {url} as this edge",
+                reached=tuple(reached),
+            )
+        ]
+    if not problems and not reached:
+        # Only IPv6 addresses, none routable from here: nothing is verified.
+        return [
+            Finding(
+                check,
+                "warn",
+                f"has only IPv6 address(es) ({', '.join(unverifiable)}), which cannot be "
+                "checked from this container (no IPv6 route here, which is normal inside "
+                f"Docker), so it is not verified that they reach this edge. Verify from "
+                f"outside: curl -6 -I {url}",
+            )
+        ]
     if not problems:
         return [
             Finding(
@@ -525,6 +548,7 @@ def _cname_target_findings(
                 f"{', '.join(unverifiable)} could not be checked from this container (no "
                 "IPv6 route here, which is normal inside Docker). Verify from outside: "
                 f"curl -6 -I {url}",
+                reached=tuple(reached),
             )
         ]
     if unverifiable:
@@ -539,6 +563,18 @@ def _cname_target_findings(
             "if it keeps failing",
         )
     ]
+
+
+def check_edge_name(
+    name: str,
+    settings: EdgeSettings,
+    dns_settings: DnsSettings,
+    *,
+    resolve: Resolve = _resolve,
+    probe_target: ProbeTarget = _probe_target,
+) -> Finding:
+    """The doctor's check for one of the edge's names: public DNS, then each address."""
+    return _cname_target_findings(None, name, settings, dns_settings, resolve, probe_target)[0]
 
 
 def _unverifiable_from_here(address: str, exc: BaseException) -> bool:

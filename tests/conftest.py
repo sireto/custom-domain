@@ -61,6 +61,14 @@ def session(engine, session_factory):
 
 
 @pytest.fixture
+def portal(session_factory, session, monkeypatch):
+    """A signed-out portal test client; the database is emptied afterwards."""
+    from tests.test_portal import make_portal_client
+
+    yield from make_portal_client(session_factory, monkeypatch)
+
+
+@pytest.fixture
 def make_application(session):
     def _make(slug: str = "acme", *, name: str | None = None, cname_target: str | None = None):
         application = create_application(

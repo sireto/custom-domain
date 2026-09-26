@@ -1,0 +1,53 @@
+{% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}{{ application.name }}{% endblock %}
+{% block crumbs %}{{ ui.app_crumbs(application) }}{% endblock %}
+{% block content %}
+{{ ui.app_head(application, app_state) }}
+{{ ui.app_tabs(application, 'overview', tab_counts) }}
+{% if application.status.value == 'suspended' %}<div class="alert alert-fail"><div><b>This application is suspended</b><p class="body">{{ app_state.help }} <a href="/portal/applications/{{ application.slug }}/settings">Resume it in Settings.</a></p></div></div>{% endif %}
+
+<div class="grid grid-4" style="margin-bottom:20px">
+  {% set live = domain_counts[p.DomainStatus.READY] %}
+  <a class="card stat" style="margin:0;color:inherit" href="/portal/applications/{{ application.slug }}/domains?status=ready"><div class="label">Live hostnames</div><div class="value" style="color:{{ 'var(--ok)' if live else 'inherit' }}">{{ live }}</div></a>
+  <a class="card stat" style="margin:0;color:inherit" href="/portal/applications/{{ application.slug }}/domains?status=pending_dns"><div class="label">Waiting for DNS</div><div class="value">{{ domain_counts[p.DomainStatus.PENDING_DNS] }}</div></a>
+  <a class="card stat" style="margin:0;color:inherit" href="/portal/applications/{{ application.slug }}/domains?status=provisioning"><div class="label">Provisioning</div><div class="value">{{ domain_counts[p.DomainStatus.PROVISIONING] }}</div></a>
+  {% set bad = domain_counts[p.DomainStatus.ATTENTION_REQUIRED] + domain_counts[p.DomainStatus.SUSPENDED] %}
+  <a class="card stat" style="margin:0;color:inherit" href="/portal/applications/{{ application.slug }}/domains?status=attention_required"><div class="label">Need attention</div><div class="value" style="color:{{ 'var(--fail)' if bad else 'inherit' }}">{{ bad }}</div></a>
+</div>
+
+<div class="grid grid-2">
+<div class="card">
+  <div class="card-head"><div><h2>Setup</h2><p>{% if done == steps|length %}Complete. This application serves customer hostnames.{% else %}{{ done }} of {{ steps|length }} done. Work through the steps in order.{% endif %}</p>
+    <div class="progress"><span style="width:{{ (100 * done / steps|length)|round|int }}%"></span></div></div></div>
+  <ol class="steps">
+    {% for s in steps %}<li class="{{ 'done' if s.done else ('current' if loop.index0 == current else '') }}">
+      <span class="step-mark">{% if s.done %}✓{% else %}{{ loop.index }}{% endif %}</span>
+      <div class="grow"><h3>{{ s.title }}</h3><p>{{ s.detail }}</p></div>
+      {% if not s.done and s.link %}<div><a class="btn btn-sm {{ 'btn-primary' if loop.index0 == current }}" href="{{ s.link }}">{{ s.link_label }}</a></div>{% endif %}
+    </li>{% endfor %}
+  </ol>
+</div>
+
+<div>
+<div class="card">
+  <div class="card-head"><div><h2>How customers connect</h2><p>What your product tells each customer who adds a hostname.</p></div></div>
+  <div class="card-body">
+    <p style="margin-top:0">Each customer publishes two DNS records for their hostname. The exact values are on every hostname's page and in the API response.</p>
+    <div class="table-wrap"><table style="word-break:break-all">
+      <tr><th>Type</th><th>Name</th><th>Value</th></tr>
+      <tr><td><span class="tag">CNAME</span></td><td><code>forms.customer.example</code></td><td><code>{{ application.cname_target }}</code></td></tr>
+      <tr><td><span class="tag">TXT</span></td><td><code>_custom-domain-challenge.forms.customer.example</code></td><td><code>custom-domain-verify=…</code></td></tr>
+    </table></div>
+  </div>
+</div>
+<div class="card">
+  <div class="card-head"><div><h2>CNAME target</h2><p>Customers' CNAMEs lead here, so it must reach this edge.</p></div>{{ ui.badge(target.state) }}</div>
+  <div class="card-body"><dl class="kv">
+    <dt>Name</dt><dd><code>{{ target.name }}</code></dd>
+    <dt>Resolves to</dt><dd>{% if target.addresses %}{% for a in target.addresses %}<code>{{ a }}</code>{{ ', ' if not loop.last }}{% endfor %}{% else %}<span class="muted">{{ target.error or 'no A or AAAA record' }}</span>{% endif %}</dd>
+    <dt>Origin</dt><dd>{% if serving %}<code>{{ serving.url }}</code>{% else %}<span class="muted">none active yet</span>{% endif %}</dd>
+  </dl></div>
+  <div class="card-foot small muted">Checked just now in public DNS{% if target.reachability %}, then by connecting to each address as a customer would{% endif %}.{% if target.reachability and not target.reachability.ok %} {{ target.reachability.detail }}{% endif %}</div>
+</div>
+</div>
+</div>
+{% endblock %}

@@ -1,9 +1,9 @@
 """Portal pages: the operator actions of the ``custom-domain`` command in a browser.
 
 Every action calls the same service function the command line does, so the
-two stay equivalent. Secrets (credentials, verification tokens) are rendered
+two stay equivalent. Secrets (API keys, webhook signing secrets) are rendered
 once, in the response to the action that produced them, and never stored in
-the session.
+the session. What statuses mean is decided in ``presenters``.
 """
 
 from __future__ import annotations
@@ -17,12 +17,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from starlette.responses import RedirectResponse, Response
+from starlette.responses import RedirectResponse
 
 from app.db.session import get_session
 from app.hostname import InvalidHostname
 from app.legacy import import_legacy_domains, parse_legacy_config
 from app.models import ApplicationStatus, DomainStatus
+from app.portal import presenters
 from app.portal.auth import LoginLimiter, PortalSettings, Sessions, safe_next
 from app.services import applications as app_service
 from app.services import domains as domain_service
@@ -217,38 +218,157 @@ def logout(request: Request, session: dict = Operator, csrf: str = Form("")):
     return response
 
 
-# --- dashboard -------------------------------------------------------------------
+# --- notices -----------------------------------------------------------------------
+
+# Redirects carry a notice code, never free text, so a crafted link cannot put
+# arbitrary words on a portal page.
+NOTICES = {
+    "application_created": "Application created. Follow the setup steps below to start "
+    "serving hostnames.",
+    "application_deleted": "Application deleted. Its hostnames are no longer served; their "
+    "records and history are kept for 90 days, then purged.",
+    "renamed": "Name saved.",
+    "cname_target": "CNAME target saved. New domains get the new target.",
+    "cname_target_reissued": "CNAME target saved and the DNS records of existing domains "
+    "re-issued. Those domains wait for DNS until their customers publish the new records.",
+    "probe": "Readiness setting saved.",
+    "suspended": "Application suspended. Its hostnames are no longer served and its API keys "
+    "are refused.",
+    "activated": "Application active again.",
+    "origin_registered": "Origin registered. Serve the token shown below from it, then verify.",
+    "origin_verified": "Origin verified and active. The edge sends this application's traffic "
+    "there.",
+    "origin_verified_only": "Origin verified. Activate it to send traffic there.",
+    "origin_activated": "Origin activated. The edge sends this application's traffic there.",
+    "origin_retired": "Origin retired. It no longer receives traffic.",
+    "origin_deleted": "Origin deleted.",
+    "credential_revoked": "API key revoked. Requests using it are refused from now on.",
+    "credential_deleted": "API key deleted.",
+    "domain_registered": "Hostname registered. Give the customer the two DNS records below.",
+    "domain_recheck": "Recheck requested. The worker runs every check within a minute.",
+    "domain_reissue": "New DNS records issued. The customer must publish them; the old ones "
+    "no longer verify.",
+    "domain_delete": "Hostname deleted. It is no longer served.",
+    "webhook_revoked": "Webhook revoked. Nothing more is delivered to it.",
+    "webhook_deleted": "Webhook deleted.",
+    "replayed": "Delivery queued again.",
+    "purged": "Deleted hostnames and applications past the 90-day retention purged.",
+    "reconcile_applied": "Edge configuration applied.",
+    "reconcile_unchanged": "The edge already runs the desired configuration.",
+}
+
+
+def _notice(code: str) -> str | None:
+    return NOTICES.get(code)
+
+
+def _edge_settings(request: Request):
+    return getattr(request.app.state, "edge_settings", None)
+
+
+def _resolver(request: Request):
+    from app.services.doctor import _resolve
+
+    return getattr(request.app.state, "portal_resolve", None) or _resolve
+
+
+def _prober(request: Request):
+    from app.services.doctor import _probe_target
+
+    return getattr(request.app.state, "portal_probe", None) or _probe_target
+
+
+def _dns_settings():
+    from app.dns.settings import DnsSettings
+
+    return DnsSettings.from_env()
+
+
+def _domain_counts(db: Session, application=None) -> dict[DomainStatus, int]:
+    from sqlalchemy import func, select
+
+    from app.models import Domain
+
+    query = select(Domain.status, func.count()).group_by(Domain.status)
+    if application is not None:
+        query = query.where(Domain.application_id == application.id)
+    counts = {status: 0 for status in DomainStatus}
+    for status, n in db.execute(query).all():
+        counts[status] = n
+    return counts
+
+
+def _live(counts: dict[DomainStatus, int]) -> int:
+    return sum(n for s, n in counts.items() if s != DomainStatus.DELETING)
+
+
+# --- overview ----------------------------------------------------------------------
 
 
 @router.get("")
 @router.get("/")
 def dashboard(request: Request, session: dict = Operator, db: Session = DbSession, ok: str = ""):
-    from sqlalchemy import func, select
+    from sqlalchemy import select
+    from sqlalchemy.orm import joinedload
 
-    from app.models import Application, Domain, EdgeLock
+    from app.models import Domain, DomainEvent, EdgeLock
 
     applications = app_service.list_applications(db)
-    counts = dict(
+    counts = _domain_counts(db)
+    attention = list(
+        db.scalars(
+            select(Domain)
+            .options(joinedload(Domain.application))
+            .where(
+                Domain.deleted_at.is_(None),
+                Domain.status.in_([DomainStatus.ATTENTION_REQUIRED, DomainStatus.SUSPENDED]),
+            )
+            .order_by(Domain.updated_at.desc())
+            .limit(8)
+        )
+    )
+    issues = []
+    for application in applications:
+        if application.status != ApplicationStatus.ACTIVE:
+            issues.append((application, "Suspended: none of its hostnames is served."))
+        elif application.serving_origin is None:
+            issues.append(
+                (application, "No verified, active origin: its hostnames cannot go live.")
+            )
+    recent = list(
         db.execute(
-            select(Domain.status, func.count())
-            .where(Domain.deleted_at.is_(None))
-            .group_by(Domain.status)
+            select(DomainEvent, Domain.hostname, Domain.id, Domain.application_id)
+            .join(Domain, Domain.id == DomainEvent.domain_id)
+            .where(DomainEvent.event_type != "domain.check_updated")
+            .order_by(DomainEvent.created_at.desc())
+            .limit(10)
         ).all()
     )
+    slugs = {a.id: a for a in applications}
     lock = db.scalar(select(EdgeLock).where(EdgeLock.name == "reconcile"))
-    edge_settings = getattr(request.app.state, "edge_settings", None)
     reconciler = getattr(request.app.state, "reconciler", None)
     return render(
         request,
         "dashboard.html",
         session,
+        section="overview",
         applications=applications,
-        application_count=db.scalar(select(func.count()).select_from(Application)),
-        counts={status.value: counts.get(status, 0) for status in DomainStatus},
+        stats={
+            "live": counts[DomainStatus.READY],
+            "waiting": counts[DomainStatus.PENDING_DNS] + counts[DomainStatus.PROVISIONING],
+            "attention": counts[DomainStatus.ATTENTION_REQUIRED] + counts[DomainStatus.SUSPENDED],
+        },
+        attention=attention,
+        issues=issues,
+        recent=[
+            (event, hostname, domain_id, slugs.get(app_id))
+            for event, hostname, domain_id, app_id in recent
+        ],
         lock=lock,
-        edge_settings=edge_settings,
+        edge_settings=_edge_settings(request),
         last_reconcile=reconciler.last_result if reconciler else None,
-        notice=ok,
+        notice=_notice(ok),
+        p=presenters,
     )
 
 
@@ -257,9 +377,9 @@ def purge_tombstones(
     request: Request, session: dict = Operator, db: Session = DbSession, csrf: str = Form("")
 ):
     _csrf(request, session, csrf)
-    count = domain_service.purge_tombstones(db)
+    domain_service.purge_tombstones(db)
     db.commit()
-    return redirect(f"/portal?ok=purged+{count}+tombstone(s)")
+    return redirect("/portal?ok=purged")
 
 
 # --- applications ------------------------------------------------------------------
@@ -267,14 +387,44 @@ def purge_tombstones(
 
 @router.get("/applications")
 def applications(request: Request, session: dict = Operator, db: Session = DbSession, ok: str = ""):
-    edge_settings = getattr(request.app.state, "edge_settings", None)
+    from sqlalchemy import func, select
+
+    from app.models import Domain
+
+    rows = db.execute(
+        select(Domain.application_id, Domain.status, func.count())
+        .where(Domain.deleted_at.is_(None))
+        .group_by(Domain.application_id, Domain.status)
+    ).all()
+    per_app: dict = {}
+    for app_id, status, n in rows:
+        per_app.setdefault(app_id, {})[status] = n
     return render(
         request,
         "applications.html",
         session,
+        section="applications",
         applications=app_service.list_applications(db),
-        edge_hostname=edge_settings.edge_hostname if edge_settings else None,
-        notice=ok,
+        deleted_applications=app_service.list_deleted_applications(db),
+        per_app=per_app,
+        notice=_notice(ok),
+        p=presenters,
+        DomainStatus=DomainStatus,
+    )
+
+
+@router.get("/new-application")
+def new_application(request: Request, session: dict = Operator):
+    settings = _edge_settings(request)
+    return render(
+        request,
+        "application_new.html",
+        session,
+        section="applications",
+        form={
+            "cname_target": settings.edge_hostname if settings and settings.edge_hostname else ""
+        },
+        edge_hostname=settings.edge_hostname if settings else None,
     )
 
 
@@ -296,66 +446,201 @@ def create_application(
         db.commit()
     except ServiceError as exc:
         db.rollback()
+        settings = _edge_settings(request)
         return render(
             request,
-            "applications.html",
+            "application_new.html",
             session,
             status=400,
-            applications=app_service.list_applications(db),
-            error=str(exc),
+            section="applications",
+            error=exc.message,
             form={"slug": slug, "name": name, "cname_target": cname_target},
+            edge_hostname=settings.edge_hostname if settings else None,
         )
-    return redirect(f"/portal/applications/{application.slug}?ok=application+created")
+    return redirect(f"/portal/applications/{application.slug}?ok=application_created")
 
 
-def _load_application(db: Session, slug: str):
+def _load_application(db: Session, slug: str, *, include_deleted: bool = False):
+    """The application for a page; deleted ones only for the read-only pages."""
     try:
-        return app_service.get_application_by_slug(db, slug)
+        return app_service.get_application_by_slug(db, slug, include_deleted=include_deleted)
     except ServiceError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-def _application_page(
-    request: Request,
-    session: dict,
-    db: Session,
-    application,
-    *,
-    status: int = 200,
-    domain_status: str | None = None,
-    offset: int = 0,
-    **extra: Any,
+def _app_context(db: Session, application) -> dict[str, Any]:
+    counts = _domain_counts(db, application)
+    return {
+        "section": "applications",
+        "application": application,
+        "app_state": presenters.application_state(application),
+        "tab_counts": {"domains": _live(counts)},
+        "domain_counts": counts,
+        "p": presenters,
+    }
+
+
+REACHABILITY_TTL = 600.0  # seconds a reachability result is shown without re-probing
+
+
+def _reachability(request: Request, name: str, dns_settings, *, fresh: bool):
+    """The doctor's reachability finding for ``name``: probed now, or remembered."""
+    import time
+
+    from app.services.doctor import check_edge_name
+
+    cache = request.app.state.__dict__.setdefault("portal_reachability", {})
+    settings = _edge_settings(request)
+    if settings is None:
+        return None
+    if fresh:
+        finding = check_edge_name(
+            name,
+            settings,
+            dns_settings,
+            resolve=_resolver(request),
+            probe_target=_prober(request),
+        )
+        cache[name] = (time.monotonic(), finding)
+        return finding
+    remembered = cache.get(name)
+    if remembered and time.monotonic() - remembered[0] < REACHABILITY_TTL:
+        return remembered[1]
+    return None
+
+
+def _tab_overview(request, session, db, application, *, status=200, verify=False, **extra):
+    origins = app_service.list_origins(db, application)
+    credentials = app_service.list_credentials(db, application)
+    ctx = _app_context(db, application)
+    target = presenters.EdgeNameView(application.cname_target, [])
+    dns_settings = _dns_settings()
+    presenters.resolve_names([target], _resolver(request), dns_settings)
+    if target.addresses and not target.error:
+        # The setup step is done only when the name reaches this edge, not
+        # merely when it resolves. Probing can take seconds per address, so
+        # it runs on request and its result is remembered for a while.
+        target.reachability = _reachability(request, target.name, dns_settings, fresh=verify)
+    steps = presenters.application_steps(
+        application,
+        origins=origins,
+        credentials=credentials,
+        domain_counts=ctx["domain_counts"],
+        target_dns=target,
+    )
+    return render(
+        request,
+        "app_overview.html",
+        session,
+        status=status,
+        steps=steps,
+        done=sum(1 for s in steps if s.done),
+        current=next((i for i, s in enumerate(steps) if not s.done), None),
+        target=target,
+        serving=application.serving_origin,
+        **ctx,
+        **extra,
+    )
+
+
+def _tab_domains(
+    request, session, db, application, *, status=200, domain_status="", q="", offset=0, **extra
 ):
     wanted = None
     if domain_status:
         try:
             wanted = DomainStatus(domain_status)
         except ValueError:
-            wanted = None
+            domain_status = ""
+    offset = max(0, offset)
     domains, has_more = domain_service.page_domains(
         db,
         application,
         status=wanted,
-        include_deleted=domain_status == "deleting",
+        include_deleted=wanted == DomainStatus.DELETING,
+        search=q,
         limit=50,
-        offset=max(0, offset),
+        offset=offset,
     )
     return render(
         request,
-        "application.html",
+        "app_domains.html",
         session,
         status=status,
-        application=application,
-        origins=app_service.list_origins(db, application),
-        credentials=app_service.list_credentials(db, application),
-        edge_names=app_service.edge_names(db, application),
         domains=domains,
         has_more=has_more,
-        offset=max(0, offset),
-        domain_status=domain_status or "",
-        statuses=[s.value for s in DomainStatus],
+        offset=offset,
+        domain_status=domain_status,
+        q=q,
+        filters=presenters.DOMAIN_FILTERS,
+        **_app_context(db, application),
         **extra,
     )
+
+
+def _tab_origins(request, session, db, application, *, status=200, **extra):
+    from app.services.origin_verification import WELL_KNOWN_PATH
+
+    return render(
+        request,
+        "app_origins.html",
+        session,
+        status=status,
+        origins=app_service.list_origins(db, application),
+        well_known=WELL_KNOWN_PATH,
+        **_app_context(db, application),
+        **extra,
+    )
+
+
+def _tab_credentials(request, session, db, application, *, status=200, **extra):
+    return render(
+        request,
+        "app_credentials.html",
+        session,
+        status=status,
+        credentials=app_service.list_credentials(db, application),
+        **_app_context(db, application),
+        **extra,
+    )
+
+
+def _tab_webhooks(request, session, db, application, *, status=200, **extra):
+    from app.services import webhooks as webhook_service
+
+    return render(
+        request,
+        "app_webhooks.html",
+        session,
+        status=status,
+        subscriptions=webhook_service.list_subscriptions(db, application),
+        event_types=webhook_service.WEBHOOK_EVENT_TYPES,
+        **_app_context(db, application),
+        **extra,
+    )
+
+
+def _tab_settings(request, session, db, application, *, status=200, **extra):
+    return render(
+        request,
+        "app_settings.html",
+        session,
+        status=status,
+        edge_names=app_service.edge_names(db, application),
+        live_domains=app_service.live_domain_count(db, application),
+        **_app_context(db, application),
+        **extra,
+    )
+
+
+TABS = {
+    "overview": _tab_overview,
+    "domains": _tab_domains,
+    "origins": _tab_origins,
+    "credentials": _tab_credentials,
+    "webhooks": _tab_webhooks,
+    "settings": _tab_settings,
+}
 
 
 @router.get("/applications/{slug}")
@@ -365,32 +650,109 @@ def application(
     session: dict = Operator,
     db: Session = DbSession,
     ok: str = "",
-    status: str = "",
-    offset: int = 0,
+    verify: str = "",
 ):
-    application = _load_application(db, slug)
-    return _application_page(
-        request, session, db, application, domain_status=status, offset=offset, notice=ok
+    application = _load_application(db, slug, include_deleted=True)
+    if application.is_deleted:
+        return redirect(f"/portal/applications/{application.slug}/domains")
+    return _tab_overview(
+        request, session, db, application, verify=verify == "1", notice=_notice(ok)
     )
 
 
-def _action(request, session, db, slug, csrf, fn, ok):
-    """Run a service action for an application; render the page with the error on failure."""
+@router.get("/applications/{slug}/domains")
+def application_domains(
+    request: Request,
+    slug: str,
+    session: dict = Operator,
+    db: Session = DbSession,
+    ok: str = "",
+    status: str = "",
+    q: str = "",
+    offset: int = 0,
+):
+    application = _load_application(db, slug, include_deleted=True)
+    if application.is_deleted and not status:
+        status = DomainStatus.DELETING.value  # all its domains are tombstones
+    return _tab_domains(
+        request,
+        session,
+        db,
+        application,
+        domain_status=status,
+        q=q[:253],
+        offset=offset,
+        notice=_notice(ok),
+    )
+
+
+@router.get("/applications/{slug}/{tab}")
+def application_tab(
+    request: Request,
+    slug: str,
+    tab: str,
+    session: dict = Operator,
+    db: Session = DbSession,
+    ok: str = "",
+):
+    if tab not in TABS or tab in ("overview", "domains"):
+        raise HTTPException(status_code=404)
+    application = _load_application(db, slug, include_deleted=True)
+    if application.is_deleted:
+        return redirect(f"/portal/applications/{application.slug}/domains")
+    return TABS[tab](request, session, db, application, notice=_notice(ok))
+
+
+ACTION_ERRORS = (
+    ServiceError,
+    OriginVerificationFailed,
+    InvalidHostname,
+    ValueError,
+    OverflowError,
+)
+MAX_KEY_DAYS = 3650  # ten years
+MAX_GRACE_HOURS = 24 * 30
+
+
+def _action(request, session, db, slug, csrf, fn, *, tab: str, ok: str, then: str | None = None):
+    """Run a service action; re-render the tab with the error, or redirect with a notice.
+
+    ``fn`` may return a dict of values to render once on the tab (a secret),
+    or a path to redirect to instead of the tab.
+    """
     _csrf(request, session, csrf)
     application = _load_application(db, slug)
     try:
         result = fn(application)
         db.commit()
-    except (ServiceError, OriginVerificationFailed, InvalidHostname, ValueError) as exc:
+    except ACTION_ERRORS as exc:
         db.rollback()
         message = getattr(exc, "message", None) or str(exc)
-        return _application_page(request, session, db, application, status=400, error=message)
-    if isinstance(result, Response):
-        return result
-    if result is not None:
-        # An action that produced a secret: show it once on the page.
-        return _application_page(request, session, db, application, **result)
-    return redirect(f"/portal/applications/{slug}?ok={ok}")
+        return TABS[tab](request, session, db, application, status=400, error=message)
+    if isinstance(result, dict):
+        return TABS[tab](request, session, db, application, **result)
+    if isinstance(result, str):
+        return redirect(f"{result}?ok={ok}")
+    suffix = "" if tab == "overview" else f"/{tab}"
+    return redirect(then or f"/portal/applications/{slug}{suffix}?ok={ok}")
+
+
+# --- application settings ----------------------------------------------------------
+
+
+@router.post("/applications/{slug}/name")
+def rename_application(
+    request: Request,
+    slug: str,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+    name: str = Form(""),
+):
+    def act(application):
+        app_service.rename_application(db, application, name)
+
+    return _action(request, session, db, slug, csrf, act, tab="settings", ok="renamed")
 
 
 @router.post("/applications/{slug}/cname-target")
@@ -404,14 +766,12 @@ def set_cname_target(
     reissue_claims: bool = Form(False),
 ):
     def act(application):
-        target = app_service.set_cname_target(db, application, cname_target)
+        app_service.set_cname_target(db, application, cname_target)
         if reissue_claims:
-            for domain in domain_service.list_domains(db, application, limit=10000):
-                claim = domain.active_claim
-                if claim is not None and claim.cname_target != target:
-                    domain_service.reissue_claim(db, application, domain.id)
+            domain_service.reissue_claims_for_target(db, application)
 
-    return _action(request, session, db, slug, csrf, act, "cname+target+updated")
+    ok = "cname_target_reissued" if reissue_claims else "cname_target"
+    return _action(request, session, db, slug, csrf, act, tab="settings", ok=ok)
 
 
 @router.post("/applications/{slug}/workspace-probe")
@@ -426,7 +786,7 @@ def set_workspace_probe(
     def act(application):
         application.workspace_probe_enabled = enabled
 
-    return _action(request, session, db, slug, csrf, act, "workspace+probe+updated")
+    return _action(request, session, db, slug, csrf, act, tab="settings", ok="probe")
 
 
 @router.post("/applications/{slug}/status")
@@ -438,10 +798,34 @@ def set_status(
     csrf: str = Form(""),
     status: str = Form(""),
 ):
-    def act(application):
-        app_service.set_application_status(db, application, ApplicationStatus(status))
+    wanted = ApplicationStatus(status) if status in ApplicationStatus._value2member_map_ else None
 
-    return _action(request, session, db, slug, csrf, act, "status+updated")
+    def act(application):
+        if wanted is None:
+            raise ValueError("Unknown status")
+        app_service.set_application_status(db, application, wanted)
+
+    ok = "suspended" if wanted == ApplicationStatus.SUSPENDED else "activated"
+    return _action(request, session, db, slug, csrf, act, tab="settings", ok=ok)
+
+
+@router.post("/applications/{slug}/delete")
+def delete_application(
+    request: Request,
+    slug: str,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+    confirm: str = Form(""),
+    delete_domains: bool = Form(False),
+):
+    def act(application):
+        app_service.delete_application(
+            db, application, confirm_slug=confirm, delete_domains=delete_domains
+        )
+        return "/portal/applications"
+
+    return _action(request, session, db, slug, csrf, act, tab="settings", ok="application_deleted")
 
 
 # --- origins -----------------------------------------------------------------------
@@ -459,10 +843,13 @@ def register_origin(
     port: int | None = Form(None),
 ):
     def act(application):
-        origin = app_service.register_origin(db, application, host=host, scheme=scheme, port=port)
-        return {"origin_token": origin.verification_token, "origin_url": origin.url}
+        app_service.register_origin(db, application, host=host, scheme=scheme, port=port)
 
-    return _action(request, session, db, slug, csrf, act, "origin+registered")
+    return _action(request, session, db, slug, csrf, act, tab="origins", ok="origin_registered")
+
+
+def _origin(db, application, origin_id):
+    return app_service.get_origin(db, application, origin_id=origin_id)
 
 
 @router.post("/applications/{slug}/origins/{origin_id}/verify")
@@ -476,7 +863,7 @@ def verify_origin_view(
     activate: bool = Form(False),
 ):
     def act(application):
-        origin = app_service.get_origin(db, application, origin_id=origin_id)
+        origin = _origin(db, application, origin_id)
         try:
             verify_origin(db, origin, allow_private=allow_private_from_env())
         except OriginVerificationFailed:
@@ -485,7 +872,8 @@ def verify_origin_view(
         if activate:
             app_service.activate_origin(db, origin)
 
-    return _action(request, session, db, slug, csrf, act, "origin+verified")
+    ok = "origin_verified" if activate else "origin_verified_only"
+    return _action(request, session, db, slug, csrf, act, tab="origins", ok=ok)
 
 
 @router.post("/applications/{slug}/origins/{origin_id}/activate")
@@ -498,10 +886,9 @@ def activate_origin_view(
     csrf: str = Form(""),
 ):
     def act(application):
-        origin = app_service.get_origin(db, application, origin_id=origin_id)
-        app_service.activate_origin(db, origin)
+        app_service.activate_origin(db, _origin(db, application, origin_id))
 
-    return _action(request, session, db, slug, csrf, act, "origin+activated")
+    return _action(request, session, db, slug, csrf, act, tab="origins", ok="origin_activated")
 
 
 @router.post("/applications/{slug}/origins/{origin_id}/retire")
@@ -514,9 +901,24 @@ def retire_origin_view(
     csrf: str = Form(""),
 ):
     def act(application):
-        app_service.retire_origin(db, app_service.get_origin(db, application, origin_id=origin_id))
+        app_service.retire_origin(db, _origin(db, application, origin_id))
 
-    return _action(request, session, db, slug, csrf, act, "origin+retired")
+    return _action(request, session, db, slug, csrf, act, tab="origins", ok="origin_retired")
+
+
+@router.post("/applications/{slug}/origins/{origin_id}/delete")
+def delete_origin_view(
+    request: Request,
+    slug: str,
+    origin_id: uuid.UUID,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+):
+    def act(application):
+        app_service.delete_origin(db, _origin(db, application, origin_id))
+
+    return _action(request, session, db, slug, csrf, act, tab="origins", ok="origin_deleted")
 
 
 # --- credentials --------------------------------------------------------------------
@@ -530,18 +932,23 @@ def issue_credential(
     db: Session = DbSession,
     csrf: str = Form(""),
     label: str = Form(""),
-    expires_in_days: int | None = Form(None),
+    expires_in_days: str = Form(""),
 ):
     def act(application):
         from app.models.types import utcnow
 
-        expires_at = utcnow() + timedelta(days=expires_in_days) if expires_in_days else None
+        days = int(expires_in_days) if expires_in_days.strip() else None
+        if days is not None and not 1 <= days <= MAX_KEY_DAYS:
+            raise ValueError(
+                f"Expiry must be between 1 and {MAX_KEY_DAYS} days, or empty for no expiry"
+            )
+        expires_at = utcnow() + timedelta(days=days) if days else None
         credential, secret = app_service.issue_credential(
             db, application, label=label, expires_at=expires_at
         )
         return {"credential_secret": secret, "credential_label": credential.label}
 
-    return _action(request, session, db, slug, csrf, act, "credential+issued")
+    return _action(request, session, db, slug, csrf, act, tab="credentials", ok="")
 
 
 @router.post("/applications/{slug}/credentials/{credential_id}/revoke")
@@ -556,7 +963,9 @@ def revoke_credential(
     def act(application):
         app_service.revoke_credential(db, application, credential_id)
 
-    return _action(request, session, db, slug, csrf, act, "credential+revoked")
+    return _action(
+        request, session, db, slug, csrf, act, tab="credentials", ok="credential_revoked"
+    )
 
 
 @router.post("/applications/{slug}/credentials/{credential_id}/rotate")
@@ -570,12 +979,182 @@ def rotate_credential(
     grace_hours: int = Form(24),
 ):
     def act(application):
-        credential, secret, _old = app_service.rotate_credential(
-            db, application, credential_id, grace=timedelta(hours=max(0, grace_hours))
+        if not 0 <= grace_hours <= MAX_GRACE_HOURS:
+            raise ValueError(f"The overlap must be between 0 and {MAX_GRACE_HOURS} hours")
+        credential, secret, old = app_service.rotate_credential(
+            db, application, credential_id, grace=timedelta(hours=grace_hours)
         )
-        return {"credential_secret": secret, "credential_label": credential.label}
+        return {
+            "credential_secret": secret,
+            "credential_label": credential.label,
+            "rotated_from": old,
+        }
 
-    return _action(request, session, db, slug, csrf, act, "credential+rotated")
+    return _action(request, session, db, slug, csrf, act, tab="credentials", ok="")
+
+
+@router.post("/applications/{slug}/credentials/{credential_id}/delete")
+def delete_credential(
+    request: Request,
+    slug: str,
+    credential_id: uuid.UUID,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+):
+    def act(application):
+        app_service.delete_credential(db, application, credential_id)
+
+    return _action(
+        request, session, db, slug, csrf, act, tab="credentials", ok="credential_deleted"
+    )
+
+
+# --- webhooks -----------------------------------------------------------------------
+
+
+@router.post("/applications/{slug}/webhooks")
+def create_webhook(
+    request: Request,
+    slug: str,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+    url: str = Form(""),
+    events: list[str] = Form([]),
+):
+    from app.services import webhooks as webhook_service
+
+    def act(application):
+        subscription, secret = webhook_service.create_subscription(
+            db,
+            application,
+            url=url,
+            events=events,
+            allow_private=webhook_service.allow_private_from_env(),
+        )
+        return {"webhook_secret": secret, "webhook_url": subscription.url}
+
+    return _action(request, session, db, slug, csrf, act, tab="webhooks", ok="")
+
+
+@router.post("/applications/{slug}/webhooks/{subscription_id}/rotate")
+def rotate_webhook(
+    request: Request,
+    slug: str,
+    subscription_id: uuid.UUID,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+):
+    from app.services import webhooks as webhook_service
+
+    def act(application):
+        subscription, secret = webhook_service.rotate_secret(db, application, subscription_id)
+        return {"webhook_secret": secret, "webhook_url": subscription.url, "webhook_rotated": True}
+
+    return _action(request, session, db, slug, csrf, act, tab="webhooks", ok="")
+
+
+@router.post("/applications/{slug}/webhooks/{subscription_id}/revoke")
+def revoke_webhook(
+    request: Request,
+    slug: str,
+    subscription_id: uuid.UUID,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+):
+    from app.services import webhooks as webhook_service
+
+    def act(application):
+        webhook_service.revoke_subscription(db, application, subscription_id)
+
+    return _action(request, session, db, slug, csrf, act, tab="webhooks", ok="webhook_revoked")
+
+
+@router.post("/applications/{slug}/webhooks/{subscription_id}/delete")
+def delete_webhook(
+    request: Request,
+    slug: str,
+    subscription_id: uuid.UUID,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+):
+    from app.services import webhooks as webhook_service
+
+    def act(application):
+        webhook_service.delete_subscription(db, application, subscription_id)
+
+    return _action(request, session, db, slug, csrf, act, tab="webhooks", ok="webhook_deleted")
+
+
+def _webhook_page(
+    request, session, db, application, subscription_id, *, status=200, state="", **extra
+):
+    from app.services import webhooks as webhook_service
+
+    try:
+        subscription = webhook_service.get_subscription(db, application, subscription_id)
+    except ServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    state = state if state in ("pending", "delivered", "abandoned") else ""
+    deliveries = webhook_service.list_deliveries(
+        db, application, subscription_id, state=state or None, limit=100
+    )
+    return render(
+        request,
+        "webhook.html",
+        session,
+        status=status,
+        subscription=subscription,
+        deliveries=deliveries,
+        state=state,
+        **_app_context(db, application),
+        **extra,
+    )
+
+
+@router.get("/applications/{slug}/webhooks/{subscription_id}")
+def webhook(
+    request: Request,
+    slug: str,
+    subscription_id: uuid.UUID,
+    session: dict = Operator,
+    db: Session = DbSession,
+    ok: str = "",
+    state: str = "",
+):
+    application = _load_application(db, slug)
+    return _webhook_page(
+        request, session, db, application, subscription_id, state=state, notice=_notice(ok)
+    )
+
+
+@router.post("/applications/{slug}/webhooks/{subscription_id}/deliveries/{delivery_id}/replay")
+def replay_delivery(
+    request: Request,
+    slug: str,
+    subscription_id: uuid.UUID,
+    delivery_id: uuid.UUID,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+):
+    from app.services import webhooks as webhook_service
+
+    _csrf(request, session, csrf)
+    application = _load_application(db, slug)
+    try:
+        webhook_service.replay_delivery(db, application, subscription_id, delivery_id)
+        db.commit()
+    except ServiceError as exc:
+        db.rollback()
+        return _webhook_page(
+            request, session, db, application, subscription_id, status=400, error=exc.message
+        )
+    return redirect(f"/portal/applications/{slug}/webhooks/{subscription_id}?ok=replayed")
 
 
 # --- domains -----------------------------------------------------------------------
@@ -592,9 +1171,44 @@ def register_domain(
     reference: str = Form(""),
 ):
     def act(application):
-        domain_service.claim_domain(db, application, hostname, reference)
+        domain = domain_service.claim_domain(db, application, hostname, reference)
+        return f"/portal/applications/{slug}/domains/{domain.id}"
 
-    return _action(request, session, db, slug, csrf, act, "domain+registered")
+    return _action(request, session, db, slug, csrf, act, tab="domains", ok="domain_registered")
+
+
+def _domain_page(request, session, db, application, domain_id, *, status=200, **extra):
+    try:
+        row = domain_service.get_domain(db, application, domain_id, include_deleted=True)
+    except ServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    events = domain_service.list_events(db, application, domain_id, limit=200)
+    return render(
+        request,
+        "domain.html",
+        session,
+        status=status,
+        domain=row,
+        state=presenters.domain_state(row),
+        records=presenters.record_views(row),
+        checks=presenters.check_views(row),
+        events=[(e, *presenters.describe_event(e)) for e in reversed(events)],
+        **_app_context(db, application),
+        **extra,
+    )
+
+
+@router.get("/applications/{slug}/domains/{domain_id}")
+def domain(
+    request: Request,
+    slug: str,
+    domain_id: uuid.UUID,
+    session: dict = Operator,
+    db: Session = DbSession,
+    ok: str = "",
+):
+    application = _load_application(db, slug, include_deleted=True)
+    return _domain_page(request, session, db, application, domain_id, notice=_notice(ok))
 
 
 @router.post("/applications/{slug}/domains/{domain_id}/{verb}")
@@ -614,37 +1228,18 @@ def domain_action(
     }
     if verb not in actions:
         raise HTTPException(status_code=404)
-
-    def act(application):
-        actions[verb](application)
-
-    return _action(request, session, db, slug, csrf, act, f"domain+{verb}+done")
-
-
-@router.get("/applications/{slug}/domains/{domain_id}")
-def domain(
-    request: Request,
-    slug: str,
-    domain_id: uuid.UUID,
-    session: dict = Operator,
-    db: Session = DbSession,
-):
+    _csrf(request, session, csrf)
     application = _load_application(db, slug)
     try:
-        row = domain_service.get_domain(db, application, domain_id, include_deleted=True)
-    except ServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    from app.v1.schemas import dns_records_for
-
-    return render(
-        request,
-        "domain.html",
-        session,
-        application=application,
-        domain=row,
-        records=dns_records_for(row),
-        events=domain_service.list_events(db, application, domain_id, limit=200),
-    )
+        actions[verb](application)
+        db.commit()
+    except ACTION_ERRORS as exc:
+        db.rollback()
+        message = getattr(exc, "message", None) or str(exc)
+        return _domain_page(request, session, db, application, domain_id, status=400, error=message)
+    if verb == "delete":
+        return redirect(f"/portal/applications/{slug}/domains?ok=domain_delete")
+    return redirect(f"/portal/applications/{slug}/domains/{domain_id}?ok=domain_{verb}")
 
 
 # --- edge, doctor, legacy import -----------------------------------------------------
@@ -662,51 +1257,107 @@ def _reconciler(request: Request):
     return Reconciler(get_session_factory(), CaddyClient(settings.admin_url), settings)
 
 
-@router.get("/edge")
-def edge(request: Request, session: dict = Operator, db: Session = DbSession, ok: str = ""):
+def _edge_page(request, session, db, *, verify=False, status=200, **extra):
+    from sqlalchemy import select
+
     from app.edge.config import build_apps, hostnames_in, redact_apps_summary
+    from app.models import EdgeLock
 
     settings = request.app.state.edge_settings
+    names = presenters.edge_names(db, settings)
+    dns_settings = _dns_settings()
+    resolve = _resolver(request)
+    presenters.resolve_names(names, resolve, dns_settings)
+    for view in names:
+        if view.addresses and not view.error:
+            view.reachability = _reachability(request, view.name, dns_settings, fresh=verify)
     apps = build_apps(db, settings)
     reconciler = getattr(request.app.state, "reconciler", None)
     return render(
         request,
         "edge.html",
         session,
+        status=status,
+        section="edge",
         settings=settings,
+        names=names,
+        verified=verify,
         hostnames=sorted(hostnames_in({"apps": apps})),
         summary=redact_apps_summary(apps),
+        lock=db.scalar(select(EdgeLock).where(EdgeLock.name == "reconcile")),
         last_result=reconciler.last_result if reconciler else None,
         in_process=reconciler is not None,
-        notice=ok,
+        **extra,
     )
 
 
+@router.get("/edge")
+def edge(
+    request: Request,
+    session: dict = Operator,
+    db: Session = DbSession,
+    ok: str = "",
+    verify: str = "",
+):
+    return _edge_page(request, session, db, verify=verify == "1", notice=_notice(ok))
+
+
 @router.post("/edge/reconcile")
-def reconcile(request: Request, session: dict = Operator, csrf: str = Form("")):
+def reconcile(
+    request: Request, session: dict = Operator, db: Session = DbSession, csrf: str = Form("")
+):
     _csrf(request, session, csrf)
     result = _reconciler(request).run_once()
-    outcome = "applied" if result.changed else (result.error or "unchanged")
-    detail = f"+{result.detail}" if result.detail else ""
-    return redirect(f"/portal/edge?ok=reconcile:+{outcome}{detail}"[:500])
+    if result.error:
+        detail = f"{result.error}: {result.detail}" if result.detail else result.error
+        return _edge_page(
+            request,
+            session,
+            db,
+            status=502,
+            error=f"The edge refused or did not answer ({detail}).",
+        )
+    return redirect(
+        "/portal/edge?ok=" + ("reconcile_applied" if result.changed else "reconcile_unchanged")
+    )
 
 
 @router.get("/doctor")
 def doctor(request: Request, session: dict = Operator):
     from app.db.session import get_session_factory
-    from app.dns.settings import DnsSettings
     from app.services.doctor import run_doctor, summarize
 
     findings = run_doctor(
-        get_session_factory(), request.app.state.edge_settings, DnsSettings.from_env()
+        get_session_factory(),
+        request.app.state.edge_settings,
+        _dns_settings(),
+        resolve=_resolver(request),
+        probe_target=_prober(request),
     )
     ok, warn, fail = summarize(findings)
-    return render(request, "doctor.html", session, findings=findings, ok=ok, warn=warn, fail=fail)
+    order = {"fail": 0, "warn": 1, "ok": 2}
+    return render(
+        request,
+        "doctor.html",
+        session,
+        section="doctor",
+        problems=sorted((f for f in findings if not f.ok), key=lambda f: order.get(f.status, 3)),
+        passed=[f for f in findings if f.ok],
+        ok=ok,
+        warn=warn,
+        fail=fail,
+    )
 
 
 @router.get("/legacy")
 def legacy_form(request: Request, session: dict = Operator, db: Session = DbSession):
-    return render(request, "legacy.html", session, applications=app_service.list_applications(db))
+    return render(
+        request,
+        "legacy.html",
+        session,
+        section="legacy",
+        applications=app_service.list_applications(db),
+    )
 
 
 @router.post("/legacy")
@@ -726,10 +1377,25 @@ async def legacy_import(
 ):
     _csrf(request, session, csrf)
     applications = app_service.list_applications(db)
+    form = {
+        "application": application,
+        "references": references,
+        "port": port,
+        "hostname_as_reference": hostname_as_reference,
+        "grandfather": grandfather,
+        "allow_skipped": allow_skipped,
+    }
 
     def fail(message: str, status: int = 400):
         return render(
-            request, "legacy.html", session, status=status, applications=applications, error=message
+            request,
+            "legacy.html",
+            session,
+            status=status,
+            section="legacy",
+            applications=applications,
+            error=message,
+            form=form,
         )
 
     try:
@@ -738,9 +1404,12 @@ async def legacy_import(
         if not isinstance(reference_map, dict):
             raise ValueError("the reference map must be a JSON object of hostname to reference")
     except (ValueError, TypeError) as exc:
-        return fail(f"cannot read the input: {exc}")
+        return fail(f"The input could not be read: {exc}")
     if not reference_map and not hostname_as_reference:
-        return fail("give a reference map, or tick 'use the hostname as the reference'")
+        return fail(
+            "Give a reference map, or tick 'Use the hostname as the reference' so every "
+            "hostname gets one."
+        )
     try:
         target = app_service.get_application_by_slug(db, application)
         report = import_legacy_domains(
@@ -753,7 +1422,7 @@ async def legacy_import(
         )
     except ServiceError as exc:
         db.rollback()
-        return fail(str(exc))
+        return fail(exc.message)
     committed = False
     if dry_run or (report.skipped and not allow_skipped):
         db.rollback()
@@ -764,10 +1433,12 @@ async def legacy_import(
         request,
         "legacy.html",
         session,
+        section="legacy",
         applications=applications,
         report=report,
         committed=committed,
         dry_run=dry_run,
         blocked=bool(report.skipped and not allow_skipped and not dry_run),
         application_slug=application,
+        form=form,
     )

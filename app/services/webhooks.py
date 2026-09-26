@@ -190,6 +190,17 @@ def revoke_subscription(
     return subscription
 
 
+def delete_subscription(
+    session: Session, application: Application, subscription_id: uuid.UUID
+) -> None:
+    """Remove a revoked webhook and its delivery history."""
+    subscription = get_subscription(session, application, subscription_id)
+    if subscription.revoked_at is None:
+        raise InvalidWebhook("Revoke the webhook before deleting it")
+    session.delete(subscription)
+    session.flush()
+
+
 def rotate_secret(
     session: Session,
     application: Application,

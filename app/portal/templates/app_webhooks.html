@@ -1,0 +1,54 @@
+{% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Webhooks · {{ application.name }}{% endblock %}
+{% block crumbs %}{{ ui.app_crumbs(application, 'Webhooks') }}{% endblock %}
+{% block content %}
+{{ ui.app_head(application, app_state, 'Webhooks tell your product when a customer hostname goes live, needs attention, recovers or is deleted, so it can update the customer.') }}
+{{ ui.app_tabs(application, 'webhooks', tab_counts) }}
+{% set base = '/portal/applications/' ~ application.slug ~ '/webhooks/' %}
+
+{% if webhook_secret %}
+<div class="secret">
+  <b>Copy the {{ 'new ' if webhook_rotated }}signing secret for {{ webhook_url }} now. It is shown only once.</b>
+  {{ ui.copy(webhook_secret) }}
+  <div class="hint" style="color:var(--fg-2)">Your endpoint verifies each delivery's signature with it (see docs/webhooks.md).{% if webhook_rotated %} The previous secret keeps signing for 24 hours, so deploy the new one within that time.{% endif %}</div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head"><div><h2>Endpoints</h2><p>Each delivery is signed and retried with backoff until your endpoint answers 2xx.</p></div></div>
+  {% if subscriptions %}
+  <div class="table-wrap"><table>
+    <tr><th>URL</th><th>Events</th><th>Status</th><th>Created</th><th></th></tr>
+    {% for s in subscriptions %}<tr>
+      <td><a class="row-link" href="{{ base }}{{ s.id }}"><code>{{ s.url }}</code></a></td>
+      <td class="small">{% for e in s.events %}<span class="tag">{{ e }}</span> {% endfor %}</td>
+      <td>{% if s.is_active %}<span class="badge t-ok">Active</span>{% else %}<span class="badge t-muted">Revoked</span>{% endif %}</td>
+      <td class="small">{{ ui.when(s.created_at) }}</td>
+      <td class="num"><div class="actions" style="justify-content:flex-end">
+        <a class="btn btn-sm" href="{{ base }}{{ s.id }}">Deliveries</a>
+        {% if s.is_active %}
+          {{ ui.confirm(base ~ s.id ~ '/rotate', csrf, 'Rotate secret', 'Create a new signing secret. The current one stays valid for 24 hours.', 'Rotate', danger=false) }}
+          {{ ui.confirm(base ~ s.id ~ '/revoke', csrf, 'Revoke', 'Stop delivering to this endpoint. Pending deliveries are dropped.', 'Revoke') }}
+        {% else %}
+          {{ ui.confirm(base ~ s.id ~ '/delete', csrf, 'Delete', 'Remove this endpoint and its delivery history.', 'Delete') }}
+        {% endif %}
+      </div></td>
+    </tr>{% endfor %}
+  </table></div>
+  {% else %}
+  {{ ui.empty('No webhooks', 'Add an endpoint to be notified about hostname changes instead of polling the API.', 'bell') }}
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head"><div><h2>Add an endpoint</h2><p>Must be a public HTTPS URL.</p></div></div>
+  <form method="post" action="/portal/applications/{{ application.slug }}/webhooks"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="card-body">
+      <div class="field"><label for="url">Endpoint URL</label><input type="url" id="url" name="url" required placeholder="https://api.acme.example/hooks/custom-domain"></div>
+      <div class="field"><label>Events</label>
+        {% for e in event_types %}<label class="check"><input type="checkbox" name="events" value="{{ e }}" checked> <span><code>{{ e }}</code> <span class="muted">{{ {'domain.ready': 'a hostname went live', 'domain.attention_required': 'a live hostname stopped being served', 'domain.recovered': 'it is served again', 'domain.deleted': 'a hostname was deleted'}.get(e, '') }}</span></span></label>{% endfor %}
+      </div>
+    </div>
+    <div class="card-foot actions" style="justify-content:flex-end"><button type="submit" class="btn-primary">Add endpoint</button></div>
+  </form>
+</div>
+{% endblock %}

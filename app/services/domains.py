@@ -243,6 +243,32 @@ def reissue_claim(
     return claim
 
 
+def reissue_claims_for_target(
+    session: Session, application: Application, *, now: datetime | None = None
+) -> int:
+    """Re-issue every live domain whose claim names another CNAME target.
+
+    Used after the application's CNAME target changes. Walks all of the
+    application's live domains (not a page of them); returns how many were
+    re-issued.
+    """
+    now = now or utcnow()
+    stale = session.scalars(
+        select(Domain.id)
+        .join(OwnershipClaim, OwnershipClaim.domain_id == Domain.id)
+        .where(
+            Domain.application_id == application.id,
+            Domain.deleted_at.is_(None),
+            OwnershipClaim.status != ClaimStatus.REVOKED,
+            OwnershipClaim.cname_target != application.cname_target,
+        )
+        .order_by(Domain.created_at, Domain.id)
+    ).all()
+    for domain_id in stale:
+        reissue_claim(session, application, domain_id, now=now)
+    return len(stale)
+
+
 def mark_claim_verified(
     session: Session,
     domain: Domain,
@@ -330,12 +356,22 @@ def _list_query(
     reference: str | None,
     status: DomainStatus | None,
     include_deleted: bool,
+    search: str | None = None,
 ):
     query = _domain_query(include_deleted).where(Domain.application_id == application.id)
     if reference is not None:
         query = query.where(Domain.reference == reference)
     if status is not None:
         query = query.where(Domain.status == status)
+    if search:
+        # Substring match on hostname or reference; LIKE wildcards in the
+        # input are matched literally.
+        escaped = search.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query = query.where(
+            Domain.hostname.like(pattern, escape="\\")
+            | func.lower(Domain.reference).like(pattern, escape="\\")
+        )
     return query.order_by(Domain.created_at, Domain.id)
 
 
@@ -368,6 +404,7 @@ def page_domains(
     reference: str | None = None,
     status: DomainStatus | None = None,
     include_deleted: bool = False,
+    search: str | None = None,
     limit: int = DEFAULT_PAGE_SIZE,
     offset: int = 0,
 ) -> tuple[list[Domain], bool]:
@@ -379,7 +416,11 @@ def page_domains(
     limit = max(1, min(limit, MAX_PAGE_SIZE))
     offset = max(0, offset)
     query = _list_query(
-        application, reference=reference, status=status, include_deleted=include_deleted
+        application,
+        reference=reference,
+        status=status,
+        include_deleted=include_deleted,
+        search=(search or "").strip() or None,
     )
     rows = list(session.scalars(query.limit(limit + 1).offset(offset)))
     return rows[:limit], len(rows) > limit
@@ -648,10 +689,25 @@ def _enforce_recheck_limits(session: Session, domain: Domain, now: datetime) -> 
 
 
 def purge_tombstones(session: Session, *, now: datetime | None = None) -> int:
-    """Hard-delete tombstones past retention. Children go with them via FK cascade."""
+    """Hard-delete tombstones past retention. Children go with them via FK cascade.
+
+    Deleted applications go too, once their retention has passed and none of
+    their domains is left; their credentials, origins, webhooks and events
+    cascade from the row. Returns the number of domains removed.
+    """
     now = now or utcnow()
     result = session.execute(
         delete(Domain).where(Domain.deleted_at.is_not(None), Domain.purge_after <= now)
+    )
+    remaining = select(Domain.id).where(Domain.application_id == Application.id).exists()
+    session.execute(
+        delete(Application)
+        .where(
+            Application.deleted_at.is_not(None),
+            Application.purge_after <= now,
+            ~remaining,
+        )
+        .execution_options(synchronize_session=False)
     )
     session.flush()
     return result.rowcount or 0

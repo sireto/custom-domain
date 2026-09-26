@@ -1,7 +1,11 @@
-{% extends "base.html" %}{% block title %}Address not allowed{% endblock %}
-{% block content %}
-<h1>This address may not use the portal</h1>
-<div class="card">
-<p>Requests from <code>{{ address }}</code> are not on the operator allowlist (<code>PORTAL_ALLOWED_IPS</code>). Add the address there and restart the service, or use the SSH tunnel described in the documentation.</p>
-</div>
+{% extends "_auth.html" %}{% block title %}Address not allowed{% endblock %}
+{% block auth %}
+<div class="card"><div class="card-body" style="padding:26px">
+  <h1 style="font-size:19px;margin:0 0 8px">Your address may not open the portal</h1>
+  <p class="muted" style="margin:0 0 14px">Requests from <code>{{ address }}</code> are not on the operator allowlist.</p>
+  <div class="callout">To get in, either:<ol>
+    <li>Add the address to <code>PORTAL_ALLOWED_IPS</code> in the deployment's <code>.env</code> and restart the API and worker, or</li>
+    <li>Use an SSH tunnel: <code>ssh -N -L 9000:127.0.0.1:9000 root@&lt;server&gt;</code>, then open <code>http://localhost:9000/portal</code>.</li>
+  </ol></div>
+</div></div>
 {% endblock %}

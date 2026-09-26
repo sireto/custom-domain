@@ -1,12 +1,19 @@
-{% extends "base.html" %}{% block title %}Sign in{% endblock %}
-{% block content %}
-<h1>Sign in</h1>
-<div class="card" style="max-width:420px">
-<form method="post" action="/portal/login">
-  <input type="hidden" name="next" value="{{ next }}">
-  <label for="password">Operator password (PORTAL_PASSWORD)</label>
-  <input type="password" id="password" name="password" autofocus autocomplete="current-password">
-  <p><button type="submit">Sign in</button></p>
-</form>
+{% extends "_auth.html" %}{% block title %}Sign in{% endblock %}
+{% block auth %}
+<div class="card">
+  <div class="card-body" style="padding:26px 26px 22px">
+    <h1 style="font-size:19px;margin:0 0 4px">Sign in</h1>
+    <p class="muted" style="margin:0 0 20px">Manage applications, customer hostnames and the edge of this deployment.</p>
+    {% if error %}<div class="alert alert-fail"><p>{{ error }}</p></div>{% endif %}
+    <form method="post" action="/portal/login">
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="field">
+        <label for="password">Operator password</label>
+        <input type="password" id="password" name="password" autofocus autocomplete="current-password" required>
+        <div class="hint">The <code>PORTAL_PASSWORD</code> value in the deployment's <code>.env</code> file (<code>/opt/custom-domain/deploy/.env</code> on installer setups).</div>
+      </div>
+      <button type="submit" class="btn-primary" style="width:100%;justify-content:center">Sign in</button>
+    </form>
+  </div>
 </div>
 {% endblock %}
