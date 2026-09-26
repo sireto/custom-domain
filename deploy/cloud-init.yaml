@@ -25,10 +25,10 @@ write_files:
       # Contact for the certificate authority (Let's Encrypt), recommended.
       ACME_EMAIL=ops@example.net
       # The release to install: image tag <version> ...
-      CUSTOM_DOMAIN_VERSION=0.3.0
+      CUSTOM_DOMAIN_VERSION=0.3.1
       # ... and the matching git tag v<version> that install.sh and the
       # Compose file are fetched from. Change both together to upgrade.
-      CUSTOM_DOMAIN_REF=v0.3.0
+      CUSTOM_DOMAIN_REF=v0.3.1
       # Set to 1 when the provider's firewall is used instead of ufw.
       SKIP_FIREWALL=0
 
