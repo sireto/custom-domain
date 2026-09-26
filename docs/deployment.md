@@ -50,6 +50,24 @@ browser's address to every assert subrequest, which would otherwise be taken
 for the client. A reverse proxy in front of the management API therefore
 appears under its own address in the API's logs.
 
+## Images
+
+The service image is published to GitHub Container Registry by the
+`Docker image` workflow (`.github/workflows/docker-image.yml`), authenticated
+with the workflow's own token: `ghcr.io/sireto/custom-domain:latest` and
+`sha-<commit>` for every push to `main`, and `<version>` plus
+`<major>.<minor>` for a release tag `v<version>`. Pin a deployment to a
+version or a `sha-` tag through `CUSTOM_DOMAIN_IMAGE` rather than following
+`latest`. Each published image carries a build provenance attestation;
+`gh attestation verify oci://ghcr.io/sireto/custom-domain:<tag> --owner sireto`
+checks that it was built by this repository's workflow.
+
+The package must be public for hosts to pull it without a token (once, in
+the package's settings on GitHub: change visibility to public, and link it
+to this repository if the `org.opencontainers.image.source` label has not
+done so). Compose does not re-pull an existing tag: run
+`docker compose -f compose.production.yml pull` before `up` to upgrade.
+
 ## Secrets
 
 Copy `deploy/env.production.example` to `deploy/.env` and fill it. Compose

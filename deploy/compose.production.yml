@@ -37,7 +37,7 @@ services:
     networks: [edge_storage]
 
   api:
-    image: ${CUSTOM_DOMAIN_IMAGE:-sireto/custom-domain:latest}
+    image: ${CUSTOM_DOMAIN_IMAGE:-ghcr.io/sireto/custom-domain:latest}
     restart: unless-stopped
     env_file: .env
     environment:
@@ -56,7 +56,7 @@ services:
     # Not published: reach the management API through a host reverse proxy or a VPN.
 
   worker:
-    image: ${CUSTOM_DOMAIN_IMAGE:-sireto/custom-domain:latest}
+    image: ${CUSTOM_DOMAIN_IMAGE:-ghcr.io/sireto/custom-domain:latest}
     restart: unless-stopped
     env_file: .env
     environment:
@@ -69,7 +69,7 @@ services:
     networks: [backend, control]
 
   edge:
-    image: ${CUSTOM_DOMAIN_IMAGE:-sireto/custom-domain:latest}
+    image: ${CUSTOM_DOMAIN_IMAGE:-ghcr.io/sireto/custom-domain:latest}
     restart: unless-stopped
     env_file: .env
     environment:
