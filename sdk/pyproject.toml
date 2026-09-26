@@ -1,6 +1,6 @@
 [project]
 name = "custom-domain-sdk"
-version = "0.4.0"
+version = "0.4.1"
 description = "Client, assertion verification and middleware for the Custom Domain API."
 readme = "README.md"
 requires-python = ">=3.10"
