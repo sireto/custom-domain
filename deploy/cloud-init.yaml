@@ -1,0 +1,35 @@
+#cloud-config
+# Custom Domain on a fresh cloud server (Ubuntu 22.04/24.04 or Debian 12).
+# Paste this as the server's user data ("cloud config" on Hetzner Cloud,
+# "user data" on DigitalOcean), after editing the values under write_files.
+# It downloads deploy/install.sh from this repository at CUSTOM_DOMAIN_REF
+# and runs it: Docker, the production Compose layout, generated secrets,
+# the firewall, and a `custom-domain` command on the host. Progress and the
+# final summary are in /var/log/custom-domain-install.log.
+# Walkthroughs: docs/hosting-hetzner.md, docs/hosting-digitalocean.md.
+package_update: true
+package_upgrade: false
+packages:
+  - ca-certificates
+  - curl
+  - ufw
+
+write_files:
+  - path: /etc/custom-domain-install.env
+    permissions: "0600"
+    content: |
+      # Contact for the certificate authority (Let's Encrypt), recommended.
+      ACME_EMAIL=ops@example.net
+      # Image tag to run. Pin a version (for example 0.2.0 or sha-dd2127f)
+      # for production; "latest" follows main.
+      CUSTOM_DOMAIN_VERSION=latest
+      # Git ref install.sh and the Compose file are fetched from.
+      CUSTOM_DOMAIN_REF=main
+      # Set to 1 when the provider's firewall is used instead of ufw.
+      SKIP_FIREWALL=0
+
+runcmd:
+  - [sh, -c, ". /etc/custom-domain-install.env && curl -fsSL \"https://raw.githubusercontent.com/sireto/custom-domain/${CUSTOM_DOMAIN_REF:-main}/deploy/install.sh\" -o /root/custom-domain-install.sh"]
+  - [sh, -c, "bash /root/custom-domain-install.sh >/var/log/custom-domain-install.log 2>&1"]
+
+final_message: "Custom Domain installed after $UPTIME seconds; see /var/log/custom-domain-install.log"

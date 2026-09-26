@@ -399,3 +399,85 @@ def test_cli_dev_demo_onboards_the_sample_application(cli_env, capsys, monkeypat
         alpha = find_live_by_hostname(s, "alpha.sample.localtest.me")
         assert alpha.application_id == acme.id
         assert alpha.status == DomainStatus.PROVISIONING
+
+
+def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
+    """Offline: the network checks are answered by fakes through the service layer."""
+    from app.dns.settings import DnsSettings
+    from app.edge.settings import EdgeSettings
+    from app.services import doctor as doctor_module
+    from app.services.applications import (
+        activate_origin,
+        create_application,
+        record_origin_verification,
+        register_origin,
+    )
+
+    reached: list[str] = []
+
+    def fake_http_get(url):
+        reached.append(url)
+        if url.endswith("/config/apps"):
+            return 200, {}
+        if url == doctor_module.ACME_DIRECTORY:
+            return 200, {}
+        if url.startswith("http://edge.acme.example/"):
+            return 308, {"Location": "https://edge.acme.example/.well-known/x"}
+        if url.startswith("http://edge.globex.example/"):
+            return 200, {}
+        raise OSError("unreachable")
+
+    def fake_resolve(host):
+        if host == "edge.nowhere.example":
+            raise OSError("NXDOMAIN")
+        return ["203.0.113.10"]
+
+    settings = EdgeSettings(
+        reconcile_enabled=True,
+        legacy_api_enabled=False,
+        edge_token="x" * 40,
+        assertion_keys=(("1", "k" * 40),),
+    )
+    factory = cli.get_session_factory()
+
+    # Fresh database: nothing to report but the missing application and reconciler.
+    findings = doctor_module.run_doctor(
+        factory, settings, DnsSettings(), http_get=fake_http_get, resolve=fake_resolve
+    )
+    by_check = {f.check: f for f in findings}
+    assert by_check["database"].ok and by_check["migrations"].ok
+    assert by_check["edge gateway"].ok and by_check["acme"].ok and by_check["edge token"].ok
+    assert by_check["reconciler"].status == "warn"
+    assert by_check["applications"].status == "warn"
+
+    with factory() as s:
+        acme = create_application(s, slug="acme", name="Acme", cname_target="edge.acme.example")
+        origin = register_origin(s, acme, host="app.acme.example")
+        record_origin_verification(s, origin, verified=True)
+        activate_origin(s, origin)
+        create_application(s, slug="globex", name="Globex", cname_target="edge.globex.example")
+        create_application(s, slug="nowhere", name="Nowhere", cname_target="edge.nowhere.example")
+        s.commit()
+    findings = doctor_module.run_doctor(
+        factory, settings, DnsSettings(), http_get=fake_http_get, resolve=fake_resolve
+    )
+    by_check = {f.check: f for f in findings}
+    assert by_check["application acme"].ok
+    assert by_check["cname target edge.acme.example"].ok
+    assert by_check["application globex"].status == "warn"  # no origin
+    assert by_check["cname target edge.globex.example"].status == "warn"  # another server
+    assert by_check["cname target edge.nowhere.example"].status == "fail"
+    assert doctor_module.summarize(findings)[2] == 1
+
+    # The command prints the table and fails when a check fails; with the
+    # edge gateway unreachable (no edge here) it reports that as a failure.
+    monkeypatch.setenv("ENABLE_LEGACY_API", "false")
+    monkeypatch.setenv("EDGE_ASSERTION_KEYS", "1:" + "k" * 40)
+    monkeypatch.setenv("CADDY_ADMIN_URL", "http://127.0.0.1:9")
+    monkeypatch.setattr(
+        doctor_module, "_http_get", lambda url: (_ for _ in ()).throw(OSError("down"))
+    )
+    monkeypatch.setattr(doctor_module, "_resolve", fake_resolve)
+    assert _run("doctor") == 1
+    out = capsys.readouterr().out
+    assert "FAIL  edge gateway" in out and "failure(s)" in out
