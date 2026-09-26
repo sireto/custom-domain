@@ -431,16 +431,39 @@ def _cname_target_findings(
     scheme = "http" if settings.disable_https else "https"
     url = f"{scheme}://{target}{port}{HEALTH_PATH}"
     problems: list[str] = []
+    unverifiable: list[str] = []
+    reached: list[str] = []
     for address in addresses:
         try:
             status, marker = probe_target(target, address, settings)
         except Exception as exc:
-            problems.append(f"{address}: {type(exc).__name__}: {exc}")
+            if _unverifiable_from_here(address, exc):
+                # Docker networks carry no IPv6 by default, so an IPv6 address
+                # this container cannot route to says nothing about the edge.
+                # An unroutable IPv4 address is a real failure.
+                unverifiable.append(address)
+            else:
+                problems.append(f"{address}: {type(exc).__name__}: {exc}")
             continue
-        if not (status == 204 and marker == EDGE_HEALTH_VALUE):
+        if status == 204 and marker == EDGE_HEALTH_VALUE:
+            reached.append(address)
+        else:
             problems.append(f"{address}: HTTP {status} without this edge's marker")
-    if not problems:
+    if not problems and not unverifiable:
         return [Finding(check, "ok", f"{', '.join(addresses)} all answer {url} as this edge")]
+    if not problems:
+        return [
+            Finding(
+                check,
+                "warn",
+                f"{', '.join(reached)} answer {url} as this edge; the IPv6 address(es) "
+                f"{', '.join(unverifiable)} could not be checked from this container (no "
+                "IPv6 route here, which is normal inside Docker). Verify from outside: "
+                f"curl -6 -I {url}",
+            )
+        ]
+    if unverifiable:
+        problems.append(f"{', '.join(unverifiable)}: not checkable from this container")
     return [
         Finding(
             check,
@@ -451,6 +474,36 @@ def _cname_target_findings(
             "if it keeps failing",
         )
     ]
+
+
+def _unverifiable_from_here(address: str, exc: BaseException) -> bool:
+    """An IPv6 address this container has no route to: the one case that is
+    an environment fact rather than a verdict on the edge."""
+    import ipaddress
+
+    try:
+        if ipaddress.ip_address(address).version != 6:
+            return False
+    except ValueError:
+        return False
+    return _no_route(exc)
+
+
+def _no_route(exc: BaseException) -> bool:
+    """Whether a probe failed because this host has no route to the address at all."""
+    import errno
+
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, OSError) and current.errno in (
+            errno.ENETUNREACH,
+            errno.EHOSTUNREACH,
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    return "Network is unreachable" in str(exc) or "No route to host" in str(exc)
 
 
 def summarize(findings: list[Finding]) -> tuple[int, int, int]:

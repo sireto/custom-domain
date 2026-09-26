@@ -404,6 +404,7 @@ def test_cli_dev_demo_onboards_the_sample_application(cli_env, capsys, monkeypat
 def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
     """Offline: the network checks are answered by fakes through the service layer."""
     from app.dns.settings import DnsSettings
+    from app.edge.probe import EdgeProbeFailed
     from app.edge.settings import EdgeSettings
     from app.services import doctor as doctor_module
     from app.services.applications import (
@@ -471,6 +472,71 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
     )
     by_check = {f.check: f for f in findings}
     assert by_check["edge hostname edge.acme.example"].ok
+
+    # An address family this container cannot route to (IPv6 inside Docker) is
+    # reported as unverifiable, not as a failure of the edge.
+    def probe_no_v6(hostname, address, settings):
+        if ":" in address:
+            raise EdgeProbeFailed(
+                "connection_failed",
+                f"Cannot connect to {address}: [Errno 101] Network is unreachable",
+            )
+        return 204, "1"
+
+    findings = doctor_module.run_doctor(
+        factory,
+        named,
+        DnsSettings(),
+        http_get=fake_http_get,
+        resolve=fake_resolve,
+        probe_target=probe_no_v6,
+    )
+    by_check = {f.check: f for f in findings}
+    hostname_check = by_check["edge hostname edge.acme.example"]
+    assert hostname_check.status == "warn" and "could not be checked" in hostname_check.detail
+    assert "curl -6" in hostname_check.detail
+
+    # But an IPv4 failure alongside an unroutable IPv6 is still a failure, and
+    # the unroutable IPv6 is named as not checkable rather than blamed.
+    def probe_v4_broken(hostname, address, settings):
+        if ":" in address:
+            raise EdgeProbeFailed("connection_failed", "[Errno 101] Network is unreachable")
+        return 404, None
+
+    findings = doctor_module.run_doctor(
+        factory,
+        named,
+        DnsSettings(),
+        http_get=fake_http_get,
+        resolve=fake_resolve,
+        probe_target=probe_v4_broken,
+    )
+    by_check = {f.check: f for f in findings}
+    mixed = by_check["edge hostname edge.acme.example"]
+    assert mixed.status == "fail" and "not checkable from this container" in mixed.detail
+
+    # An unroutable IPv4 address is a genuine failure: only IPv6 gets the
+    # inside-Docker allowance, so an A-only target with no route fails.
+    def probe_v4_unroutable(hostname, address, settings):
+        raise EdgeProbeFailed(
+            "connection_failed", f"Cannot connect to {address}: [Errno 101] Network is unreachable"
+        )
+
+    def resolve_v4_only(host, dns_settings):
+        return ["93.184.216.34"]
+
+    findings = doctor_module.run_doctor(
+        factory,
+        named,
+        DnsSettings(),
+        http_get=fake_http_get,
+        resolve=resolve_v4_only,
+        probe_target=probe_v4_unroutable,
+    )
+    by_check = {f.check: f for f in findings}
+    v4_only = by_check["edge hostname edge.acme.example"]
+    assert v4_only.status == "fail" and "Network is unreachable" in v4_only.detail
+    assert "could not be checked" not in v4_only.detail and "curl -6" not in v4_only.detail
 
     with factory() as s:
         acme = create_application(s, slug="acme", name="Acme", cname_target="edge.acme.example")
