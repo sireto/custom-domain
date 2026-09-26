@@ -133,6 +133,21 @@ Upgrading by editing the image tag alone is not enough and is no longer
 documented: running the new image with an old Compose file is exactly the
 failure the installer's stop prevents.
 
+Installations made before 0.4.0 have a host command without `upgrade`
+(`custom-domain upgrade` then fails with the CLI's `invalid choice`). Run the
+installer directly once, which rewrites the host command:
+
+```
+curl -fsSL https://raw.githubusercontent.com/sireto/custom-domain/0.4.1/deploy/install.sh -o /root/custom-domain-install.sh
+CUSTOM_DOMAIN_VERSION=0.4.1 bash /root/custom-domain-install.sh
+```
+
+Such an installation has no recorded Compose checksum, so unless its
+Compose file already equals the release's, this first run stops for the
+merge described above; after merging, continue with
+`CUSTOM_DOMAIN_ACCEPT_COMPOSE=1` in front of the same command. Later
+upgrades are `custom-domain upgrade <version>`.
+
 ## Images
 
 The service image is published to GitHub Container Registry by the
