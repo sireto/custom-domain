@@ -431,16 +431,38 @@ def _cname_target_findings(
     scheme = "http" if settings.disable_https else "https"
     url = f"{scheme}://{target}{port}{HEALTH_PATH}"
     problems: list[str] = []
+    unverifiable: list[str] = []
+    reached: list[str] = []
     for address in addresses:
         try:
             status, marker = probe_target(target, address, settings)
         except Exception as exc:
-            problems.append(f"{address}: {type(exc).__name__}: {exc}")
+            if _no_route(exc):
+                # This container has no route to that address family (Docker
+                # networks carry no IPv6 by default): not a verdict on the edge.
+                unverifiable.append(address)
+            else:
+                problems.append(f"{address}: {type(exc).__name__}: {exc}")
             continue
-        if not (status == 204 and marker == EDGE_HEALTH_VALUE):
+        if status == 204 and marker == EDGE_HEALTH_VALUE:
+            reached.append(address)
+        else:
             problems.append(f"{address}: HTTP {status} without this edge's marker")
-    if not problems:
+    if not problems and not unverifiable:
         return [Finding(check, "ok", f"{', '.join(addresses)} all answer {url} as this edge")]
+    if not problems:
+        return [
+            Finding(
+                check,
+                "warn",
+                f"{', '.join(reached)} answer {url} as this edge; {', '.join(unverifiable)} "
+                "could not be checked from this container (no route to that address "
+                "family here, which is normal for IPv6 inside Docker). Verify from outside: "
+                f"curl -6 -I {url}",
+            )
+        ]
+    if unverifiable:
+        problems.append(f"{', '.join(unverifiable)}: not checkable from this container")
     return [
         Finding(
             check,
@@ -451,6 +473,23 @@ def _cname_target_findings(
             "if it keeps failing",
         )
     ]
+
+
+def _no_route(exc: BaseException) -> bool:
+    """Whether a probe failed because this host has no route to the address at all."""
+    import errno
+
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, OSError) and current.errno in (
+            errno.ENETUNREACH,
+            errno.EHOSTUNREACH,
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    return "Network is unreachable" in str(exc) or "No route to host" in str(exc)
 
 
 def summarize(findings: list[Finding]) -> tuple[int, int, int]:
