@@ -1,16 +1,55 @@
-{% extends "base.html" %}{% block title %}Edge{% endblock %}
+{% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Edge &amp; DNS{% endblock %}
 {% block content %}
-<h1>Edge</h1>
-<div class="grid">
-<div class="card"><h2 style="margin-top:0">Desired configuration</h2>
-<p>{{ summary.routes }} application route(s), {{ hostnames|length }} hostname(s) routed{% if not settings.disable_https %}, on-demand certificates via <code>{{ settings.tls_issuer }}</code>{% else %}, <span class="warn">HTTPS disabled</span>{% endif %}.</p>
-<p class="muted">Caddy admin: <code>{{ settings.admin_url }}</code> · assert upstream: <code>{{ settings.assert_upstream }}</code></p>
-<form method="post" action="/portal/edge/reconcile"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">Reconcile now</button>
-<span class="muted"> {% if in_process %}the reconciler in this process also runs every {{ settings.reconcile_interval|int }}s{% else %}runs the reconciler once from this process; the worker container runs it continuously{% endif %}</span></form>
-{% if last_result %}<p>Last result in this process: {{ 'applied' if last_result.changed else (last_result.error or 'unchanged') }} at {{ last_result.at.strftime('%Y-%m-%d %H:%M:%S') }} UTC{% if last_result.detail %} <span class="muted">({{ last_result.detail }})</span>{% endif %}</p>{% endif %}
+<div class="page-head">
+  <div><h1>Edge &amp; DNS</h1><p>The names this edge answers for, whether their DNS is in place, and the routing it serves.</p></div>
+  <div class="actions"><a class="btn" href="/portal/edge?verify=1">Verify reachability</a>{{ ui.post('/portal/edge/reconcile', csrf, 'Apply configuration now', 'btn-primary') }}</div>
 </div>
-<div class="card"><h2 style="margin-top:0">Routed hostnames</h2>
-{% if hostnames %}<ul>{% for h in hostnames %}<li><code>{{ h }}</code></li>{% endfor %}</ul>{% else %}<p class="muted">None: no domain is routable yet.</p>{% endif %}
+
+<div class="card">
+  <div class="card-head"><div><h2>DNS records to create</h2><p>Each name below must have A (IPv4) and AAAA (IPv6) records pointing at this server's public addresses, in your own DNS. Customers' CNAMEs lead to these names.</p></div></div>
+  {% if names %}
+  <div class="table-wrap"><table>
+    <tr><th>Name</th><th>Used as</th><th>Public DNS now</th><th>Status</th></tr>
+    {% for n in names %}<tr>
+      <td><code style="font-weight:600">{{ n.name }}</code></td>
+      <td class="small">{% for r in n.roles %}<div>{{ r }}</div>{% endfor %}</td>
+      <td class="small">{% if n.addresses %}{% if n.ipv4 %}<div><span class="tag">A</span> {% for a in n.ipv4 %}<code>{{ a }}</code>{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}{% if n.ipv6 %}<div style="margin-top:4px"><span class="tag">AAAA</span> {% for a in n.ipv6 %}<code>{{ a }}</code>{{ ', ' if not loop.last }}{% endfor %}</div>{% else %}<div class="muted" style="margin-top:4px">no AAAA record</div>{% endif %}{% else %}<span class="muted">{{ n.error or 'no A or AAAA record' }}</span>{% endif %}</td>
+      <td>{{ ui.badge(n.state) }}{% if n.reachability and not n.reachability.ok %}<div class="small muted" style="margin-top:6px;max-width:380px">{{ n.reachability.detail }}</div>{% endif %}</td>
+    </tr>{% endfor %}
+  </table></div>
+  <div class="card-foot small muted">{% if verified %}Reachability checked just now: each address was asked for this edge's health check over {{ 'HTTP' if settings.disable_https else 'HTTPS' }}, exactly as a customer's browser would connect.{% else %}Public DNS was looked up just now. <b>Verify reachability</b> also connects to every address to confirm it is this edge (a few seconds per name).{% endif %} IPv6 cannot be checked from inside Docker; test it from outside with <code>curl -6 -I https://&lt;name&gt;/.well-known/custom-domain-edge-health</code>.</div>
+  {% else %}
+  {{ ui.empty('No names yet', 'Set EDGE_HOSTNAME to give the edge a name of its own, or create an application with a CNAME target.', 'server') }}
+  {% endif %}
 </div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><div><h2>Routing</h2><p>Derived from the database and applied by the reconciler.</p></div></div>
+    <div class="card-body"><dl class="kv">
+      <dt>Hostnames served</dt><dd><b>{{ hostnames|length }}</b> <span class="muted">(live customer hostnames plus the edge names)</span></dd>
+      <dt>Application routes</dt><dd>{{ summary.routes }}</dd>
+      <dt>Certificates</dt><dd>{% if settings.disable_https %}<span class="badge t-warn">HTTPS disabled</span>{% else %}On demand from {{ "Let's Encrypt" if settings.tls_issuer == 'acme' else 'the internal test CA' }}{% endif %}</dd>
+      <dt>Last applied</dt><dd>{% if lock and lock.locked_at %}{{ ui.when(lock.locked_at) }} <span class="muted small">by {{ lock.holder }}</span>{% else %}<span class="muted">not yet</span>{% endif %}</dd>
+      {% if last_result %}<dt>Result here</dt><dd>{% if last_result.error %}<span class="badge t-fail">{{ last_result.error }}</span> <span class="small muted">{{ last_result.detail or '' }}</span>{% else %}<span class="badge t-ok">{{ 'Applied' if last_result.changed else 'Up to date' }}</span>{% endif %}</dd>{% endif %}
+    </dl></div>
+    <div class="card-foot small muted">{% if in_process %}This process reconciles every {{ settings.reconcile_interval|int }} seconds.{% else %}The worker container reconciles continuously; <b>Apply configuration now</b> runs it once from here.{% endif %}</div>
+  </div>
+  <div class="card">
+    <div class="card-head"><div><h2>Configuration</h2><p>From the deployment's environment. Change it in <code>.env</code> and restart.</p></div></div>
+    <div class="card-body"><dl class="kv">
+      <dt>Edge's own name</dt><dd>{% if settings.edge_hostname %}<code>{{ settings.edge_hostname }}</code>{% else %}<span class="muted">not set</span> <code>EDGE_HOSTNAME</code>{% endif %}</dd>
+      <dt>Portal via the edge</dt><dd>{% if settings.portal_allowed_ips %}{% for r in settings.portal_allowed_ips %}<code>{{ r }}</code>{{ ', ' if not loop.last }}{% endfor %}{% else %}<span class="muted">off (SSH tunnel only)</span> <code>PORTAL_ALLOWED_IPS</code>{% endif %}</dd>
+      <dt>Caddy admin</dt><dd><code>{{ settings.admin_url }}</code></dd>
+      <dt>Assertion upstream</dt><dd><code>{{ settings.assert_upstream }}</code></dd>
+    </dl></div>
+  </div>
 </div>
+
+{% if hostnames %}
+<div class="card">
+  <div class="card-head"><div><h2>Served hostnames</h2></div></div>
+  <div class="card-body" style="columns:3 240px;column-gap:24px">{% for h in hostnames %}<div><code>{{ h }}</code></div>{% endfor %}</div>
+</div>
+{% endif %}
 {% endblock %}

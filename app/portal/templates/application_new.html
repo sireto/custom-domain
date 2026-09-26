@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% block title %}New application{% endblock %}
+{% block crumbs %}<a href="/portal/applications">Applications</a><span class="crumb-sep">/</span><span class="current">New application</span>{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>New application</h1><p>One application per product. You connect its backend and issue its API keys next.</p></div></div>
+<div class="card" style="max-width:720px">
+<form method="post" action="/portal/applications"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="card-body">
+    <div class="field"><label for="name">Name</label>
+      <input type="text" id="name" name="name" required maxlength="200" value="{{ form.name if form and form.name else '' }}" placeholder="Acme Forms">
+      <div class="hint">Shown in this portal only.</div></div>
+    <div class="field"><label for="slug">Slug</label>
+      <input type="text" id="slug" name="slug" required maxlength="64" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" value="{{ form.slug if form and form.slug else '' }}" placeholder="acme">
+      <div class="hint">Lowercase letters, digits and hyphens. The stable identifier used by the command line and in URLs; it cannot be changed later.</div></div>
+    <div class="field"><label for="cname_target">CNAME target</label>
+      <input type="text" id="cname_target" name="cname_target" required value="{{ form.cname_target if form else '' }}" placeholder="edge.example.net">
+      <div class="hint">The hostname customers point their CNAME record at. It must resolve to this server's public addresses.{% if edge_hostname %} Defaults to this edge's own name, <code>{{ edge_hostname }}</code>; use a different name only to brand it per product (for example <code>domains.acme.example</code>).{% endif %}</div></div>
+  </div>
+  <div class="card-foot actions" style="justify-content:flex-end"><a class="btn" href="/portal/applications">Cancel</a><button type="submit" class="btn-primary">Create application</button></div>
+</form>
+</div>
+{% endblock %}

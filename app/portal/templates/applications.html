@@ -1,21 +1,25 @@
-{% extends "base.html" %}{% block title %}Applications{% endblock %}
+{% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Applications{% endblock %}
 {% block content %}
-<h1>Applications</h1>
-<div class="card">
-<table><tr><th>Slug</th><th>Name</th><th>Status</th><th>CNAME target</th><th>Workspace probe</th></tr>
-{% for a in applications %}<tr><td><a href="/portal/applications/{{ a.slug }}">{{ a.slug }}</a></td><td>{{ a.name }}</td><td>{{ a.status.value }}</td><td><code>{{ a.cname_target }}</code></td><td>{{ 'required' if a.workspace_probe_enabled else 'not required' }}</td></tr>
-{% else %}<tr><td colspan="5" class="muted">No applications yet.</td></tr>{% endfor %}
-</table>
+<div class="page-head">
+  <div><h1>Applications</h1><p>Each application is one product whose customers bring their own hostnames. It has its own backend, API keys and CNAME target.</p></div>
+  <div class="actions"><a class="btn btn-primary" href="/portal/new-application">New application</a></div>
 </div>
-<h2>Create an application</h2>
 <div class="card">
-<form method="post" action="/portal/applications"><input type="hidden" name="csrf" value="{{ csrf }}">
-  <div class="row">
-    <div><label for="slug">Slug</label><input type="text" id="slug" name="slug" required value="{{ form.slug if form else '' }}" placeholder="acme"></div>
-    <div><label for="name">Name</label><input type="text" id="name" name="name" required value="{{ form.name if form else '' }}" placeholder="Acme"></div>
-    <div><label for="cname_target">CNAME target (the edge name customers point at)</label><input type="text" id="cname_target" name="cname_target" required value="{{ form.cname_target if form else (edge_hostname or '') }}" placeholder="edge.example.net"></div>
-    <div class="fixed"><button type="submit">Create</button></div>
-  </div>
-</form>
+{% if applications %}
+  <div class="table-wrap"><table>
+    <tr><th>Application</th><th>Status</th><th>Origin</th><th>CNAME target</th><th class="num">Live</th><th class="num">Waiting</th><th class="num">Attention</th></tr>
+    {% for a in applications %}{% set c = per_app.get(a.id, {}) %}<tr>
+      <td><a class="row-link" href="/portal/applications/{{ a.slug }}">{{ a.name }}</a><div class="muted small">{{ a.slug }}</div></td>
+      <td>{{ ui.badge(p.application_state(a)) }}</td>
+      <td>{% if a.serving_origin %}<code>{{ a.serving_origin.host }}</code>{% else %}<a class="badge t-warn" href="/portal/applications/{{ a.slug }}/origins">Not connected</a>{% endif %}</td>
+      <td><code>{{ a.cname_target }}</code></td>
+      <td class="num">{{ c.get(DomainStatus.READY, 0) }}</td>
+      <td class="num">{{ c.get(DomainStatus.PENDING_DNS, 0) + c.get(DomainStatus.PROVISIONING, 0) }}</td>
+      <td class="num">{% set n = c.get(DomainStatus.ATTENTION_REQUIRED, 0) + c.get(DomainStatus.SUSPENDED, 0) %}{% if n %}<a href="/portal/applications/{{ a.slug }}/domains?status=attention_required" style="color:var(--fail);font-weight:600">{{ n }}</a>{% else %}0{% endif %}</td>
+    </tr>{% endfor %}
+  </table></div>
+{% else %}
+  {% call ui.empty('No applications yet', 'Create one for each product that lets its customers use their own domain.', 'globe') %}<a class="btn btn-primary" href="/portal/new-application">New application</a>{% endcall %}
+{% endif %}
 </div>
 {% endblock %}

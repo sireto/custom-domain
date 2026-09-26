@@ -1,0 +1,67 @@
+{% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Settings · {{ application.name }}{% endblock %}
+{% block crumbs %}{{ ui.app_crumbs(application, 'Settings') }}{% endblock %}
+{% block content %}
+{{ ui.app_head(application, app_state) }}
+{{ ui.app_tabs(application, 'settings', tab_counts) }}
+{% set base = '/portal/applications/' ~ application.slug %}
+
+<div class="card">
+  <div class="card-head"><div><h2>General</h2></div></div>
+  <form method="post" action="{{ base }}/name"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="card-body form-row">
+      <div class="grow"><label for="name">Name</label><input type="text" id="name" name="name" required maxlength="200" value="{{ application.name }}"></div>
+      <div class="grow"><label for="slug">Slug</label><input type="text" id="slug" value="{{ application.slug }}" readonly><div class="hint">The stable identifier; it cannot be changed.</div></div>
+    </div>
+    <div class="card-foot actions" style="justify-content:flex-end"><button type="submit" class="btn-primary">Save name</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-head"><div><h2>CNAME target</h2><p>The name new hostnames tell customers to point their CNAME at. It must resolve to this server.</p></div></div>
+  <form method="post" action="{{ base }}/cname-target"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="card-body">
+      <div class="field"><label for="cname_target">CNAME target</label><input type="text" id="cname_target" name="cname_target" required value="{{ application.cname_target }}"></div>
+      <label class="check"><input type="checkbox" name="reissue_claims" value="true"><span>Also move existing hostnames to the new target. Each gets new DNS records and is not served until its customer publishes them. Leave unticked to keep existing hostnames on the target they were given.</span></label>
+      {% if edge_names|length > 1 %}<div class="callout" style="margin-top:12px">Existing hostnames still point at: {% for n in edge_names if n != application.cname_target %}<code>{{ n }}</code>{{ ', ' if not loop.last }}{% endfor %}. The edge keeps serving and certifying those names until no live hostname uses them.</div>{% endif %}
+    </div>
+    <div class="card-foot actions" style="justify-content:flex-end"><button type="submit" class="btn-primary">Save target</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-head"><div><h2>Readiness</h2><p>Whether a hostname goes live only after your backend confirms it serves the right workspace.</p></div></div>
+  <form method="post" action="{{ base }}/workspace-probe"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="card-body">
+      <label class="check"><input type="radio" name="enabled" value="true" {{ 'checked' if application.workspace_probe_enabled }}><span><b>Require the workspace check</b> (recommended). The origin must answer <code>/.well-known/custom-domain-workspace</code> with the workspace of each hostname; the SDK middleware does this.</span></label>
+      <label class="check"><input type="radio" name="enabled" value="false" {{ 'checked' if not application.workspace_probe_enabled }}><span><b>Do not require it.</b> Only for backends that cannot implement the check; a hostname then goes live once DNS, the certificate and a verified origin are in place.</span></label>
+    </div>
+    <div class="card-foot actions" style="justify-content:flex-end"><button type="submit" class="btn-primary">Save</button></div>
+  </form>
+</div>
+
+<div class="card danger-zone">
+  <div class="card-head"><div><h2 style="color:var(--fail)">Danger zone</h2></div></div>
+  <div class="danger-row">
+    {% if application.status.value == 'active' %}
+    <div><h3>Suspend application</h3><p>Stops serving all of its hostnames and refuses its API keys, without deleting anything. You can resume at any time.</p></div>
+    {{ ui.confirm(base ~ '/status', csrf, 'Suspend', 'All ' ~ tab_counts.domains ~ ' hostname(s) of ' ~ application.name ~ ' stop being served now, and its API keys are refused.', 'Suspend application', small=false, fields={'status': 'suspended'}) }}
+    {% else %}
+    <div><h3>Resume application</h3><p>Its hostnames are served again as soon as their checks pass, and its API keys work again.</p></div>
+    {{ ui.post(base ~ '/status', csrf, 'Resume', 'btn-primary', {'status': 'active'}) }}
+    {% endif %}
+  </div>
+  <div class="danger-row" style="align-items:flex-start">
+    <div><h3>Delete application</h3><p>Permanently deletes {{ application.name }} with its origins, API keys, webhooks and every hostname{% if live_domains %} (<b>{{ live_domains }} still registered</b>){% endif %}. The edge stops serving them within a minute. This cannot be undone.</p></div>
+    <details class="confirm"><summary class="btn btn-danger-ghost">Delete application</summary>
+      <div class="confirm-pop" style="width:360px">
+        <form method="post" action="{{ base }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <p>Type <b>{{ application.slug }}</b> to confirm.</p>
+          <div class="field"><input type="text" name="confirm" required autocomplete="off" placeholder="{{ application.slug }}"></div>
+          {% if live_domains %}<label class="check"><input type="checkbox" name="delete_domains" value="true" required><span>Also delete its {{ live_domains }} hostname(s). Their customers' sites stop working.</span></label>{% endif %}
+          <button type="submit" class="btn-danger">Delete permanently</button>
+        </form>
+      </div>
+    </details>
+  </div>
+</div>
+{% endblock %}

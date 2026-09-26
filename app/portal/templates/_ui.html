@@ -1,0 +1,70 @@
+{# Shared building blocks. No JavaScript: confirmations use <details>, copying uses user-select:all. #}
+
+{% macro badge(state) -%}
+<span class="badge t-{{ state.tone }}"{% if state.help %} title="{{ state.help }}"{% endif %}>{{ state.label }}</span>
+{%- endmacro %}
+
+{% macro dot(state, title='') -%}
+<span class="dot t-{{ state.tone }}" title="{{ title }}{{ ': ' if title }}{{ state.label }}"></span>
+{%- endmacro %}
+
+{% macro copy(value) -%}
+<span class="copy" title="Click to select, then copy">{{ value }}</span>
+{%- endmacro %}
+
+{% macro when(value, fallback='—') -%}
+{% if value %}<span class="nowrap" title="{{ value.strftime('%Y-%m-%d %H:%M:%S') }} UTC">{{ value.strftime('%b %d, %H:%M') }}</span>{% else %}<span class="muted">{{ fallback }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro empty(title, text, icon='plus') -%}
+<div class="empty">
+  <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{% if icon == 'globe' %}<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>{% elif icon == 'key' %}<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3M17 6l3 3M15 8l2 2"/>{% elif icon == 'server' %}<rect x="2" y="3" width="20" height="7" rx="1.5"/><rect x="2" y="14" width="20" height="7" rx="1.5"/>{% elif icon == 'bell' %}<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/>{% else %}<path d="M12 5v14M5 12h14"/>{% endif %}</svg></div>
+  <h3>{{ title }}</h3>
+  <p>{{ text }}</p>
+  {{ caller() if caller }}
+</div>
+{%- endmacro %}
+
+{# A destructive or consequential action behind a second click. #}
+{% macro confirm(action, csrf, label, text, button='Confirm', danger=true, small=true, fields={}) -%}
+<details class="confirm">
+  <summary class="btn {{ 'btn-sm' if small }} {{ 'btn-danger-ghost' if danger }}">{{ label }}</summary>
+  <div class="confirm-pop">
+    <p>{{ text }}</p>
+    <form method="post" action="{{ action }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+      {% for k, v in fields.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+      <button type="submit" class="btn-sm {{ 'btn-danger' if danger else 'btn-primary' }}">{{ button }}</button>
+    </form>
+  </div>
+</details>
+{%- endmacro %}
+
+{% macro post(action, csrf, label, cls='btn-sm', fields={}) -%}
+<form class="inline" method="post" action="{{ action }}"><input type="hidden" name="csrf" value="{{ csrf }}">{% for k, v in fields.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<button type="submit" class="{{ cls }}">{{ label }}</button></form>
+{%- endmacro %}
+
+{% macro app_tabs(application, active, counts={}) -%}
+{% set base = '/portal/applications/' ~ application.slug %}
+<nav class="tabs">
+  <a href="{{ base }}" class="{{ 'active' if active == 'overview' }}">Overview</a>
+  <a href="{{ base }}/domains" class="{{ 'active' if active == 'domains' }}">Domains{% if counts.domains is defined %}<span class="count">{{ counts.domains }}</span>{% endif %}</a>
+  <a href="{{ base }}/origins" class="{{ 'active' if active == 'origins' }}">Origins</a>
+  <a href="{{ base }}/credentials" class="{{ 'active' if active == 'credentials' }}">API keys</a>
+  <a href="{{ base }}/webhooks" class="{{ 'active' if active == 'webhooks' }}">Webhooks</a>
+  <a href="{{ base }}/settings" class="{{ 'active' if active == 'settings' }}">Settings</a>
+</nav>
+{%- endmacro %}
+
+{% macro app_head(application, app_state, subtitle='') -%}
+<div class="page-head">
+  <div>
+    <h1>{{ application.name }} <span class="tag">{{ application.slug }}</span> {{ badge(app_state) }}</h1>
+    <p>{{ subtitle or ('Customers point their hostnames at ' ~ application.cname_target ~ ' with a CNAME record.') }}</p>
+  </div>
+  {{ caller() if caller }}
+</div>
+{%- endmacro %}
+
+{% macro app_crumbs(application, page='') -%}
+<a href="/portal/applications">Applications</a><span class="crumb-sep">/</span>{% if page %}<a href="/portal/applications/{{ application.slug }}">{{ application.name }}</a><span class="crumb-sep">/</span><span class="current">{{ page }}</span>{% else %}<span class="current">{{ application.name }}</span>{% endif %}
+{%- endmacro %}

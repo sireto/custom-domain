@@ -541,6 +541,18 @@ def _cname_target_findings(
     ]
 
 
+def check_edge_name(
+    name: str,
+    settings: EdgeSettings,
+    dns_settings: DnsSettings,
+    *,
+    resolve: Resolve = _resolve,
+    probe_target: ProbeTarget = _probe_target,
+) -> Finding:
+    """The doctor's check for one of the edge's names: public DNS, then each address."""
+    return _cname_target_findings(None, name, settings, dns_settings, resolve, probe_target)[0]
+
+
 def _unverifiable_from_here(address: str, exc: BaseException) -> bool:
     """An IPv6 address this container has no route to: the one case that is
     an environment fact rather than a verdict on the edge."""

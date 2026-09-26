@@ -16,8 +16,8 @@ from app.services.domains import find_live_by_hostname, get_domain
 PASSWORD = "correct-horse-battery-staple"
 
 
-@pytest.fixture
-def client(session_factory, monkeypatch):
+def make_portal_client(session_factory, monkeypatch):
+    """A signed-out test client for the portal, with DNS answered locally."""
     from app.db.session import get_session
     from app.main import create_app
 
@@ -27,6 +27,9 @@ def client(session_factory, monkeypatch):
     monkeypatch.setenv("PORTAL_PASSWORD", PASSWORD)
     monkeypatch.setenv("ORIGIN_ALLOW_PRIVATE", "true")
     app = create_app()
+    # Pages that show DNS status look names up in public DNS; tests answer locally.
+    app.state.portal_resolve = fake_resolve
+    app.state.portal_probe = lambda name, address, settings: (204, "1")
 
     def override():
         s = session_factory()
@@ -38,6 +41,20 @@ def client(session_factory, monkeypatch):
     app.dependency_overrides[get_session] = override
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture
+def client(session_factory, monkeypatch):
+    yield from make_portal_client(session_factory, monkeypatch)
+
+
+PUBLISHED = {"edge.example.net": ["93.184.216.34"], "edge2.example.net": ["93.184.216.34"]}
+
+
+def fake_resolve(name, dns_settings):
+    if name not in PUBLISHED:
+        raise LookupError(f"{name} does not exist in public DNS")
+    return PUBLISHED[name]
 
 
 def sign_in(client: TestClient, password: str = PASSWORD):
@@ -66,7 +83,7 @@ def test_portal_requires_sign_in_and_rejects_bad_passwords(client):
     assert "cd_portal" in client.cookies
 
     home = client.get("/portal")
-    assert home.status_code == 200 and "Dashboard" in home.text
+    assert home.status_code == 200 and "Overview" in home.text
     assert home.headers["Cache-Control"] == "no-store"
     assert home.headers["X-Frame-Options"] == "DENY"
 
@@ -183,7 +200,9 @@ def test_portal_runs_the_operator_actions(client, session, monkeypatch):
             "/portal/applications/acme/origins",
             data={"csrf": csrf, "host": "localhost", "scheme": "http", "port": str(server.port)},
         )
+        # The redirect lands on the origins tab, which shows the token with instructions.
         assert registered.status_code == 200 and "Origin registered" in registered.text
+        assert "custom-domain-origin-verification" in registered.text
         with session_scope(session) as s:
             origin = app_service.list_origins(s, app_service.get_application_by_slug(s, "acme"))[0]
             token = origin.verification_token
@@ -212,7 +231,7 @@ def test_portal_runs_the_operator_actions(client, session, monkeypatch):
     issued = client.post(
         "/portal/applications/acme/credentials", data={"csrf": csrf, "label": "backend"}
     )
-    assert issued.status_code == 200 and "cd_" in issued.text and "shown once" in issued.text
+    assert issued.status_code == 200 and "cd_" in issued.text and "shown only once" in issued.text
     with session_scope(session) as s:
         credential = app_service.list_credentials(
             s, app_service.get_application_by_slug(s, "acme")
@@ -286,7 +305,7 @@ def test_portal_runs_the_operator_actions(client, session, monkeypatch):
         acme = app_service.get_application_by_slug(s, "acme")
         gone = get_domain(s, acme, domain_id, include_deleted=True)
         assert gone.status == DomainStatus.DELETING
-    assert client.get("/portal/applications/acme?status=deleting").status_code == 200
+    assert client.get("/portal/applications/acme/domains?status=deleting").status_code == 200
 
     # Status, then the listing pages
     assert (
@@ -374,7 +393,7 @@ def test_portal_legacy_import_and_maintenance(client, session, tmp_path):
         data={"csrf": csrf, "application": "acme", "references": "not json"},
         files={"config": ("caddy.json", body, "application/json")},
     )
-    assert bad.status_code == 400 and "cannot read the input" in bad.text
+    assert bad.status_code == 400 and "could not be read" in bad.text
 
 
 class session_scope:

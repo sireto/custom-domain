@@ -2,7 +2,7 @@
 
 The portal is the `custom-domain` command in a browser: every action the
 command offers (applications, origins, credentials, domains, the edge, the
-doctor, the legacy import) is a page under `/portal` of the management API,
+doctor, the legacy import) is on a page under `/portal` of the management API,
 calling the same service functions, so the two never diverge. It is meant
 for the operator of a self-hosted deployment; applications keep using the
 v1 API with their own credentials.
@@ -59,11 +59,13 @@ limits who can even try it.
 - A signed, expiring (12 hours) `HttpOnly`, `SameSite=Strict` session
   cookie scoped to `/portal`; a CSRF token bound to the session on every
   form, checked on every action.
-- Secrets (credentials, origin verification tokens) are shown once in the
+- Secrets (API keys, webhook signing secrets) are shown once in the
   response to the action that created them and never stored in the session
   or logged. Pages are served with `Cache-Control: no-store`, a strict
   Content-Security-Policy and `X-Frame-Options: DENY`.
-- Post-login redirects only go to portal paths.
+- Post-login redirects only go to portal paths, and the confirmation
+  messages after an action are fixed texts chosen by a code, so a crafted
+  link cannot put its own words on a portal page.
 - Through the edge, the allowlist is applied twice: by Caddy's `remote_ip`
   matcher on the real peer (Caddy ignores a client's own `X-Forwarded-For`
   since no trusted proxies are configured), and by the API on the address
@@ -77,15 +79,35 @@ limits who can even try it.
 
 ## Pages
 
-| Page | Command-line equivalent |
-|---|---|
-| Dashboard | domain counts, last reconciliation, `domain purge-tombstones` |
-| Applications | `application create`, `application list` |
-| Application | `application set-cname-target` (with re-issue), `application set-workspace-probe`, suspend or activate; `origin register`, `origin verify --activate`, retire; `credential issue`, `credential rotate`, `credential revoke`; register, recheck, re-issue and delete domains |
-| Domain | checks with diagnostics, the DNS records the customer publishes, the event history |
-| Edge | the desired configuration summary, `edge reconcile` |
-| Doctor | `doctor` |
-| Legacy import | `legacy import` with dry run, reference map, grandfathering and partial imports |
+The sidebar has five sections. Every page says what it is for and what to do
+next; statuses are shown in words (for example "Waiting for DNS" or "Needs
+attention") with the reason next to them.
+
+| Page | What it is for | Command-line equivalent |
+|---|---|---|
+| Overview | counts of live, waiting and failing hostnames; what needs attention; recent activity; purging old deleted hostnames | `domain purge-tombstones` |
+| Applications | every application with its origin and hostname counts; creating one | `application list`, `application create` |
+| Application → Overview | the setup checklist (CNAME target in DNS, origin, verification, API key, first hostname, first live hostname), with the next step highlighted | |
+| Application → Domains | customer hostnames, filtered by status and searched by hostname or workspace; registering one | |
+| Domain | the two DNS records for the customer, each marked found, not found or wrong (with what DNS returns); the four checks; the history; check now, issue new records, delete | |
+| Application → Origins | the backend traffic goes to; the token to serve and the exact URL while it is unverified; verify, activate, retire, delete | `origin register`, `origin verify --activate`, `origin activate`, `origin retire`, `origin delete` |
+| Application → API keys | issue (shown once), rotate with a 24-hour overlap, revoke, delete revoked or expired keys | `credential issue`, `credential rotate`, `credential revoke`, `credential delete` |
+| Application → Webhooks | endpoints with their events, signing secrets (shown once), rotation, revocation, deletion, and each endpoint's deliveries with replay | the v1 API's webhook endpoints |
+| Application → Settings | name, CNAME target (optionally moving existing hostnames), the readiness check, suspend or resume, delete | `application rename`, `application set-cname-target`, `application set-workspace-probe`, `application delete` |
+| Edge & DNS | every name the edge answers for, why, and what public DNS returns for it; **Verify reachability** connects to each address as a customer would; the routing summary; applying the configuration now | `edge reconcile` |
+| Health checks | the doctor's findings, problems first | `doctor` |
+| Import | the legacy import, with a dry run first | `legacy import` |
+
+Deleting is always a second click, and deleting an application also asks
+for its slug; while it still has live hostnames the deletion is refused
+unless you confirm that they go too. An active origin cannot be deleted
+(retire it first), nor can an API key or webhook that still works (revoke it
+first).
+
+An origin's verification token is shown on the Origins page for as long as
+the origin is unverified: it is not a secret (the origin serves it publicly)
+and the operator needs it to finish the setup. API keys and webhook signing
+secrets are shown once only.
 
 Registering a domain from the portal is for operators (tests, migrations);
 applications register their customers' hostnames through the API or SDK.

@@ -330,12 +330,22 @@ def _list_query(
     reference: str | None,
     status: DomainStatus | None,
     include_deleted: bool,
+    search: str | None = None,
 ):
     query = _domain_query(include_deleted).where(Domain.application_id == application.id)
     if reference is not None:
         query = query.where(Domain.reference == reference)
     if status is not None:
         query = query.where(Domain.status == status)
+    if search:
+        # Substring match on hostname or reference; LIKE wildcards in the
+        # input are matched literally.
+        escaped = search.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query = query.where(
+            Domain.hostname.like(pattern, escape="\\")
+            | func.lower(Domain.reference).like(pattern, escape="\\")
+        )
     return query.order_by(Domain.created_at, Domain.id)
 
 
@@ -368,6 +378,7 @@ def page_domains(
     reference: str | None = None,
     status: DomainStatus | None = None,
     include_deleted: bool = False,
+    search: str | None = None,
     limit: int = DEFAULT_PAGE_SIZE,
     offset: int = 0,
 ) -> tuple[list[Domain], bool]:
@@ -379,7 +390,11 @@ def page_domains(
     limit = max(1, min(limit, MAX_PAGE_SIZE))
     offset = max(0, offset)
     query = _list_query(
-        application, reference=reference, status=status, include_deleted=include_deleted
+        application,
+        reference=reference,
+        status=status,
+        include_deleted=include_deleted,
+        search=(search or "").strip() or None,
     )
     rows = list(session.scalars(query.limit(limit + 1).offset(offset)))
     return rows[:limit], len(rows) > limit

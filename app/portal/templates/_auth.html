@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block shell %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="brand">
+      <span class="brand-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span>
+      <span>Custom Domain<small>Operator portal</small></span>
+    </div>
+    {% block auth %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

@@ -13,7 +13,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -28,12 +28,16 @@ from app.models import (
 from app.models.types import utcnow
 from app.services.errors import (
     ApplicationAlreadyExists,
+    ApplicationNotEmpty,
     ApplicationNotFound,
+    ConfirmationMismatch,
+    CredentialInUse,
     CredentialNotFound,
     InvalidApplication,
     InvalidCredential,
     InvalidOrigin,
     OriginConflict,
+    OriginInUse,
     OriginNotVerified,
 )
 
@@ -69,6 +73,71 @@ def create_application(session: Session, *, slug: str, name: str, cname_target: 
     except IntegrityError as exc:
         raise ApplicationAlreadyExists(f"Application '{slug}' already exists") from exc
     return application
+
+
+def rename_application(session: Session, application: Application, name: str) -> Application:
+    """Change the display name. The slug is the stable identifier and never changes."""
+    if not name or not name.strip():
+        raise InvalidApplication("Name is required")
+    if len(name.strip()) > 200:
+        raise InvalidApplication("Name must be at most 200 characters")
+    application.name = name.strip()
+    application.updated_at = utcnow()
+    session.flush()
+    return application
+
+
+def live_domain_count(session: Session, application: Application) -> int:
+    from app.models import Domain
+
+    return (
+        session.scalar(
+            select(func.count())
+            .select_from(Domain)
+            .where(Domain.application_id == application.id, Domain.deleted_at.is_(None))
+        )
+        or 0
+    )
+
+
+def delete_application(
+    session: Session,
+    application: Application,
+    *,
+    confirm_slug: str,
+    delete_domains: bool = False,
+) -> int:
+    """Remove the application and everything it owns; returns the number of live domains removed.
+
+    Irreversible: its origins, credentials, webhooks, domains (live ones and
+    tombstones), claims, checks and events are deleted, so the edge stops
+    routing its hostnames at the next reconciliation and its credentials stop
+    authenticating at once. ``confirm_slug`` must repeat the slug. While live
+    domains exist the call is refused unless ``delete_domains`` is set, so
+    customers' hostnames are never dropped by accident.
+    """
+    from app.models import Domain
+
+    if (confirm_slug or "").strip() != application.slug:
+        raise ConfirmationMismatch(
+            f"Type the application's slug ({application.slug}) to confirm the deletion"
+        )
+    live = live_domain_count(session, application)
+    if live and not delete_domains:
+        raise ApplicationNotEmpty(
+            f"Application '{application.slug}' still has {live} live domain(s); delete them "
+            "first, or confirm that they are deleted with it",
+            details={"live_domains": live},
+        )
+    # Domains reference the application with ON DELETE RESTRICT; their claims,
+    # checks and events go with them by cascade. Everything else the
+    # application owns (origins, credentials, webhooks, deliveries,
+    # idempotency keys) cascades from the application row.
+    session.execute(delete(Domain).where(Domain.application_id == application.id))
+    session.execute(delete(Application).where(Application.id == application.id))
+    session.flush()
+    session.expunge(application)
+    return live
 
 
 def set_cname_target(session: Session, application: Application, cname_target: str) -> str:
@@ -234,6 +303,28 @@ def revoke_credential(
     return credential
 
 
+def delete_credential(
+    session: Session,
+    application: Application,
+    credential_id: uuid.UUID,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Remove a credential that can no longer authenticate (revoked or expired)."""
+    credential = session.scalar(
+        select(ApiCredential).where(
+            ApiCredential.id == credential_id,
+            ApiCredential.application_id == application.id,
+        )
+    )
+    if credential is None:
+        raise CredentialNotFound()
+    if credential.is_usable(now or utcnow()):
+        raise CredentialInUse("Revoke the credential before deleting it")
+    session.delete(credential)
+    session.flush()
+
+
 def rotate_credential(
     session: Session,
     application: Application,
@@ -380,6 +471,14 @@ def activate_origin(session: Session, origin: VerifiedOrigin) -> VerifiedOrigin:
     origin.is_active = True
     session.flush()
     return origin
+
+
+def delete_origin(session: Session, origin: VerifiedOrigin) -> None:
+    """Remove an origin that does not carry traffic (pending, failed or retired)."""
+    if origin.is_active:
+        raise OriginInUse("The active origin carries the application's traffic; retire it first")
+    session.delete(origin)
+    session.flush()
 
 
 def retire_origin(session: Session, origin: VerifiedOrigin) -> VerifiedOrigin:
