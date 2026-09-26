@@ -466,3 +466,18 @@ def test_webhook_methods_through_sdk(sdk, session):
     assert client.revoke_webhook(hook.id).active is False
     assert get_domain(session, acme, domain.id).status == DomainStatus.READY
     assert time.time() > 0
+
+
+def test_sdk_runtime_version_matches_the_distribution():
+    """__version__ and the user agent come from the installed metadata, so they
+    can never disagree with sdk/pyproject.toml (the release tag is checked
+    against that file)."""
+    import tomllib
+    from pathlib import Path
+
+    import custom_domain
+    from custom_domain.client import USER_AGENT
+
+    declared = tomllib.loads(Path("sdk/pyproject.toml").read_text())["project"]["version"]
+    assert custom_domain.__version__ == declared
+    assert f"custom-domain-sdk/{declared}" == USER_AGENT

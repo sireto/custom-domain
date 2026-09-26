@@ -59,4 +59,15 @@ __all__ = [
     "verify_webhook",
 ]
 
-__version__ = "0.1.0"
+
+def _distribution_version() -> str:
+    """The installed distribution's version: one source of truth (sdk/pyproject.toml)."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("custom-domain-sdk")
+    except PackageNotFoundError:  # imported from a checkout without installation
+        return "0+unknown"
+
+
+__version__ = _distribution_version()

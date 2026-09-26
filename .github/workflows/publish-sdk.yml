@@ -44,6 +44,14 @@ jobs:
         run: uv build --package custom-domain-sdk --out-dir dist
       - name: Check distributions
         run: uvx twine check --strict dist/*
+      - name: Check that the built package reports the tag as its version
+        if: github.ref_type == 'tag'
+        run: |
+          uv venv --quiet /tmp/sdk-check
+          VIRTUAL_ENV=/tmp/sdk-check uv pip install --quiet dist/*.whl
+          runtime=$(/tmp/sdk-check/bin/python -c "import custom_domain, custom_domain.client as c; print(custom_domain.__version__, c.USER_AGENT)")
+          test "${runtime}" = "${GITHUB_REF_NAME} custom-domain-sdk/${GITHUB_REF_NAME}" \
+            || { echo "built package reports '${runtime}', tag is ${GITHUB_REF_NAME}"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: sdk-dist
