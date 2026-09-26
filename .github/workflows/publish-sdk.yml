@@ -2,12 +2,14 @@
 # GitHub mints a short-lived OIDC token for this workflow and PyPI accepts it
 # for the configured publisher (owner sireto, repository custom-domain, this
 # workflow file, environment "pypi"). No API token is stored anywhere.
-# See docs/operations.md, "Releasing the SDK".
+# One release tag (a plain version such as 0.3.1) releases the SDK and the
+# service image together at the same version. See docs/deployment.md,
+# "Releasing".
 name: Publish SDK
 
 on:
   push:
-    tags: ["sdk-v*"]
+    tags: ["[0-9]*"]
   workflow_dispatch:
     inputs:
       target:
@@ -29,18 +31,27 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: uv sync --frozen
-      - name: Check that the tag matches the package version
+      - name: Check that the tag is the version everywhere
         if: github.ref_type == 'tag'
         run: |
-          version=$(uv run python -c "import tomllib; print(tomllib.load(open('sdk/pyproject.toml','rb'))['project']['version'])")
-          test "${GITHUB_REF_NAME}" = "sdk-v${version}" \
-            || { echo "tag ${GITHUB_REF_NAME} does not match sdk/pyproject.toml version ${version}"; exit 1; }
+          service=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          sdk=$(uv run python -c "import tomllib; print(tomllib.load(open('sdk/pyproject.toml','rb'))['project']['version'])")
+          test "${GITHUB_REF_NAME}" = "${service}" && test "${GITHUB_REF_NAME}" = "${sdk}" \
+            || { echo "tag ${GITHUB_REF_NAME} must equal pyproject.toml (${service}) and sdk/pyproject.toml (${sdk})"; exit 1; }
       - name: Test the SDK
         run: uv run pytest tests/test_sdk.py tests/test_assertion.py
       - name: Build distributions
         run: uv build --package custom-domain-sdk --out-dir dist
       - name: Check distributions
         run: uvx twine check --strict dist/*
+      - name: Check that the built package reports the tag as its version
+        if: github.ref_type == 'tag'
+        run: |
+          uv venv --quiet /tmp/sdk-check
+          VIRTUAL_ENV=/tmp/sdk-check uv pip install --quiet dist/*.whl
+          runtime=$(/tmp/sdk-check/bin/python -c "import custom_domain, custom_domain.client as c; print(custom_domain.__version__, c.USER_AGENT)")
+          test "${runtime}" = "${GITHUB_REF_NAME} custom-domain-sdk/${GITHUB_REF_NAME}" \
+            || { echo "built package reports '${runtime}', tag is ${GITHUB_REF_NAME}"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: sdk-dist

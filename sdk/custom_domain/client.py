@@ -23,7 +23,18 @@ from custom_domain.models import Delivery, Domain, Page, Webhook
 
 DEFAULT_TIMEOUT = 10.0
 DEFAULT_MAX_RETRIES = 2
-USER_AGENT = "custom-domain-sdk/0.1"
+
+
+def _user_agent() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return f"custom-domain-sdk/{version('custom-domain-sdk')}"
+    except PackageNotFoundError:
+        return "custom-domain-sdk/0+unknown"
+
+
+USER_AGENT = _user_agent()
 
 
 class Client:

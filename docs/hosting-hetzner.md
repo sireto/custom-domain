@@ -21,8 +21,8 @@ In the Hetzner Cloud console, **Servers → Add Server**:
 - **SSH key**: yours.
 - **Cloud config**: paste [deploy/cloud-init.yaml](../deploy/cloud-init.yaml)
   after editing the values in its `write_files` block: your `ACME_EMAIL`,
-  the release to install (`CUSTOM_DOMAIN_VERSION` and `CUSTOM_DOMAIN_REF`
-  name the same release and move together; never point them at a branch),
+  the release to install (`CUSTOM_DOMAIN_VERSION`, one version number for
+  the installer, the image and the SDK; never a branch),
   and `SKIP_FIREWALL=1` since the Hetzner firewall is in front (ufw would
   only duplicate it).
 
@@ -85,7 +85,7 @@ backend, which registers customer hostnames through the API or SDK.
   `custom-domain` command on the host, or put an authenticated reverse
   proxy in front if applications must reach the API from outside; then also
   open that proxy's port in the Hetzner firewall.
-- **Upgrading the installer**: `CUSTOM_DOMAIN_REF` in the cloud config only
+- **Upgrading the installer**: `CUSTOM_DOMAIN_VERSION` in the cloud config only
   matters at creation; on a running server, upgrades are the `.env` edit
   above.
 - **Replacing the server**: Hetzner configures a Primary IP inside the

@@ -15,8 +15,8 @@ In the DigitalOcean console, **Create → Droplets**:
 - **Advanced options → Add initialization scripts (free)**: paste
   [deploy/cloud-init.yaml](../deploy/cloud-init.yaml) after editing the
   values in its `write_files` block: your `ACME_EMAIL` and the release to
-  install (`CUSTOM_DOMAIN_VERSION` and `CUSTOM_DOMAIN_REF` name the same
-  release and move together; never point them at a branch). Keep
+  install (`CUSTOM_DOMAIN_VERSION`, one version number for the installer,
+  the image and the SDK; never a branch). Keep
   `SKIP_FIREWALL=0` unless you attach a Cloud Firewall (below).
 - **Networking**: enable IPv6 (a Reserved IPv6 requires it).
 
@@ -95,7 +95,7 @@ backend, which registers customer hostnames through the API or SDK.
 - **Management API**: port 9000 inside the Docker network only. Use the
   `custom-domain` command on the host, or put an authenticated reverse
   proxy in front if applications must reach the API from outside.
-- **Upgrading the installer**: `CUSTOM_DOMAIN_REF` in the user data only
+- **Upgrading the installer**: `CUSTOM_DOMAIN_VERSION` in the user data only
   matters at creation; on a running Droplet, upgrades are the `.env` edit
   above.
 - **Replacing the Droplet**: create a new one the same way in the same

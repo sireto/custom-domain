@@ -64,18 +64,41 @@ servers; see [hosting-hetzner.md](hosting-hetzner.md) and
 migrations, edge gateway, certificate authority, reconciler, applications
 and whether their CNAME targets reach this edge.
 
-## Releasing the service
+## Releasing
 
-A release is a git tag `v<version>` on `main` where `version` in
-`pyproject.toml` has been set to `<version>`. The tag publishes the image
-`ghcr.io/sireto/custom-domain:<version>` (and `<major>.<minor>`), and it is
-what `deploy/cloud-init.yaml` pins through `CUSTOM_DOMAIN_REF` (the tag) and
-`CUSTOM_DOMAIN_VERSION` (the image), so a user-data document only ever runs
-the installer and the Compose file of the release it names. To release:
-bump the version through a pull request, then
-`git tag v<version> <merge commit> && git push origin v<version>`, and set
-the two values in `deploy/cloud-init.yaml` to the new release in the next
-pull request.
+A release is one version number, for example `0.3.1`, used everywhere: the
+git tag (no prefix), the image tag `ghcr.io/sireto/custom-domain:0.3.1`
+(also `0.3`), and the SDK `custom-domain-sdk==0.3.1` on PyPI. Developers
+run the SDK at the version of the service they integrate with, and
+upgrading is one number. To release:
+
+1. Set `version` in `pyproject.toml` and `sdk/pyproject.toml` to the same
+   value, set `CUSTOM_DOMAIN_VERSION` in `deploy/cloud-init.yaml` to it,
+   refresh `uv.lock`, and merge that through a pull request.
+2. Tag the merge commit with the bare version and push the tag:
+   `git tag 0.3.1 <merge commit> && git push origin 0.3.1`.
+3. The tag runs both publish workflows. Each first checks that the tag
+   equals both `pyproject.toml` versions and fails otherwise; the image
+   workflow then publishes the image, and the SDK workflow the package
+   (Trusted Publishing, see below).
+
+`deploy/cloud-init.yaml` fetches the installer and the Compose file at the
+tag named by `CUSTOM_DOMAIN_VERSION`, so a user-data document only ever
+runs the release it names.
+
+### SDK publishing setup
+
+`custom-domain-sdk` is published by `.github/workflows/publish-sdk.yml` with
+[Trusted Publishing](https://docs.pypi.org/trusted-publishers/): PyPI
+accepts a short-lived OpenID Connect token that GitHub mints for that
+workflow, so no PyPI API token exists anywhere. The publisher registered on
+PyPI is: project `custom-domain-sdk`, owner `sireto`, repository
+`custom-domain`, workflow `publish-sdk.yml`, environment `pypi`. The `pypi`
+environment exists in the repository settings; restricting it to protected
+tags or to the releasing maintainers limits who can mint the token. A
+manual run of the workflow ("Run workflow", target `testpypi`) rehearses a
+release on test.pypi.org (same publisher there, environment `testpypi`)
+and never publishes to PyPI.
 
 ## Images
 
@@ -83,7 +106,8 @@ The service image is published to GitHub Container Registry by the
 `Docker image` workflow (`.github/workflows/docker-image.yml`), authenticated
 with the workflow's own token: `ghcr.io/sireto/custom-domain:latest` and
 `sha-<commit>` for every push to `main`, and `<version>` plus
-`<major>.<minor>` for a release tag `v<version>`. Pin a deployment to a
+`<major>.<minor>` for a release tag `<version>` (a bare version number,
+which also releases the SDK at that version). Pin a deployment to a
 version or a `sha-` tag through `CUSTOM_DOMAIN_IMAGE` rather than following
 `latest`. Each published image carries a build provenance attestation;
 `gh attestation verify oci://ghcr.io/sireto/custom-domain:<tag> --owner sireto`
