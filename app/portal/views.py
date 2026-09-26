@@ -267,11 +267,13 @@ def purge_tombstones(
 
 @router.get("/applications")
 def applications(request: Request, session: dict = Operator, db: Session = DbSession, ok: str = ""):
+    edge_settings = getattr(request.app.state, "edge_settings", None)
     return render(
         request,
         "applications.html",
         session,
         applications=app_service.list_applications(db),
+        edge_hostname=edge_settings.edge_hostname if edge_settings else None,
         notice=ok,
     )
 

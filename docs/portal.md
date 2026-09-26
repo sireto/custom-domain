@@ -20,13 +20,18 @@ password without signing everyone out.
 
 Two ways, both on by default where they apply.
 
-**Through the edge, from allowed addresses.** Set `PORTAL_ALLOWED_IPS` to
-your addresses or networks (IPv4 and IPv6, comma separated, for example
-`203.0.113.9,198.51.100.0/24`) and restart the API and worker. The edge
-then serves `https://<edge name>/portal` on every application's CNAME
-target (it already holds a certificate for those names), with the
-allowlist enforced by Caddy on the real TCP peer address: anyone else gets
-a 403 there, and customer hostnames are unaffected. The API checks the
+**Through the edge, from allowed addresses.** Set `EDGE_HOSTNAME` (the
+edge's own name, pointed at the server) and `PORTAL_ALLOWED_IPS` (your
+addresses or networks, IPv4 and IPv6, comma separated, for example
+`203.0.113.9,198.51.100.0/24`), and restart the API and worker. The edge
+then serves `https://<EDGE_HOSTNAME>/portal`, and the same on every
+application's CNAME target, with the allowlist enforced by Caddy on the
+real TCP peer address: anyone else gets a 403 there, and customer hostnames
+are unaffected. The certificate for the edge's name is obtained on the
+first HTTPS request, so the very first visit may take a moment. Without
+`EDGE_HOSTNAME`, the edge has no name of its own until the first
+application exists, and the portal is reachable only over the tunnel until
+then. The API checks the
 same allowlist a second time on the address the edge forwards, and its
 sign-in rate limit is per forwarded address. Nothing new is opened: port
 443 is already reachable. The installer fills `PORTAL_ALLOWED_IPS` with

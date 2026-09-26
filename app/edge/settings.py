@@ -47,6 +47,20 @@ def _key_pairs(spec: str) -> tuple[tuple[str, str], ...]:
     return tuple((key_id, secret.decode("utf-8")) for key_id, secret in parsed.items())
 
 
+def _edge_hostname(value: str) -> str | None:
+    value = value.strip()
+    if not value:
+        return None
+    from app.hostname import InvalidHostname, canonicalize
+
+    try:
+        return canonicalize(value, allow_apex=True)
+    except InvalidHostname as exc:
+        raise EdgeConfigurationError(
+            f"EDGE_HOSTNAME is not a valid hostname: {exc.message}"
+        ) from exc
+
+
 def _csv(environ: Mapping[str, str], name: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in environ.get(name, "").split(",") if item.strip())
 
@@ -94,6 +108,10 @@ class EdgeSettings:
     # Client addresses or networks allowed to reach the operator portal through
     # the edge (https://<cname target>/portal). Empty: the portal is not exposed.
     portal_allowed_ips: tuple[str, ...] = ()
+    # The edge's own DNS name (what applications' CNAME targets usually are). It
+    # gets a certificate, answers the health path and serves the portal even
+    # before the first application exists, and is the default CNAME target.
+    edge_hostname: str | None = None
     _validated: bool = field(default=False, repr=False, compare=False)
 
     @classmethod
@@ -138,6 +156,7 @@ class EdgeSettings:
             assertion_keys=_key_pairs(env.get("EDGE_ASSERTION_KEYS", "")),
             assertion_ttl=int(env.get("EDGE_ASSERTION_TTL", "60")),
             portal_allowed_ips=_csv(env, "PORTAL_ALLOWED_IPS"),
+            edge_hostname=_edge_hostname(env.get("EDGE_HOSTNAME", "")),
         )
         settings.validate()
         return settings

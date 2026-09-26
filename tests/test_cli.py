@@ -457,6 +457,20 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
     assert by_check["edge gateway"].ok and by_check["acme"].ok and by_check["edge token"].ok
     assert by_check["reconciler"].status == "warn"
     assert by_check["applications"].status == "warn"
+    assert by_check["edge hostname"].status == "warn"  # EDGE_HOSTNAME not set
+
+    # With the edge's own name set, it is checked before any application exists.
+    named = EdgeSettings(**{**settings.__dict__, "edge_hostname": "edge.acme.example"})
+    findings = doctor_module.run_doctor(
+        factory,
+        named,
+        DnsSettings(),
+        http_get=fake_http_get,
+        resolve=fake_resolve,
+        probe_target=fake_probe,
+    )
+    by_check = {f.check: f for f in findings}
+    assert by_check["edge hostname edge.acme.example"].ok
 
     with factory() as s:
         acme = create_application(s, slug="acme", name="Acme", cname_target="edge.acme.example")
@@ -613,3 +627,16 @@ def test_cli_application_set_cname_target(cli_env, capsys):
         _run("application", "set-cname-target", "--application", "acme", "--cname-target", "*.bad")
         != 0
     )
+
+
+def test_cli_application_create_defaults_the_cname_target_to_the_edge_hostname(
+    cli_env, capsys, monkeypatch
+):
+    monkeypatch.delenv("EDGE_HOSTNAME", raising=False)
+    assert _run("application", "create", "--slug", "noedge", "--name", "No Edge") == 2
+    assert "EDGE_HOSTNAME" in capsys.readouterr().err
+    monkeypatch.setenv("EDGE_HOSTNAME", "edge.example.net")
+    assert _run("application", "create", "--slug", "acme", "--name", "Acme") == 0
+    capsys.readouterr()
+    assert _run("application", "list") == 0
+    assert "edge.example.net" in capsys.readouterr().out

@@ -311,16 +311,32 @@ def _application_findings(
     probe_target: ProbeTarget,
 ) -> list[Finding]:
     findings: list[Finding] = []
+    if settings.edge_hostname:
+        findings.extend(
+            _cname_target_findings(
+                None, settings.edge_hostname, settings, dns_settings, resolve, probe_target
+            )
+        )
+    else:
+        findings.append(
+            Finding(
+                "edge hostname",
+                "warn",
+                "EDGE_HOSTNAME is not set: the edge has no name of its own until an application "
+                "exists, so the portal is reachable only over the tunnel until then",
+            )
+        )
     with session_factory() as session:
         applications = session.scalars(select(Application).order_by(Application.slug)).all()
         if not applications:
-            return [
+            findings.append(
                 Finding(
                     "applications",
                     "warn",
                     "none yet: create one with `custom-domain application create`",
                 )
-            ]
+            )
+            return findings
         for application in applications:
             if application.status != ApplicationStatus.ACTIVE:
                 findings.append(Finding(f"application {application.slug}", "warn", "not active"))
@@ -341,6 +357,8 @@ def _application_findings(
             from app.services.applications import edge_names
 
             for target in edge_names(session, application):
+                if target == settings.edge_hostname:
+                    continue  # already checked as the edge hostname
                 findings.extend(
                     _cname_target_findings(
                         application, target, settings, dns_settings, resolve, probe_target
@@ -361,7 +379,7 @@ def _publicly_routable(address) -> bool:
 
 
 def _cname_target_findings(
-    application: Application,
+    application: Application | None,
     target: str,
     settings: EdgeSettings,
     dns_settings: DnsSettings,
@@ -378,9 +396,12 @@ def _cname_target_findings(
     """
     import ipaddress
 
-    check = f"cname target {target}"
-    if target != application.cname_target:
-        check += " (former, still named by live claims)"
+    if application is None:
+        check = f"edge hostname {target}"
+    else:
+        check = f"cname target {target}"
+        if target != application.cname_target:
+            check += " (former, still named by live claims)"
     try:
         addresses = resolve(target, dns_settings)
     except Exception as exc:

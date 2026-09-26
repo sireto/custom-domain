@@ -59,7 +59,11 @@ def _build_parser() -> argparse.ArgumentParser:
     create = application.add_parser("create")
     create.add_argument("--slug", required=True)
     create.add_argument("--name", required=True)
-    create.add_argument("--cname-target", required=True, help="hostname customers CNAME to")
+    create.add_argument(
+        "--cname-target",
+        default=None,
+        help="the name customers CNAME to (default: EDGE_HOSTNAME)",
+    )
     create.set_defaults(func=_application_create)
     application.add_parser("list").set_defaults(func=_application_list)
     probe_flag = application.add_parser(
@@ -274,9 +278,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _application_create(args) -> int:
+    cname_target = args.cname_target
+    if not cname_target:
+        from app.edge.settings import EdgeSettings
+
+        cname_target = EdgeSettings.from_env().edge_hostname
+        if not cname_target:
+            print(
+                "error: --cname-target is required when EDGE_HOSTNAME is not set", file=sys.stderr
+            )
+            return 2
     with get_session_factory()() as session:
         application = app_service.create_application(
-            session, slug=args.slug, name=args.name, cname_target=args.cname_target
+            session, slug=args.slug, name=args.name, cname_target=cname_target
         )
         session.commit()
         print(f"created application {application.slug} ({application.id})")

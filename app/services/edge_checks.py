@@ -57,8 +57,8 @@ def eligible_for_edge_checks(domain: Domain) -> bool:
     return certificate_authorized(domain)
 
 
-def is_edge_name(session: Session, hostname: str) -> bool:
-    """Whether ``hostname`` is the CNAME target of an active application.
+def is_edge_name(session: Session, hostname: str, settings: EdgeSettings | None = None) -> bool:
+    """Whether ``hostname`` is the edge's own name: EDGE_HOSTNAME or an application's target.
 
     The edge holds a certificate for its own names so that the health path
     answers over HTTPS there; that is how `custom-domain doctor` confirms
@@ -75,6 +75,8 @@ def is_edge_name(session: Session, hostname: str) -> bool:
         canonical = canonicalize(hostname, allow_apex=True)
     except InvalidHostname:
         return False
+    if settings is not None and settings.edge_hostname == canonical:
+        return True
     current = session.scalar(
         select(Application.id).where(
             Application.cname_target == canonical,

@@ -78,7 +78,7 @@ def tls_ask(
     except InvalidHostname:
         observability.tls_ask_total.labels(decision="denied").inc()
         return Response(status_code=status.HTTP_403_FORBIDDEN)
-    if certificate_authorized(row) or is_edge_name(db, domain):
+    if certificate_authorized(row) or is_edge_name(db, domain, _settings(request)):
         observability.tls_ask_total.labels(decision="allowed").inc()
         return Response(status_code=status.HTTP_200_OK)
     observability.tls_ask_total.labels(decision="denied").inc()
@@ -189,7 +189,7 @@ def edge_origins(
     settings = _settings(request)
     return {
         "upstreams": upstreams,
-        "edge_names": portal_hosts(db),
+        "edge_names": portal_hosts(db, settings),
         "portal_ranges": settings.portal_ranges() if settings else [],
     }
 

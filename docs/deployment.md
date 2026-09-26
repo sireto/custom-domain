@@ -18,7 +18,8 @@ Status: implemented for issue #12. Companion to [operations.md](operations.md)
 
 Networks: `backend` (db, api, worker), `control` (api, worker, edge) and
 `edge_storage` (edge, redis). The edge publishes 80 and 443 only; the
-management API is not published (reach it from the host or through a
+management API is published on the host's loopback only (reach it through an
+SSH tunnel or a
 reverse proxy you authenticate). `EDGE_ASK_TRUSTED_HOSTS` is the `control`
 subnet so only edge containers can call the internal endpoints, and
 `EDGE_TOKEN` is additionally required on the assert, origins and metrics
@@ -100,6 +101,25 @@ manual run of the workflow ("Run workflow", target `testpypi`) rehearses a
 release on test.pypi.org (same publisher there, environment `testpypi`)
 and never publishes to PyPI.
 
+## Upgrading
+
+`custom-domain upgrade <version>` on the host re-runs the installer from
+that release: it moves `CUSTOM_DOMAIN_IMAGE` in `.env` to the version,
+adds any settings the release introduced (with generated values where they
+are secrets), refreshes the Compose file, then pulls and restarts the
+stack. Existing data and secrets are never touched. The Compose file is
+replaced only when the installed copy is unmodified since the installer
+wrote it (the installer keeps a checksum); a copy you changed is kept and
+the release's file is written next to it as `compose.production.yml.new`
+for you to merge, after which running the upgrade again records the result.
+Releases can change the Compose file (a published port, a shared setting),
+so upgrading by editing the image tag alone is not enough.
+
+Installations made before the installer existed (a hand-copied Compose
+file) upgrade the same way: run `deploy/install.sh` from the release once;
+it treats the present Compose file as modified and leaves the new one
+beside it.
+
 ## Images
 
 The service image is published to GitHub Container Registry by the
@@ -118,6 +138,16 @@ the package's settings on GitHub: change visibility to public, and link it
 to this repository if the `org.opencontainers.image.source` label has not
 done so). Compose does not re-pull an existing tag: run
 `docker compose -f compose.production.yml pull` before `up` to upgrade.
+
+## The edge's own name
+
+`EDGE_HOSTNAME` (for example `edge.example.net`) is the name the edge is
+reached at: the default `--cname-target` for applications, a name the edge
+obtains a certificate for and answers the health path on from the first
+start, and where the portal is served. Point it at the server's addresses
+before or right after installing. Without it the edge has no name of its
+own until the first application exists, so the portal is reachable only
+over the tunnel and `doctor` says so.
 
 ## The operator portal
 
