@@ -197,7 +197,7 @@ services:
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${CADDY_REDIS_PASSWORD}"]
     volumes: ["redis_data:/data"]
   https:
-    image: sireto/custom-domain:latest
+    image: ghcr.io/sireto/custom-domain:latest
     deploy: { replicas: 2 }
     environment:
       ENABLE_LEGACY_API: "false"
