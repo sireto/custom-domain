@@ -86,7 +86,7 @@ def test_notices_are_codes_never_reflected_text(portal):
     sign_in(client)
     page = client.get("/portal?ok=Your+account+is+locked,+call+us").text
     assert "Your account is locked" not in page
-    assert "Old deleted-domain records purged" in client.get("/portal?ok=purged").text
+    assert "past the 90-day retention purged" in client.get("/portal?ok=purged").text
 
 
 def test_domain_page_shows_each_dns_record_with_what_dns_returns(portal, session):
@@ -172,14 +172,23 @@ def test_application_rename_and_delete(portal, session):
     )
     assert gone.status_code == 303 and gone.headers["location"].startswith("/portal/applications")
     assert client.get("/portal/applications/acme").status_code == 404
+    assert "Acme Forms" not in client.get("/portal/applications").text
     with session_scope(session) as s:
-        from sqlalchemy import func, select
+        from sqlalchemy import select
 
-        from app.models import ApiCredential, Domain, DomainEvent, VerifiedOrigin
+        from app.models import Application, Domain, DomainEvent, WebhookSubscription
 
-        for model in (ApiCredential, VerifiedOrigin, Domain, DomainEvent):
-            assert s.scalar(select(func.count()).select_from(model)) == 0, model
-    # The hostname can be registered again by another application.
+        archived = s.scalar(select(Application).where(Application.deleted_at.is_not(None)))
+        assert archived.slug.startswith("acme~") and archived.purge_after is not None
+        tombstone = s.scalar(select(Domain).where(Domain.application_id == archived.id))
+        assert tombstone.is_deleted and tombstone.active_claim is None
+        events = [e.event_type for e in s.scalars(select(DomainEvent))]
+        assert "domain.created" in events and "domain.deleted" in events  # history retained
+        assert all(c.revoked_at is not None for c in archived.credentials)
+        assert all(not o.is_active and o.status.value == "retired" for o in archived.origins)
+        assert s.scalar(select(WebhookSubscription)) is None
+    # The slug and the hostname can be used again at once.
+    _create(client, csrf, "acme")
     _create(client, csrf, "beta")
     assert _domain(client, csrf, "forms.customer.example", slug="beta") != domain_id
 
@@ -296,10 +305,29 @@ def test_service_deletes_are_guarded(session):
     )
     app_service.delete_credential(session, acme, expired.id)  # expired: removable
 
+    deleted_at = utcnow()
     assert (
-        app_service.delete_application(session, acme, confirm_slug="acme", delete_domains=True) == 1
+        app_service.delete_application(
+            session, acme, confirm_slug="acme", delete_domains=True, now=deleted_at
+        )
+        == 1
     )
     assert app_service.list_applications(session) == []
+    session.commit()
+
+    from sqlalchemy import func, select
+
+    from app.models import Application, Domain, DomainEvent
+
+    def count(model):
+        return session.scalar(select(func.count()).select_from(model))
+
+    # Within retention nothing is removed; after it, everything goes.
+    domain_service.purge_tombstones(session, now=deleted_at + timedelta(days=89))
+    assert count(Application) == 1 and count(Domain) == 1 and count(DomainEvent) >= 2
+    domain_service.purge_tombstones(session, now=deleted_at + timedelta(days=91))
+    session.commit()
+    assert count(Application) == 0 and count(Domain) == 0 and count(DomainEvent) == 0
 
 
 def test_cli_offers_the_new_actions(monkeypatch, tmp_path, capsys):
@@ -338,6 +366,16 @@ def test_presenters_describe_states_in_words():
     ) == ("_custom-domain-challenge.forms")
     assert presenters._relative("customer.example", "customer.example") == "@"
     assert presenters._relative("shop.customer.example", "shop.customer.example") == "shop"
+    # The zone comes from the public suffix list, not the last two labels.
+    assert presenters._relative("forms.customer.co.uk", "forms.customer.co.uk") == "forms"
+    assert (
+        presenters._relative(
+            "_custom-domain-challenge.forms.customer.co.uk", "forms.customer.co.uk"
+        )
+        == "_custom-domain-challenge.forms"
+    )
+    assert presenters._zone("forms.customer.co.uk") == "customer.co.uk"
+    assert presenters._relative("co.uk", "co.uk") is None  # no registrable zone: no label
 
     class Event:
         event_type = "domain.status_changed"
@@ -353,3 +391,32 @@ def _uuid(value):
     import uuid
 
     return uuid.UUID(value)
+
+
+def test_setup_step_needs_the_target_to_reach_this_edge(portal):
+    client = portal
+    sign_in(client)
+    csrf = csrf_of(client)
+    _create(client, csrf)
+    # The target resolves, but the address answers as some other server.
+    client.app.state.portal_probe = lambda name, address, settings: (404, None)
+    page = client.get("/portal/applications/acme").text
+    assert "0 of 6 done" in page
+    assert "do not answer as this edge" in page
+    client.app.state.portal_probe = lambda name, address, settings: (204, "1")
+    page = client.get("/portal/applications/acme").text
+    assert "1 of 6 done" in page and "reaches this edge" in page
+
+
+def test_domain_page_uses_the_registrable_zone(portal):
+    client = portal
+    sign_in(client)
+    csrf = csrf_of(client)
+    _create(client, csrf)
+    domain_id = _domain(client, csrf, "forms.customer.co.uk")
+    page = client.get(f"/portal/applications/acme/domains/{domain_id}").text
+    assert "<code>customer.co.uk</code>" in page
+    assert ">_custom-domain-challenge.forms<" in page and ">forms<" in page
+    assert (
+        ">forms.customer<" not in page and ">_custom-domain-challenge.forms.customer<" not in page
+    )

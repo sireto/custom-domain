@@ -212,7 +212,8 @@ class RecordView:
     purpose: str
     type: str
     name: str
-    host_label: str  # the name as most DNS providers want it (relative to the zone)
+    host_label: str | None  # the name as most DNS providers want it (relative to the zone)
+    zone: str | None
     value: str
     state: State
     detail: str | None
@@ -241,21 +242,30 @@ def _record_state(check, *, kind: str) -> tuple[State, str | None, list[str]]:
     return State("Failing", "fail"), check.message, observed
 
 
-def _relative(name: str, hostname: str) -> str:
-    """The record name relative to the customer's zone, best effort.
+def _zone(hostname: str) -> str | None:
+    """The registrable domain of ``hostname`` per the public suffix list, if any."""
+    from app.hostname import _PSL
+
+    return _PSL.privatesuffix(hostname)
+
+
+def _relative(name: str, hostname: str) -> str | None:
+    """The record name relative to the customer's zone, or None when that is unclear.
 
     DNS providers ask for the part before the zone (``_custom-domain-challenge.forms``
-    for ``forms.customer.example``). The zone is not known here; assuming the
-    registrable domain is the last two labels is right for most names, and the
-    full name is always shown next to it.
+    for ``forms.customer.example``). The zone is taken to be the registrable
+    domain from the public suffix list (``customer.co.uk`` for
+    ``forms.customer.co.uk``); a customer whose zone is delegated further down
+    still has the full name, which is always shown.
     """
-    labels = hostname.split(".")
-    zone = ".".join(labels[-2:]) if len(labels) > 2 else hostname
+    zone = _zone(hostname)
+    if zone is None:
+        return None
     if name == zone:
         return "@"
     if name.endswith("." + zone):
         return name[: -(len(zone) + 1)]
-    return name
+    return None
 
 
 def record_views(domain: Domain) -> list[RecordView]:
@@ -276,6 +286,7 @@ def record_views(domain: Domain) -> list[RecordView]:
             type="TXT",
             name=claim.txt_record_name,
             host_label=_relative(claim.txt_record_name, domain.hostname),
+            zone=_zone(domain.hostname),
             value=claim.txt_record_value,
             state=ownership,
             detail=detail_txt,
@@ -287,6 +298,7 @@ def record_views(domain: Domain) -> list[RecordView]:
             type="CNAME",
             name=domain.hostname,
             host_label=_relative(domain.hostname, domain.hostname),
+            zone=_zone(domain.hostname),
             value=claim.cname_target,
             state=routing,
             detail=detail_cname,
@@ -338,20 +350,39 @@ def application_steps(
     live_total = sum(n for s, n in domain_counts.items() if s != DomainStatus.DELETING)
     ready = domain_counts.get(DomainStatus.READY, 0)
     target = application.cname_target
-    if target_dns is None:
-        dns_done, dns_detail = False, f"Point {target} at this server with A and AAAA records."
-    elif target_dns.addresses:
-        dns_done = True
-        dns_detail = f"{target} resolves to {', '.join(target_dns.addresses)} in public DNS."
-    else:
+    reach = target_dns.reachability if target_dns is not None else None
+    if target_dns is None or target_dns.error or not target_dns.addresses:
         dns_done = False
         dns_detail = (
             f"{target} has no A or AAAA record in public DNS yet. Create them with this "
             "server's public addresses; customers' CNAMEs point at this name."
         )
+    elif reach is None:
+        dns_done = False
+        dns_detail = (
+            f"{target} resolves to {', '.join(target_dns.addresses)}, but whether that is "
+            "this server has not been checked."
+        )
+    elif reach.status == "ok":
+        dns_done = True
+        dns_detail = (
+            f"{target} resolves to {', '.join(target_dns.addresses)} and reaches this edge."
+        )
+    elif reach.status == "warn":
+        dns_done = True
+        dns_detail = (
+            f"{target} reaches this edge over IPv4. Its IPv6 address could not be checked "
+            "from here; test it from outside."
+        )
+    else:
+        dns_done = False
+        dns_detail = (
+            f"{target} resolves to {', '.join(target_dns.addresses)}, but those addresses do "
+            "not answer as this edge. Point the records at this server's public addresses."
+        )
     return [
         Step(
-            "Point the CNAME target at this server",
+            "Point the CNAME target at this edge",
             dns_done,
             dns_detail,
             "/portal/edge",

@@ -392,7 +392,9 @@ def _application_findings(
             )
         )
     with session_factory() as session:
-        applications = session.scalars(select(Application).order_by(Application.slug)).all()
+        applications = session.scalars(
+            select(Application).where(Application.deleted_at.is_(None)).order_by(Application.slug)
+        ).all()
         if not applications:
             findings.append(
                 Finding(

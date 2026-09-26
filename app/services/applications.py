@@ -13,7 +13,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -106,17 +106,23 @@ def delete_application(
     *,
     confirm_slug: str,
     delete_domains: bool = False,
+    now: datetime | None = None,
 ) -> int:
-    """Remove the application and everything it owns; returns the number of live domains removed.
+    """Delete the application; returns the number of live domains deleted with it.
 
-    Irreversible: its origins, credentials, webhooks, domains (live ones and
-    tombstones), claims, checks and events are deleted, so the edge stops
-    routing its hostnames at the next reconciliation and its credentials stop
-    authenticating at once. ``confirm_slug`` must repeat the slug. While live
-    domains exist the call is refused unless ``delete_domains`` is set, so
-    customers' hostnames are never dropped by accident.
+    Nothing is removed yet, so the audit trail keeps its retention promise:
+    every live domain becomes a tombstone with its claim revoked and the usual
+    ``domain.deleted`` event, API keys are revoked, origins retired and
+    webhooks revoked, and the application is suspended and hidden. Its slug
+    is freed at once. ``purge_tombstones`` removes the row and everything it
+    owns once the retention period of its last domain has passed.
+
+    ``confirm_slug`` must repeat the slug. While live domains exist the call
+    is refused unless ``delete_domains`` is set, so customers' hostnames are
+    never dropped by accident.
     """
-    from app.models import Domain
+    from app.models import Domain, WebhookSubscription
+    from app.services.domains import TOMBSTONE_RETENTION, delete_domain
 
     if (confirm_slug or "").strip() != application.slug:
         raise ConfirmationMismatch(
@@ -129,14 +135,35 @@ def delete_application(
             "first, or confirm that they are deleted with it",
             details={"live_domains": live},
         )
-    # Domains reference the application with ON DELETE RESTRICT; their claims,
-    # checks and events go with them by cascade. Everything else the
-    # application owns (origins, credentials, webhooks, deliveries,
-    # idempotency keys) cascades from the application row.
-    session.execute(delete(Domain).where(Domain.application_id == application.id))
-    session.execute(delete(Application).where(Application.id == application.id))
+    now = now or utcnow()
+    for domain_id in session.scalars(
+        select(Domain.id).where(
+            Domain.application_id == application.id, Domain.deleted_at.is_(None)
+        )
+    ).all():
+        delete_domain(session, application, domain_id, now=now)
+    for credential in list_credentials(session, application):
+        if credential.revoked_at is None:
+            credential.revoked_at = now
+    for origin in list_origins(session, application):
+        origin.is_active = False
+        origin.status = OriginStatus.RETIRED
+    for subscription in session.scalars(
+        select(WebhookSubscription).where(WebhookSubscription.application_id == application.id)
+    ):
+        if subscription.revoked_at is None:
+            subscription.revoked_at = now
+    latest_purge = session.scalar(
+        select(func.max(Domain.purge_after)).where(Domain.application_id == application.id)
+    )
+    application.status = ApplicationStatus.SUSPENDED
+    application.deleted_at = now
+    application.purge_after = max(filter(None, [latest_purge, now + TOMBSTONE_RETENTION]))
+    # Free the slug for a new application; the suffix cannot occur in a real
+    # slug, so the archived row never collides with one.
+    application.slug = f"{application.slug[:46]}~{application.id.hex[:12]}"
+    application.updated_at = now
     session.flush()
-    session.expunge(application)
     return live
 
 
@@ -190,14 +217,20 @@ def get_application(session: Session, application_id: uuid.UUID) -> Application:
 
 
 def get_application_by_slug(session: Session, slug: str) -> Application:
-    application = session.scalar(select(Application).where(Application.slug == slug))
+    application = session.scalar(
+        select(Application).where(Application.slug == slug, Application.deleted_at.is_(None))
+    )
     if application is None:
         raise ApplicationNotFound(f"Application '{slug}' not found")
     return application
 
 
 def list_applications(session: Session) -> list[Application]:
-    return list(session.scalars(select(Application).order_by(Application.slug)))
+    return list(
+        session.scalars(
+            select(Application).where(Application.deleted_at.is_(None)).order_by(Application.slug)
+        )
+    )
 
 
 def set_application_status(

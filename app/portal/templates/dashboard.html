@@ -80,8 +80,8 @@
   </div>
   <div class="card">
     <div class="card-head"><div><h2>Maintenance</h2></div></div>
-    <div class="danger-row"><div><h3>Purge old deleted hostnames</h3><p>Deleted hostnames are kept for 90 days for auditing. This removes the ones past that period for good; nothing that is served is affected.</p></div>
-      {{ ui.confirm('/portal/maintenance/purge-tombstones', csrf, 'Purge', 'Permanently remove deleted hostnames older than 90 days, with their history?', 'Purge now', danger=false, small=false) }}</div>
+    <div class="danger-row"><div><h3>Purge old deleted records</h3><p>Deleted hostnames and applications are kept for 90 days for auditing. This removes the ones past that period for good; nothing that is served is affected.</p></div>
+      {{ ui.confirm('/portal/maintenance/purge-tombstones', csrf, 'Purge', 'Permanently remove deleted hostnames and applications older than 90 days, with their history?', 'Purge now', danger=false, small=false) }}</div>
   </div>
 </div>
 {% endblock %}

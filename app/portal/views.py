@@ -225,7 +225,8 @@ def logout(request: Request, session: dict = Operator, csrf: str = Form("")):
 NOTICES = {
     "application_created": "Application created. Follow the setup steps below to start "
     "serving hostnames.",
-    "application_deleted": "Application deleted.",
+    "application_deleted": "Application deleted. Its hostnames are no longer served; their "
+    "records and history are kept for 90 days, then purged.",
     "renamed": "Name saved.",
     "cname_target": "CNAME target saved. New domains get the new target.",
     "cname_target_reissued": "CNAME target saved and the DNS records of existing domains "
@@ -251,7 +252,7 @@ NOTICES = {
     "webhook_revoked": "Webhook revoked. Nothing more is delivered to it.",
     "webhook_deleted": "Webhook deleted.",
     "replayed": "Delivery queued again.",
-    "purged": "Old deleted-domain records purged.",
+    "purged": "Deleted hostnames and applications past the 90-day retention purged.",
     "reconcile_applied": "Edge configuration applied.",
     "reconcile_unchanged": "The edge already runs the desired configuration.",
 }
@@ -481,8 +482,19 @@ def _tab_overview(request, session, db, application, *, status=200, **extra):
     origins = app_service.list_origins(db, application)
     credentials = app_service.list_credentials(db, application)
     ctx = _app_context(db, application)
+    from app.services.doctor import check_edge_name
+
     target = presenters.EdgeNameView(application.cname_target, [])
-    presenters.resolve_names([target], _resolver(request), _dns_settings())
+    dns_settings = _dns_settings()
+    resolve = _resolver(request)
+    presenters.resolve_names([target], resolve, dns_settings)
+    settings = _edge_settings(request)
+    if target.addresses and not target.error and settings is not None:
+        # The setup step is done only when the name reaches this edge, not
+        # merely when it resolves somewhere.
+        target.reachability = check_edge_name(
+            target.name, settings, dns_settings, resolve=resolve, probe_target=_prober(request)
+        )
     steps = presenters.application_steps(
         application,
         origins=origins,

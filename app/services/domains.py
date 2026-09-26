@@ -663,10 +663,25 @@ def _enforce_recheck_limits(session: Session, domain: Domain, now: datetime) -> 
 
 
 def purge_tombstones(session: Session, *, now: datetime | None = None) -> int:
-    """Hard-delete tombstones past retention. Children go with them via FK cascade."""
+    """Hard-delete tombstones past retention. Children go with them via FK cascade.
+
+    Deleted applications go too, once their retention has passed and none of
+    their domains is left; their credentials, origins, webhooks and events
+    cascade from the row. Returns the number of domains removed.
+    """
     now = now or utcnow()
     result = session.execute(
         delete(Domain).where(Domain.deleted_at.is_not(None), Domain.purge_after <= now)
+    )
+    remaining = select(Domain.id).where(Domain.application_id == Application.id).exists()
+    session.execute(
+        delete(Application)
+        .where(
+            Application.deleted_at.is_not(None),
+            Application.purge_after <= now,
+            ~remaining,
+        )
+        .execution_options(synchronize_session=False)
     )
     session.flush()
     return result.rowcount or 0

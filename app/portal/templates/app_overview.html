@@ -40,13 +40,13 @@
   </div>
 </div>
 <div class="card">
-  <div class="card-head"><div><h2>CNAME target in public DNS</h2><p>Customers' CNAMEs lead here, so it must resolve to this server.</p></div>{{ ui.badge(target.state) }}</div>
+  <div class="card-head"><div><h2>CNAME target</h2><p>Customers' CNAMEs lead here, so it must reach this edge.</p></div>{{ ui.badge(target.state) }}</div>
   <div class="card-body"><dl class="kv">
     <dt>Name</dt><dd><code>{{ target.name }}</code></dd>
     <dt>Resolves to</dt><dd>{% if target.addresses %}{% for a in target.addresses %}<code>{{ a }}</code>{{ ', ' if not loop.last }}{% endfor %}{% else %}<span class="muted">{{ target.error or 'no A or AAAA record' }}</span>{% endif %}</dd>
     <dt>Origin</dt><dd>{% if serving %}<code>{{ serving.url }}</code>{% else %}<span class="muted">none active yet</span>{% endif %}</dd>
   </dl></div>
-  <div class="card-foot small muted">Checked in public DNS just now. <a href="/portal/edge?verify=1">Verify that it reaches this edge</a>.</div>
+  <div class="card-foot small muted">Checked just now in public DNS{% if target.reachability %}, then by connecting to each address as a customer would{% endif %}.{% if target.reachability and not target.reachability.ok %} {{ target.reachability.detail }}{% endif %}</div>
 </div>
 </div>
 </div>

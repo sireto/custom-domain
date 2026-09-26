@@ -51,7 +51,7 @@
     {% endif %}
   </div>
   <div class="danger-row" style="align-items:flex-start">
-    <div><h3>Delete application</h3><p>Permanently deletes {{ application.name }} with its origins, API keys, webhooks and every hostname{% if live_domains %} (<b>{{ live_domains }} still registered</b>){% endif %}. The edge stops serving them within a minute. This cannot be undone.</p></div>
+    <div><h3>Delete application</h3><p>Deletes {{ application.name }} and every hostname{% if live_domains %} (<b>{{ live_domains }} still registered</b>){% endif %}: the edge stops serving them within a minute, its API keys and webhooks are revoked and its origins retired. The slug is free again at once. Records and history are kept for 90 days for auditing, then purged. This cannot be undone.</p></div>
     <details class="confirm"><summary class="btn btn-danger-ghost">Delete application</summary>
       <div class="confirm-pop" style="width:360px">
         <form method="post" action="{{ base }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}">

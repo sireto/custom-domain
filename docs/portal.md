@@ -85,7 +85,7 @@ attention") with the reason next to them.
 
 | Page | What it is for | Command-line equivalent |
 |---|---|---|
-| Overview | counts of live, waiting and failing hostnames; what needs attention; recent activity; purging old deleted hostnames | `domain purge-tombstones` |
+| Overview | counts of live, waiting and failing hostnames; what needs attention; recent activity; purging deleted hostnames and applications past retention | `domain purge-tombstones` |
 | Applications | every application with its origin and hostname counts; creating one | `application list`, `application create` |
 | Application → Overview | the setup checklist (CNAME target in DNS, origin, verification, API key, first hostname, first live hostname), with the next step highlighted | |
 | Application → Domains | customer hostnames, filtered by status and searched by hostname or workspace; registering one | |
@@ -100,7 +100,10 @@ attention") with the reason next to them.
 
 Deleting is always a second click, and deleting an application also asks
 for its slug; while it still has live hostnames the deletion is refused
-unless you confirm that they go too. An active origin cannot be deleted
+unless you confirm that they go too. A deleted application's hostnames are
+tombstoned like any deleted hostname: their records and history are kept for
+90 days and then purged with the application (see
+[data-model.md](data-model.md#deletion-tombstones-and-retention)). An active origin cannot be deleted
 (retire it first), nor can an API key or webhook that still works (revoke it
 first).
 

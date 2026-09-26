@@ -142,6 +142,17 @@ audit and support, then hard-deleted by `custom-domain domain purge-tombstones`
 must snapshot event payloads rather than reference rows, because purge
 cascades to events.
 
+Deleting an application (`application delete`, or the portal) follows the
+same rule. It tombstones every live domain as above, revokes the
+application's credentials and webhooks, retires its origins, suspends it and
+sets its own `deleted_at` and `purge_after` (the latest `purge_after` of its
+domains, and at least 90 days). The row stays, hidden from listings, with
+its slug suffixed so the slug can be used again at once. `purge-tombstones`
+removes a deleted application once its `purge_after` has passed and none of
+its domains remains; its credentials, origins, webhooks and events go with
+it by cascade. Until then its domains' claims, checks and events are
+available for audit exactly like any other tombstone's.
+
 Reassignment between applications or workspaces is only ever delete followed
 by a fresh claim. There is no in-place transfer, so a verified claim never
 changes hands.

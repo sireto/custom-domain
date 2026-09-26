@@ -21,7 +21,7 @@
     <div class="record">
       <div class="record-head"><div class="split"><span class="tag">{{ r.type }}</span><b>{{ r.purpose }}</b></div>{{ ui.badge(r.state) }}</div>
       <dl class="kv">
-        <dt>Name</dt><dd>{{ ui.copy(r.name) }}{% if r.host_label != r.name %}<div class="hint">In most DNS providers' "Name" or "Host" field: <span class="copy-inline">{{ r.host_label }}</span></div>{% endif %}</dd>
+        <dt>Name</dt><dd>{{ ui.copy(r.name) }}{% if r.host_label and r.host_label != r.name %}<div class="hint">If the customer's DNS zone is <code>{{ r.zone }}</code>, most providers want only <span class="copy-inline">{{ r.host_label }}</span> in the "Name" or "Host" field.</div>{% endif %}</dd>
         <dt>Value</dt><dd>{{ ui.copy(r.value) }}</dd>
       </dl>
       {% if r.detail %}<div class="observed"><b>What DNS shows now:</b> {{ r.detail }}{% if r.observed %}<div style="margin-top:4px">Found: {% for v in r.observed %}<code>{{ v }}</code>{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}</div>{% endif %}

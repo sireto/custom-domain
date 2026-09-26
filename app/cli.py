@@ -95,8 +95,8 @@ def _build_parser() -> argparse.ArgumentParser:
     rename.set_defaults(func=_application_rename)
     remove = application.add_parser(
         "delete",
-        help="permanently delete an application with its origins, credentials, webhooks "
-        "and domains",
+        help="delete an application and its domains; keys and webhooks are revoked, origins "
+        "retired, and the records kept for the 90-day retention period",
     )
     remove.add_argument("--application", required=True)
     remove.add_argument("--confirm", required=True, help="repeat the application's slug to confirm")
@@ -662,7 +662,10 @@ def _application_delete(args) -> int:
             session, application, confirm_slug=args.confirm, delete_domains=args.delete_domains
         )
         session.commit()
-        print(f"deleted application {args.application} and {removed} live domain(s)")
+        print(
+            f"deleted application {args.application} and {removed} live domain(s); the "
+            "records are kept for 90 days, then removed by `domain purge-tombstones`"
+        )
     return 0
 
 
