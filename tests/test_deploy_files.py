@@ -6,19 +6,33 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# Settings the reconciler (api, worker) writes into the edge configuration and
+# the gateway (edge) checks against its own environment. Any of them defined
+# per service must be defined identically on all three; a mismatch makes the
+# gateway reject every reconciliation.
+GATEWAY_CHECKED = ("EDGE_ASSERT_UPSTREAM", "EDGE_ASK_URL")
+
 
 def test_production_compose_shares_the_edge_settings_the_gateway_checks():
-    """The reconciler runs in the api and worker containers and writes
-    EDGE_ASSERT_UPSTREAM into every route; the gateway in the edge container
-    accepts only its own value. All three must therefore carry the same one,
-    and the reconciling containers must know where the gateway is."""
     compose = yaml.safe_load((ROOT / "deploy" / "compose.production.yml").read_text())
     services = compose["services"]
-    upstreams = {
-        name: services[name]["environment"].get("EDGE_ASSERT_UPSTREAM")
-        for name in ("api", "worker", "edge")
+    for key in GATEWAY_CHECKED:
+        values = {
+            name: services[name]["environment"].get(key) for name in ("api", "worker", "edge")
+        }
+        assert None not in values.values(), f"{key} must be set on api, worker and edge: {values}"
+        assert len(set(values.values())) == 1, f"{key} differs between services: {values}"
+    # Any other EDGE_* or DISABLE_HTTPS/ACME setting given per service must agree too.
+    per_service = {name: services[name]["environment"] for name in ("api", "worker", "edge")}
+    keys = {
+        k
+        for env in per_service.values()
+        for k in env
+        if k.startswith(("EDGE_", "ACME_", "DISABLE_HTTPS"))
     }
-    assert len(set(upstreams.values())) == 1 and None not in upstreams.values(), upstreams
+    for key in keys - {"EDGE_ASK_TRUSTED_HOSTS"}:
+        values = {name: env[key] for name, env in per_service.items() if key in env}
+        assert len(set(values.values())) == 1, f"{key} differs between services: {values}"
     for name in ("api", "worker"):
         assert services[name]["environment"]["CADDY_ADMIN_URL"] == "http://edge:2019"
         assert services[name]["environment"]["ENABLE_LEGACY_API"] == "false"

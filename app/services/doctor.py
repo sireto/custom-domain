@@ -15,6 +15,7 @@ import socket
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -30,6 +31,8 @@ MIN_TOKEN_LENGTH = 32
 
 # (status, headers) of a GET without following redirects; raises on failure.
 HttpGet = Callable[[str], tuple[int, dict[str, str]]]
+# Parsed JSON body of a GET; raises on failure.
+FetchJson = Callable[[str], Any]
 # Public addresses of a name, looked up in public DNS (never the local resolver).
 Resolve = Callable[[str, DnsSettings], list[str]]
 # (status, edge marker) of the health path at ``address`` for ``hostname``; raises on failure.
@@ -53,6 +56,14 @@ def _http_get(url: str) -> tuple[int, dict[str, str]]:
 
     response = httpx.get(url, timeout=8.0, follow_redirects=False)
     return response.status_code, dict(response.headers)
+
+
+def _fetch_json(url: str) -> Any:
+    import httpx
+
+    response = httpx.get(url, timeout=8.0)
+    response.raise_for_status()
+    return response.json()
 
 
 def _resolve(host: str, dns_settings: DnsSettings) -> list[str]:
@@ -117,6 +128,7 @@ def run_doctor(
     http_get: HttpGet = _http_get,
     resolve: Resolve = _resolve,
     probe_target: ProbeTarget = _probe_target,
+    fetch_json: FetchJson = _fetch_json,
     now: datetime | None = None,
 ) -> list[Finding]:
     now = now or utcnow()
@@ -124,7 +136,11 @@ def run_doctor(
     findings.extend(_database_findings(session_factory))
     findings.extend(_settings_findings(settings, dns_settings))
     findings.extend(_edge_findings(settings, http_get))
-    if not any(f.check == "database" and f.status == "fail" for f in findings):
+    database_ok = not any(f.check == "database" and f.status == "fail" for f in findings)
+    gateway_ok = any(f.check == "edge gateway" and f.ok for f in findings)
+    if database_ok and gateway_ok:
+        findings.extend(_edge_config_findings(session_factory, settings, fetch_json))
+    if database_ok:
         findings.extend(_reconciler_findings(session_factory, settings, now))
         findings.extend(
             _application_findings(session_factory, settings, dns_settings, resolve, probe_target)
@@ -267,6 +283,55 @@ def _edge_findings(settings: EdgeSettings, http_get: HttpGet) -> list[Finding]:
                 )
             )
     return findings
+
+
+def _edge_config_findings(
+    session_factory: Callable[[], Session], settings: EdgeSettings, fetch_json: FetchJson
+) -> list[Finding]:
+    """Is the edge running the configuration this instance derives?
+
+    The reconciler in the api and worker containers builds it from the
+    database and these settings; the gateway in the edge container accepts
+    it only when its own EDGE_ASK_URL, EDGE_ASSERT_UPSTREAM, ACME_EMAIL and
+    EDGE_TLS_ISSUER produce the same TLS block and subrequest. A difference
+    here means every reconciliation is being rejected (the worker log says
+    why) or none has run yet.
+    """
+    from app.edge.config import build_apps, config_digest
+
+    url = f"{settings.admin_url}/config/apps"
+    try:
+        running = fetch_json(url)
+    except Exception as exc:
+        return [Finding("edge config", "warn", f"could not read {url}: {type(exc).__name__}")]
+    with session_factory() as session:
+        desired = build_apps(session, settings)
+    desired_digest = config_digest(desired)
+    running_digest = config_digest(running) if isinstance(running, dict) else "none"
+    if running_digest == desired_digest:
+        return [
+            Finding(
+                "edge config", "ok", f"the edge runs the desired configuration ({desired_digest})"
+            )
+        ]
+    running_routes = []
+    if isinstance(running, dict):
+        server = running.get("http", {}).get("servers", {}).get("edge", {})
+        running_routes = [
+            str(r.get("@id")) for r in server.get("routes", []) if isinstance(r, dict)
+        ]
+    return [
+        Finding(
+            "edge config",
+            "fail",
+            f"the edge runs a different configuration (routes {running_routes}, "
+            f"{'with' if isinstance(running, dict) and running.get('tls') else 'without'} TLS "
+            f"automation) than this instance derives ({desired_digest}): the gateway is "
+            "rejecting the reconciler's configuration or it has not run. Check the worker "
+            "log for config_rejected; EDGE_ASK_URL, EDGE_ASSERT_UPSTREAM, ACME_EMAIL and "
+            "EDGE_TLS_ISSUER must be identical for the api, worker and edge containers",
+        )
+    ]
 
 
 def _reconciler_findings(
