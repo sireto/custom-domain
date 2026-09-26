@@ -500,3 +500,75 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
     assert _run("doctor") == 1
     out = capsys.readouterr().out
     assert "FAIL  edge gateway" in out and "failure(s)" in out
+
+
+def test_cli_application_set_cname_target(cli_env, capsys):
+    from app.models import DomainStatus
+    from app.services import applications as app_service
+    from app.services.domains import claim_domain, find_live_by_hostname
+
+    _run(
+        "application",
+        "create",
+        "--slug",
+        "acme",
+        "--name",
+        "Acme",
+        "--cname-target",
+        "old.edge.example",
+    )
+    with cli.get_session_factory()() as s:
+        acme = app_service.get_application_by_slug(s, "acme")
+        claim_domain(s, acme, "a.customer.example", "w1")
+        s.commit()
+    capsys.readouterr()
+
+    # Change without touching existing domains: new claims use the new name,
+    # the existing one keeps what its customer published.
+    assert (
+        _run(
+            "application",
+            "set-cname-target",
+            "--application",
+            "acme",
+            "--cname-target",
+            "New.Edge.Example.",
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "old.edge.example -> new.edge.example" in out and "1 live domain(s) still" in out
+    with cli.get_session_factory()() as s:
+        acme = app_service.get_application_by_slug(s, "acme")
+        assert acme.cname_target == "new.edge.example"
+        assert (
+            find_live_by_hostname(s, "a.customer.example").active_claim.cname_target
+            == "old.edge.example"
+        )
+        b = claim_domain(s, acme, "b.customer.example", "w2")
+        assert b.active_claim.cname_target == "new.edge.example"
+        s.commit()
+
+    # Re-issuing moves the stale domain to the new target and resets it.
+    assert (
+        _run(
+            "application",
+            "set-cname-target",
+            "--application",
+            "acme",
+            "--cname-target",
+            "new.edge.example",
+            "--reissue-claims",
+        )
+        == 0
+    )
+    assert "re-issued the claim of 1 domain(s)" in capsys.readouterr().out
+    with cli.get_session_factory()() as s:
+        a = find_live_by_hostname(s, "a.customer.example")
+        assert a.active_claim.cname_target == "new.edge.example"
+        assert a.status == DomainStatus.PENDING_DNS
+
+    assert (
+        _run("application", "set-cname-target", "--application", "acme", "--cname-target", "*.bad")
+        != 0
+    )

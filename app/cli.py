@@ -71,6 +71,20 @@ def _build_parser() -> argparse.ArgumentParser:
     group.add_argument("--enabled", action="store_true")
     group.add_argument("--disabled", action="store_true")
     probe_flag.set_defaults(func=_application_set_workspace_probe)
+    target_flag = application.add_parser(
+        "set-cname-target",
+        help="change the name new domains tell customers to CNAME to",
+    )
+    target_flag.add_argument("--application", required=True)
+    target_flag.add_argument("--cname-target", required=True)
+    target_flag.add_argument(
+        "--reissue-claims",
+        action="store_true",
+        help="also re-issue the ownership claim of every live domain so its instructions "
+        "carry the new target; those domains go back to pending_dns until their customers "
+        "update both records",
+    )
+    target_flag.set_defaults(func=_application_set_cname_target)
 
     credential = sub.add_parser("credential", help="manage API credentials").add_subparsers(
         dest="credential_command"
@@ -286,6 +300,42 @@ def _application_set_workspace_probe(args) -> int:
         session.commit()
         state = "required" if application.workspace_probe_enabled else "not required"
         print(f"workspace probe {state} for {application.slug}")
+    return 0
+
+
+def _application_set_cname_target(args) -> int:
+    from sqlalchemy import select
+
+    from app.models import Domain
+
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        previous = application.cname_target
+        target = app_service.set_cname_target(session, application, args.cname_target)
+        live = session.scalars(
+            select(Domain).where(
+                Domain.application_id == application.id, Domain.deleted_at.is_(None)
+            )
+        ).all()
+        stale = [
+            d for d in live if d.active_claim is not None and d.active_claim.cname_target != target
+        ]
+        if args.reissue_claims:
+            for domain in stale:
+                domain_service.reissue_claim(session, application, domain.id)
+        session.commit()
+        print(f"cname target for {application.slug}: {previous} -> {target}")
+        if args.reissue_claims:
+            print(
+                f"re-issued the claim of {len(stale)} domain(s); each is pending_dns until its "
+                "customer publishes the new TXT value and CNAME"
+            )
+        elif stale:
+            print(
+                f"{len(stale)} live domain(s) still tell their customers to CNAME to the old "
+                "target and keep working as they are; run again with --reissue-claims to move "
+                "them, or re-issue individually"
+            )
     return 0
 
 

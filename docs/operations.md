@@ -65,6 +65,18 @@ upstream.
    issues a replacement and lets the old credential expire after the grace
    period. `credential revoke` stops one immediately.
 
+### Changing the CNAME target
+
+`custom-domain application set-cname-target --application <slug> --cname-target <name>`
+changes the name that new domains tell customers to CNAME to. Existing
+domains keep the target their live claim was issued with, because that is
+what their customers published, and keep working. Add `--reissue-claims`
+to re-issue the ownership claim of every live domain still on the old
+target: those domains return to `pending_dns` with new instructions (new
+TXT value and the new CNAME) until their customers update both records,
+so announce it first. The old name must keep resolving to the edge until
+the last customer has moved.
+
 ## Reconciliation
 
 Caddy starts from a bootstrap configuration (admin listener on
