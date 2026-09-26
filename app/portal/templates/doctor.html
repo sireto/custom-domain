@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block title %}Doctor{% endblock %}
+{% block content %}
+<h1>Doctor</h1>
+<p class="muted">{{ ok }} ok, {{ warn }} warning(s), {{ fail }} failure(s). The same checks as <code>custom-domain doctor</code>; reload to run again.</p>
+<div class="card"><table><tr><th></th><th>Check</th><th>Detail</th></tr>
+{% for f in findings %}<tr><td class="{{ f.status }}"><b>{{ f.status|upper }}</b></td><td>{{ f.check }}</td><td>{{ f.detail }}</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

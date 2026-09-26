@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% block title %}Sign in{% endblock %}
+{% block content %}
+<h1>Sign in</h1>
+<div class="card" style="max-width:420px">
+<form method="post" action="/portal/login">
+  <input type="hidden" name="next" value="{{ next }}">
+  <label for="password">Operator password (PORTAL_PASSWORD)</label>
+  <input type="password" id="password" name="password" autofocus autocomplete="current-password">
+  <p><button type="submit">Sign in</button></p>
+</form>
+</div>
+{% endblock %}

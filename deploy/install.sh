@@ -99,6 +99,7 @@ POSTGRES_PASSWORD=${pg_password}
 ACME_EMAIL=${ACME_EMAIL:-}
 EDGE_ASSERTION_KEYS=1:$(secret 32)
 EDGE_TOKEN=$(secret 24)
+PORTAL_PASSWORD=$(secret 16)
 CADDY_REDIS_PASSWORD=$(secret 24)
 CADDY_REDIS_ENCRYPTION_KEY=$(secret 32)
 CUSTOM_DOMAIN_IMAGE=${IMAGE}
@@ -138,6 +139,9 @@ Next steps
   1. Create a DNS record for the name customers will CNAME to (for example
      edge.example.net): A ${ip4:-<ipv4>}${ip6:+ and AAAA ${ip6}}.
   2. Check the deployment:        custom-domain doctor
+     or open the portal from your machine through an SSH tunnel:
+       ssh -N -L 9000:127.0.0.1:9000 root@${ip4:-<server>}   then   http://localhost:9000/portal
+     (password: PORTAL_PASSWORD in ${DIR}/deploy/.env)
   3. Create an application:       custom-domain application create --slug acme --name "Acme" --cname-target edge.example.net
      register its origin:         custom-domain origin register --application acme --host app.acme.example --scheme https --port 443
      verify and activate it:      custom-domain origin verify --application acme --host app.acme.example --activate

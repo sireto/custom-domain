@@ -1,0 +1,32 @@
+{% extends "base.html" %}{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<div class="card">
+  <div class="stats">
+    <div class="stat"><b>{{ application_count }}</b>applications</div>
+    {% for status, n in counts.items() %}<div class="stat"><b>{{ n }}</b>{{ status }}</div>{% endfor %}
+  </div>
+</div>
+<div class="grid">
+  <div class="card">
+    <h2 style="margin-top:0">Edge</h2>
+    {% if edge_settings %}
+    <p>Reconciler: {% if edge_settings.reconcile_enabled %}enabled{% else %}<span class="warn">disabled in this process</span> (the worker container runs it){% endif %}<br>
+    HTTPS: {% if edge_settings.disable_https %}<span class="warn">off</span>{% else %}{{ edge_settings.tls_issuer }}{% endif %}</p>
+    {% endif %}
+    <p>Last reconciliation: {% if lock and lock.locked_at %}{{ lock.locked_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC by <code>{{ lock.holder }}</code>{% else %}<span class="muted">none yet</span>{% endif %}</p>
+    <p><a href="/portal/edge">Edge configuration</a> · <a href="/portal/doctor">Run doctor</a></p>
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">Applications</h2>
+    {% if applications %}<ul>{% for a in applications %}<li><a href="/portal/applications/{{ a.slug }}">{{ a.slug }}</a> <span class="muted">{{ a.name }} · {{ a.status.value }}</span></li>{% endfor %}</ul>
+    {% else %}<p class="muted">None yet. <a href="/portal/applications">Create the first one.</a></p>{% endif %}
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">Maintenance</h2>
+    <form method="post" action="/portal/maintenance/purge-tombstones"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <p class="muted">Deleted domains are kept 90 days as tombstones; purge those past retention.</p>
+      <button class="quiet" type="submit">Purge tombstones</button></form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Custom Domain{% endblock %} · Custom Domain portal</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1c1e21;--muted:#5f6670;--line:#d9dde3;--card:#fff;--accent:#2b6cb0;--ok:#2f855a;--warn:#b7791f;--fail:#c53030}
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--fg);background:var(--bg)}
+header{background:#1c1e21;color:#fff;padding:0 24px;display:flex;align-items:center;gap:20px;height:52px}
+header a{color:#cfd6df;text-decoration:none;padding:6px 0}header a.brand{color:#fff;font-weight:600}header a:hover{color:#fff}
+header form{margin-left:auto}main{max-width:1100px;margin:0 auto;padding:24px}
+h1{font-size:22px;margin:0 0 16px}h2{font-size:17px;margin:28px 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px 18px;margin-bottom:18px}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:600}
+.notice{background:#e6f4ea;border:1px solid #b7dfc2;color:#1f5a35;padding:10px 12px;border-radius:6px;margin-bottom:16px}
+.error{background:#fde8e8;border:1px solid #f5b5b5;color:#8a1c1c;padding:10px 12px;border-radius:6px;margin-bottom:16px}
+.secret{background:#fff8e1;border:1px solid #f0d58c;padding:12px;border-radius:6px;margin-bottom:16px;font-family:ui-monospace,Menlo,monospace;word-break:break-all}
+form.inline{display:inline}label{display:block;font-size:13px;color:var(--muted);margin:8px 0 2px}
+input[type=text],input[type=password],input[type=number],select,textarea{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:6px;font:inherit}
+textarea{min-height:100px;font-family:ui-monospace,Menlo,monospace}
+button{font:inherit;padding:6px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+button.quiet{background:#fff;color:var(--accent)}button.danger{border-color:var(--fail);background:#fff;color:var(--fail)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:#e9ecf1}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.fail{color:var(--fail)}.muted{color:var(--muted)}code{font-family:ui-monospace,Menlo,monospace;font-size:13px}
+.row{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.row>*{flex:1}.row>.fixed{flex:0 0 auto}
+.stats{display:flex;gap:18px;flex-wrap:wrap}.stat{min-width:120px}.stat b{font-size:22px;display:block}
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/portal">Custom Domain</a>
+  <a href="/portal/applications">Applications</a>
+  <a href="/portal/edge">Edge</a>
+  <a href="/portal/doctor">Doctor</a>
+  <a href="/portal/legacy">Legacy import</a>
+  {% if csrf %}<form method="post" action="/portal/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="quiet" type="submit">Sign out</button></form>{% endif %}
+</header>
+<main>
+{% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

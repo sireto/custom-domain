@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% block title %}Applications{% endblock %}
+{% block content %}
+<h1>Applications</h1>
+<div class="card">
+<table><tr><th>Slug</th><th>Name</th><th>Status</th><th>CNAME target</th><th>Workspace probe</th></tr>
+{% for a in applications %}<tr><td><a href="/portal/applications/{{ a.slug }}">{{ a.slug }}</a></td><td>{{ a.name }}</td><td>{{ a.status.value }}</td><td><code>{{ a.cname_target }}</code></td><td>{{ 'required' if a.workspace_probe_enabled else 'not required' }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">No applications yet.</td></tr>{% endfor %}
+</table>
+</div>
+<h2>Create an application</h2>
+<div class="card">
+<form method="post" action="/portal/applications"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="row">
+    <div><label for="slug">Slug</label><input type="text" id="slug" name="slug" required value="{{ form.slug if form else '' }}" placeholder="acme"></div>
+    <div><label for="name">Name</label><input type="text" id="name" name="name" required value="{{ form.name if form else '' }}" placeholder="Acme"></div>
+    <div><label for="cname_target">CNAME target (the edge name customers point at)</label><input type="text" id="cname_target" name="cname_target" required value="{{ form.cname_target if form else '' }}" placeholder="edge.example.net"></div>
+    <div class="fixed"><button type="submit">Create</button></div>
+  </div>
+</form>
+</div>
+{% endblock %}

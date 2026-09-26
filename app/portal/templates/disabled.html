@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block title %}Portal disabled{% endblock %}
+{% block content %}
+<h1>The portal is disabled</h1>
+<div class="card">
+<p>Set <code>PORTAL_PASSWORD</code> (at least 12 characters) in the service's environment and restart it. The command line (<code>custom-domain --help</code>) offers the same actions meanwhile.</p>
+</div>
+{% endblock %}

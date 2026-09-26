@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% block title %}{{ domain.hostname }}{% endblock %}
+{% block content %}
+<p><a href="/portal/applications/{{ application.slug }}">← {{ application.slug }}</a></p>
+<h1><code>{{ domain.hostname }}</code> <span class="pill">{{ domain.status.value }}</span></h1>
+<div class="grid">
+<div class="card"><h2 style="margin-top:0">Checks</h2>
+<table><tr><th>Check</th><th>Status</th><th>Error</th><th>Message</th><th>Observed</th><th>Next</th></tr>
+{% for c in domain.checks|sort(attribute='check_type.value') %}<tr><td>{{ c.check_type.value }}</td><td class="{{ 'ok' if c.status.value == 'passing' else ('fail' if c.status.value == 'failing' else 'muted') }}">{{ c.status.value }}</td><td><code>{{ c.error_code or '' }}</code></td><td>{{ c.message or '' }}</td><td class="muted">{{ c.observed_at.strftime('%Y-%m-%d %H:%M') if c.observed_at else '' }}</td><td class="muted">{{ c.next_check_at.strftime('%Y-%m-%d %H:%M') if c.next_check_at else '' }}</td></tr>{% endfor %}
+</table></div>
+<div class="card"><h2 style="margin-top:0">DNS records the customer publishes</h2>
+<table><tr><th>Type</th><th>Name</th><th>Value</th></tr>
+{% for r in records %}<tr><td>{{ r.type }}</td><td><code>{{ r.name }}</code></td><td><code>{{ r.value }}</code></td></tr>{% else %}<tr><td colspan="3" class="muted">None (deleted domain).</td></tr>{% endfor %}
+</table>
+<p class="muted">Reference <code>{{ domain.reference }}</code> · created {{ domain.created_at.strftime('%Y-%m-%d %H:%M') }} UTC{% if domain.deleted_at %} · deleted {{ domain.deleted_at.strftime('%Y-%m-%d %H:%M') }} UTC{% endif %}</p>
+</div>
+</div>
+<h2>Events</h2>
+<div class="card"><table><tr><th>Time</th><th>Event</th><th>Details</th></tr>
+{% for e in events %}<tr><td class="muted">{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td><td>{{ e.event_type }}</td><td><code>{{ e.payload }}</code></td></tr>{% endfor %}
+</table></div>
+{% endblock %}

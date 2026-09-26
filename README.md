@@ -119,6 +119,11 @@ reconciler, and that each application's CNAME target reaches the edge.
 
 ## Operating it
 
+Every operator action is available in two equivalent forms: the
+`custom-domain` command below, and the **portal** at `/portal` of the
+management API (set `PORTAL_PASSWORD` to enable it; reach it over an SSH
+tunnel to port 9000, see [docs/portal.md](docs/portal.md)).
+
 Everything an operator does is a `custom-domain` command (run it inside the
 container, or with `uv run custom-domain` in a checkout):
 
@@ -198,6 +203,7 @@ code and a message the application can show to the customer.
 - [docs/lifecycle.md](docs/lifecycle.md): the status machine, the workspace probe and the worker.
 - [docs/webhooks.md](docs/webhooks.md): subscriptions, signatures, delivery and replay.
 - [docs/deployment.md](docs/deployment.md): production layout, secrets, monitoring, backups and rollback.
+- [docs/portal.md](docs/portal.md): the operator portal, how to reach it and what it protects against.
 - [docs/operations.md](docs/operations.md) and [docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md): certificate storage, multi-instance coordination, trust boundaries.
 
 ## Development
