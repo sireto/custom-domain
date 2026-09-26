@@ -64,26 +64,40 @@ def is_edge_name(session: Session, hostname: str) -> bool:
     answers over HTTPS there; that is how `custom-domain doctor` confirms
     that the name customers CNAME to reaches this edge and that issuance
     works. Only the health route matches such a request, so nothing is
-    proxied for it.
+    proxied for it. Former targets still named by live claims count too.
     """
     from sqlalchemy import select
 
     from app.hostname import InvalidHostname, canonicalize
-    from app.models import Application
+    from app.models import Application, OwnershipClaim
 
     try:
         canonical = canonicalize(hostname, allow_apex=True)
     except InvalidHostname:
         return False
-    return (
-        session.scalar(
-            select(Application.id).where(
-                Application.cname_target == canonical,
-                Application.status == ApplicationStatus.ACTIVE,
-            )
+    current = session.scalar(
+        select(Application.id).where(
+            Application.cname_target == canonical,
+            Application.status == ApplicationStatus.ACTIVE,
         )
-        is not None
     )
+    if current is not None:
+        return True
+    # A former target that a live claim still names (see
+    # applications.edge_names) must keep its certificate until the last
+    # domain issued against it has moved.
+    former = session.scalar(
+        select(OwnershipClaim.id)
+        .join(Domain, Domain.id == OwnershipClaim.domain_id)
+        .join(Application, Application.id == Domain.application_id)
+        .where(
+            OwnershipClaim.cname_target == canonical,
+            OwnershipClaim.status != ClaimStatus.REVOKED,
+            Domain.deleted_at.is_(None),
+            Application.status == ApplicationStatus.ACTIVE,
+        )
+    )
+    return former is not None
 
 
 class EdgeProber(Protocol):

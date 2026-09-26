@@ -324,9 +324,14 @@ def _application_findings(
                 findings.append(
                     Finding(f"application {application.slug}", "ok", f"origin {origin.url}")
                 )
-            findings.extend(
-                _cname_target_findings(application, settings, dns_settings, resolve, probe_target)
-            )
+            from app.services.applications import edge_names
+
+            for target in edge_names(session, application):
+                findings.extend(
+                    _cname_target_findings(
+                        application, target, settings, dns_settings, resolve, probe_target
+                    )
+                )
     return findings
 
 
@@ -356,6 +361,7 @@ def _publicly_routable(address) -> bool:
 
 def _cname_target_findings(
     application: Application,
+    target: str,
     settings: EdgeSettings,
     dns_settings: DnsSettings,
     resolve: Resolve,
@@ -371,8 +377,9 @@ def _cname_target_findings(
     """
     import ipaddress
 
-    target = application.cname_target
     check = f"cname target {target}"
+    if target != application.cname_target:
+        check += " (former, still named by live claims)"
     try:
         addresses = resolve(target, dns_settings)
     except Exception as exc:

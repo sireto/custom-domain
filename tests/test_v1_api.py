@@ -456,6 +456,22 @@ def test_internal_tls_ask_follows_certificate_authorization(client, session, ten
     application.status = ApplicationStatus.ACTIVE
     session.commit()
 
+    # After the target changes, the former name stays authorized while a live
+    # claim still names it, and stops once that claim is re-issued.
+    from app.services.applications import set_cname_target
+    from app.services.domains import reissue_claim
+
+    kept_id = client.post(
+        "/v1/domains", json={**BODY, "hostname": "kept.customer.example"}, headers=headers
+    ).json()["id"]
+    set_cname_target(session, application, "moved.edge.example")
+    session.commit()
+    assert client.get(ask, params={"domain": "moved.edge.example"}).status_code == 200
+    assert client.get(ask, params={"domain": target}).status_code == 200  # former, still named
+    reissue_claim(session, application, uuid.UUID(kept_id))
+    session.commit()
+    assert client.get(ask, params={"domain": target}).status_code == 403
+
     # Untrusted client addresses are refused regardless of the domain.
     client.app.state.edge_settings = client.app.state.edge_settings.__class__(
         **{**client.app.state.edge_settings.__dict__, "ask_trusted_hosts": ("127.0.0.1",)}

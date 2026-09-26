@@ -487,6 +487,41 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
     assert "not a public address" in by_check["cname target edge.self.example"].detail
     assert doctor_module.summarize(findings)[2] == 3
 
+    # A former target still named by a live claim stays monitored: the new
+    # target is healthy, the old one is broken, and doctor says so.
+    from app.services.applications import get_application_by_slug, set_cname_target
+    from app.services.domains import claim_domain
+
+    with factory() as s:
+        acme = get_application_by_slug(s, "acme")
+        claim_domain(s, acme, "old.customer.example", "w-old")
+        set_cname_target(s, acme, "edge2.acme.example")
+        claim_domain(s, acme, "new.customer.example", "w-new")
+        s.commit()
+
+    def fake_resolve_moved(host, dns_settings):
+        if host == "edge2.acme.example":
+            return ["203.0.113.30"]
+        if host == "edge.acme.example":
+            raise LookupError("edge.acme.example does not exist in public DNS")
+        return fake_resolve(host, dns_settings)
+
+    def fake_probe_moved(hostname, address, settings):
+        return (204, "1") if hostname == "edge2.acme.example" else (308, None)
+
+    findings = doctor_module.run_doctor(
+        factory,
+        settings,
+        DnsSettings(),
+        http_get=fake_http_get,
+        resolve=fake_resolve_moved,
+        probe_target=fake_probe_moved,
+    )
+    by_check = {f.check: f for f in findings}
+    assert by_check["cname target edge2.acme.example"].ok
+    former = by_check["cname target edge.acme.example (former, still named by live claims)"]
+    assert former.status == "fail" and "does not exist" in former.detail
+
     # The command prints the table and fails when a check fails; with the
     # edge gateway unreachable (no edge here) it reports that as a failure.
     monkeypatch.setenv("ENABLE_LEGACY_API", "false")
