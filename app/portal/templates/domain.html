@@ -1,10 +1,10 @@
 {% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}{{ domain.hostname }}{% endblock %}
-{% block crumbs %}<a href="/portal/applications">Applications</a><span class="crumb-sep">/</span><a href="/portal/applications/{{ application.slug }}">{{ application.name }}</a><span class="crumb-sep">/</span><a href="/portal/applications/{{ application.slug }}/domains">Domains</a><span class="crumb-sep">/</span><span class="current">{{ domain.hostname }}</span>{% endblock %}
+{% block crumbs %}<a href="/portal/applications">Applications</a><span class="crumb-sep">/</span><a href="/portal/applications/{{ application.slug }}{{ '/domains' if application.is_deleted }}">{{ application.name }}</a><span class="crumb-sep">/</span><a href="/portal/applications/{{ application.slug }}/domains">Domains</a><span class="crumb-sep">/</span><span class="current">{{ domain.hostname }}</span>{% endblock %}
 {% block content %}
 {% set base = '/portal/applications/' ~ application.slug ~ '/domains/' ~ domain.id %}
 <div class="page-head">
   <div><h1>{{ domain.hostname }} {{ ui.badge(state) }}</h1><p>Workspace <code>{{ domain.reference }}</code> in {{ application.name }} · registered {{ ui.when(domain.created_at) }}</p></div>
-  {% if not domain.is_deleted %}<div class="actions">
+  {% if not domain.is_deleted and not application.is_deleted %}<div class="actions">
     {{ ui.post(base ~ '/recheck', csrf, 'Check now', 'btn') }}
     {{ ui.confirm(base ~ '/reissue', csrf, 'Issue new records', 'The customer will have to publish a new TXT value (and the current CNAME target). Until then the hostname is not served. Use this if the old token leaked or the CNAME target changed.', 'Issue new records', danger=true, small=false) }}
     {{ ui.confirm(base ~ '/delete', csrf, 'Delete', 'The edge stops serving ' ~ domain.hostname ~ ' at once. The hostname can be registered again later, with new DNS records.', 'Delete hostname', danger=true, small=false) }}

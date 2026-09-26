@@ -65,7 +65,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the name customers CNAME to (default: EDGE_HOSTNAME)",
     )
     create.set_defaults(func=_application_create)
-    application.add_parser("list").set_defaults(func=_application_list)
+    app_list = application.add_parser("list")
+    app_list.add_argument(
+        "--deleted",
+        action="store_true",
+        help="list deleted applications whose records are still retained",
+    )
+    app_list.set_defaults(func=_application_list)
     probe_flag = application.add_parser(
         "set-workspace-probe",
         help="require (or not) the origin's workspace echo for readiness",
@@ -330,6 +336,14 @@ def _application_create(args) -> int:
 
 def _application_list(args) -> int:
     with get_session_factory()() as session:
+        if getattr(args, "deleted", False):
+            for application in app_service.list_deleted_applications(session):
+                print(
+                    f"{application.slug}\t{application.name}\t"
+                    f"deleted {application.deleted_at.isoformat()}\t"
+                    f"kept until {application.purge_after.isoformat()}\t{application.id}"
+                )
+            return 0
         for application in app_service.list_applications(session):
             print(
                 f"{application.slug}\t{application.status.value}\t"

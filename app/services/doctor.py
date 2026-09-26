@@ -45,6 +45,8 @@ class Finding:
     check: str
     status: str  # "ok", "warn" or "fail"
     detail: str
+    # For edge-name checks: the addresses that answered as this edge.
+    reached: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -517,7 +519,26 @@ def _cname_target_findings(
         else:
             problems.append(f"{address}: HTTP {status} without this edge's marker")
     if not problems and not unverifiable:
-        return [Finding(check, "ok", f"{', '.join(addresses)} all answer {url} as this edge")]
+        return [
+            Finding(
+                check,
+                "ok",
+                f"{', '.join(addresses)} all answer {url} as this edge",
+                reached=tuple(reached),
+            )
+        ]
+    if not problems and not reached:
+        # Only IPv6 addresses, none routable from here: nothing is verified.
+        return [
+            Finding(
+                check,
+                "warn",
+                f"has only IPv6 address(es) ({', '.join(unverifiable)}), which cannot be "
+                "checked from this container (no IPv6 route here, which is normal inside "
+                f"Docker), so it is not verified that they reach this edge. Verify from "
+                f"outside: curl -6 -I {url}",
+            )
+        ]
     if not problems:
         return [
             Finding(
@@ -527,6 +548,7 @@ def _cname_target_findings(
                 f"{', '.join(unverifiable)} could not be checked from this container (no "
                 "IPv6 route here, which is normal inside Docker). Verify from outside: "
                 f"curl -6 -I {url}",
+                reached=tuple(reached),
             )
         ]
     if unverifiable:

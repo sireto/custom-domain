@@ -112,16 +112,17 @@ def delete_application(
 
     Nothing is removed yet, so the audit trail keeps its retention promise:
     every live domain becomes a tombstone with its claim revoked and the usual
-    ``domain.deleted`` event, API keys are revoked, origins retired and
-    webhooks revoked, and the application is suspended and hidden. Its slug
-    is freed at once. ``purge_tombstones`` removes the row and everything it
+    ``domain.deleted`` event, which the application's webhooks still receive
+    (the worker revokes them once those deliveries are settled). API keys are
+    revoked, origins retired, and the application is suspended and hidden.
+    Its slug is freed at once. ``purge_tombstones`` removes the row and everything it
     owns once the retention period of its last domain has passed.
 
     ``confirm_slug`` must repeat the slug. While live domains exist the call
     is refused unless ``delete_domains`` is set, so customers' hostnames are
     never dropped by accident.
     """
-    from app.models import Domain, WebhookSubscription
+    from app.models import Domain
     from app.services.domains import TOMBSTONE_RETENTION, delete_domain
 
     if (confirm_slug or "").strip() != application.slug:
@@ -148,11 +149,9 @@ def delete_application(
     for origin in list_origins(session, application):
         origin.is_active = False
         origin.status = OriginStatus.RETIRED
-    for subscription in session.scalars(
-        select(WebhookSubscription).where(WebhookSubscription.application_id == application.id)
-    ):
-        if subscription.revoked_at is None:
-            subscription.revoked_at = now
+    # Webhooks stay active so the domain.deleted events queued above are
+    # delivered; the webhook worker revokes them once nothing is pending
+    # (app.webhooks.worker.settle_deleted_applications).
     latest_purge = session.scalar(
         select(func.max(Domain.purge_after)).where(Domain.application_id == application.id)
     )
@@ -211,15 +210,23 @@ def edge_names(session: Session, application: Application) -> list[str]:
 
 def get_application(session: Session, application_id: uuid.UUID) -> Application:
     application = session.get(Application, application_id)
-    if application is None:
+    if application is None or application.is_deleted:
         raise ApplicationNotFound()
     return application
 
 
-def get_application_by_slug(session: Session, slug: str) -> Application:
-    application = session.scalar(
-        select(Application).where(Application.slug == slug, Application.deleted_at.is_(None))
-    )
+def get_application_by_slug(
+    session: Session, slug: str, *, include_deleted: bool = False
+) -> Application:
+    """The application with ``slug``; deleted (archived) ones only when asked for.
+
+    A deleted application keeps a suffixed slug (``acme~1a2b3c4d5e6f``) until
+    it is purged, so its retained records can still be read by that slug.
+    """
+    query = select(Application).where(Application.slug == slug)
+    if not include_deleted:
+        query = query.where(Application.deleted_at.is_(None))
+    application = session.scalar(query)
     if application is None:
         raise ApplicationNotFound(f"Application '{slug}' not found")
     return application
@@ -229,6 +236,17 @@ def list_applications(session: Session) -> list[Application]:
     return list(
         session.scalars(
             select(Application).where(Application.deleted_at.is_(None)).order_by(Application.slug)
+        )
+    )
+
+
+def list_deleted_applications(session: Session) -> list[Application]:
+    """Deleted applications whose records are still retained, newest first."""
+    return list(
+        session.scalars(
+            select(Application)
+            .where(Application.deleted_at.is_not(None))
+            .order_by(Application.deleted_at.desc())
         )
     )
 

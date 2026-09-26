@@ -29,6 +29,7 @@
   {% endif %}
 </div>
 
+{% if not application.is_deleted %}
 <div class="card">
   <div class="card-head"><div><h2>Register a hostname</h2><p>Normally done by your product through the API. The customer then publishes the two DNS records shown on the hostname's page.</p></div></div>
   <form method="post" action="/portal/applications/{{ application.slug }}/domains"><input type="hidden" name="csrf" value="{{ csrf }}">
@@ -40,4 +41,5 @@
     <div class="card-foot small muted">The workspace reference is your product's identifier for the customer's workspace. The edge passes it to your backend with every request for this hostname.</div>
   </form>
 </div>
+{% endif %}
 {% endblock %}

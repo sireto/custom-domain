@@ -22,4 +22,18 @@
   {% call ui.empty('No applications yet', 'Create one for each product that lets its customers use their own domain.', 'globe') %}<a class="btn btn-primary" href="/portal/new-application">New application</a>{% endcall %}
 {% endif %}
 </div>
+{% if deleted_applications %}
+<div class="card">
+  <div class="card-head"><div><h2>Deleted applications</h2><p>Nothing of these is served. Their hostnames' records and history are kept for auditing until the date shown, then purged.</p></div></div>
+  <div class="table-wrap"><table>
+    <tr><th>Application</th><th>Deleted</th><th>Kept until</th><th></th></tr>
+    {% for a in deleted_applications %}<tr>
+      <td><b>{{ a.name }}</b><div class="muted small">{{ a.slug.split('~')[0] }}</div></td>
+      <td class="small">{{ ui.when(a.deleted_at) }}</td>
+      <td class="small">{{ a.purge_after.strftime('%Y-%m-%d') }}</td>
+      <td class="num"><a class="btn btn-sm" href="/portal/applications/{{ a.slug }}/domains">View records</a></td>
+    </tr>{% endfor %}
+  </table></div>
+</div>
+{% endif %}
 {% endblock %}

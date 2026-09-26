@@ -45,6 +45,9 @@
 
 {% macro app_tabs(application, active, counts={}) -%}
 {% set base = '/portal/applications/' ~ application.slug %}
+{% if application.is_deleted %}
+<div class="alert alert-warn"><div><b>This application was deleted {{ application.deleted_at.strftime('%Y-%m-%d') }}</b><p class="body">Nothing here is served any more, and nothing can be changed. Its hostnames' DNS records, checks and history are kept for auditing until {{ application.purge_after.strftime('%Y-%m-%d') }}, then purged.</p></div></div>
+{% else %}
 <nav class="tabs">
   <a href="{{ base }}" class="{{ 'active' if active == 'overview' }}">Overview</a>
   <a href="{{ base }}/domains" class="{{ 'active' if active == 'domains' }}">Domains{% if counts.domains is defined %}<span class="count">{{ counts.domains }}</span>{% endif %}</a>
@@ -53,6 +56,7 @@
   <a href="{{ base }}/webhooks" class="{{ 'active' if active == 'webhooks' }}">Webhooks</a>
   <a href="{{ base }}/settings" class="{{ 'active' if active == 'settings' }}">Settings</a>
 </nav>
+{% endif %}
 {%- endmacro %}
 
 {% macro app_head(application, app_state, subtitle='') -%}
@@ -66,5 +70,5 @@
 {%- endmacro %}
 
 {% macro app_crumbs(application, page='') -%}
-<a href="/portal/applications">Applications</a><span class="crumb-sep">/</span>{% if page %}<a href="/portal/applications/{{ application.slug }}">{{ application.name }}</a><span class="crumb-sep">/</span><span class="current">{{ page }}</span>{% else %}<span class="current">{{ application.name }}</span>{% endif %}
+<a href="/portal/applications">Applications</a><span class="crumb-sep">/</span>{% if page %}<a href="/portal/applications/{{ application.slug }}{{ '/domains' if application.is_deleted }}">{{ application.name }}</a><span class="crumb-sep">/</span><span class="current">{{ page }}</span>{% else %}<span class="current">{{ application.name }}</span>{% endif %}
 {%- endmacro %}

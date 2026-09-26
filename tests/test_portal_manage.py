@@ -74,8 +74,14 @@ def test_application_overview_shows_setup_progress_and_target_dns(portal):
     _create(client, csrf)
     page = client.get("/portal/applications/acme?ok=application_created").text
     assert "Application created" in page
-    assert "1 of 6 done" in page  # the CNAME target resolves; nothing else is set up
-    assert "edge.example.net resolves to 93.184.216.34" in page
+    # Resolving is not enough: the step waits until reachability is verified.
+    assert "0 of 6 done" in page and "Verify that those addresses reach this edge" in page
+    verified = client.get("/portal/applications/acme?verify=1").text
+    assert "1 of 6 done" in verified and "reaches this edge at 93.184.216.34" in verified
+    # The result is remembered, so the next plain load does not probe again.
+    client.app.state.portal_probe = None
+    assert "1 of 6 done" in client.get("/portal/applications/acme").text
+    client.app.state.portal_probe = lambda name, address, settings: (204, "1")
     _create(client, csrf, "beta", "domains.beta.example")
     beta = client.get("/portal/applications/beta").text
     assert "0 of 6 done" in beta and "no A or AAAA record in public DNS yet" in beta
@@ -172,7 +178,8 @@ def test_application_rename_and_delete(portal, session):
     )
     assert gone.status_code == 303 and gone.headers["location"].startswith("/portal/applications")
     assert client.get("/portal/applications/acme").status_code == 404
-    assert "Acme Forms" not in client.get("/portal/applications").text
+    listing = client.get("/portal/applications").text
+    assert "Deleted applications" in listing and "Acme Forms" in listing
     with session_scope(session) as s:
         from sqlalchemy import select
 
@@ -187,6 +194,31 @@ def test_application_rename_and_delete(portal, session):
         assert all(c.revoked_at is not None for c in archived.credentials)
         assert all(not o.is_active and o.status.value == "retired" for o in archived.origins)
         assert s.scalar(select(WebhookSubscription)) is None
+    # The retained records can be read, but nothing can be changed.
+    with session_scope(session) as s:
+        from app.models import Application
+
+        archived_slug = s.scalar(
+            select(Application.slug).where(Application.deleted_at.is_not(None))
+        )
+    records = client.get(f"/portal/applications/{archived_slug}/domains")
+    assert records.status_code == 200 and "forms.customer.example" in records.text
+    assert (
+        "This application was deleted" in records.text and "Register a hostname" not in records.text
+    )
+    tombstone_page = client.get(f"/portal/applications/{archived_slug}/domains/{domain_id}")
+    assert tombstone_page.status_code == 200 and "Hostname deleted" in tombstone_page.text
+    assert "Issue new records" not in tombstone_page.text
+    settings_page = client.get(
+        f"/portal/applications/{archived_slug}/settings", follow_redirects=False
+    )
+    assert settings_page.status_code == 303
+    assert (
+        client.post(
+            f"/portal/applications/{archived_slug}/name", data={"csrf": csrf, "name": "x"}
+        ).status_code
+        == 404
+    )
     # The slug and the hostname can be used again at once.
     _create(client, csrf, "acme")
     _create(client, csrf, "beta")
@@ -400,12 +432,56 @@ def test_setup_step_needs_the_target_to_reach_this_edge(portal):
     _create(client, csrf)
     # The target resolves, but the address answers as some other server.
     client.app.state.portal_probe = lambda name, address, settings: (404, None)
-    page = client.get("/portal/applications/acme").text
+    page = client.get("/portal/applications/acme?verify=1").text
     assert "0 of 6 done" in page
     assert "do not answer as this edge" in page
     client.app.state.portal_probe = lambda name, address, settings: (204, "1")
-    page = client.get("/portal/applications/acme").text
+    page = client.get("/portal/applications/acme?verify=1").text
     assert "1 of 6 done" in page and "reaches this edge" in page
+
+
+def test_ipv6_only_target_is_not_marked_as_reaching_the_edge(portal):
+    """Unroutable IPv6 from inside Docker is a warning, but it proves nothing."""
+    import errno
+
+    from tests.test_portal import PUBLISHED
+
+    client = portal
+    sign_in(client)
+    csrf = csrf_of(client)
+    _create(client, csrf, "six", "six.example.net")
+    PUBLISHED["six.example.net"] = ["2606:4700::1111"]
+
+    def no_ipv6_route(name, address, settings):
+        raise OSError(errno.ENETUNREACH, "Network is unreachable")
+
+    client.app.state.portal_probe = no_ipv6_route
+    try:
+        page = client.get("/portal/applications/six?verify=1").text
+        assert "0 of 6 done" in page and "only IPv6 addresses" in page
+        edge = client.get("/portal/edge?verify=1").text
+        assert "Not verifiable from here" in edge
+    finally:
+        del PUBLISHED["six.example.net"]
+        client.app.state.portal_probe = lambda name, address, settings: (204, "1")
+
+
+def test_oversized_key_inputs_are_form_errors(portal, session):
+    client = portal
+    sign_in(client)
+    csrf = csrf_of(client)
+    _create(client, csrf)
+    base = "/portal/applications/acme/credentials"
+    huge = client.post(base, data={"csrf": csrf, "label": "x", "expires_in_days": "9" * 30})
+    assert huge.status_code == 400 and "between 1 and 3650 days" in huge.text
+    client.post(base, data={"csrf": csrf, "label": "backend"})
+    with session_scope(session) as s:
+        acme = app_service.get_application_by_slug(s, "acme")
+        credential_id = app_service.list_credentials(s, acme)[0].id
+    rotated = client.post(
+        f"{base}/{credential_id}/rotate", data={"csrf": csrf, "grace_hours": "9" * 30}
+    )
+    assert rotated.status_code == 400 and "between 0 and 720 hours" in rotated.text
 
 
 def test_domain_page_uses_the_registrable_zone(portal):
@@ -420,3 +496,75 @@ def test_domain_page_uses_the_registrable_zone(portal):
     assert (
         ">forms.customer<" not in page and ">_custom-domain-challenge.forms.customer<" not in page
     )
+
+
+def test_deleting_an_application_still_notifies_its_webhooks(session, session_factory):
+    from sqlalchemy import select
+
+    from app.models import WebhookDelivery, WebhookSubscription
+    from app.services import webhooks as webhook_service
+    from app.webhooks.worker import deliver_due, settle_deleted_applications
+
+    acme = app_service.create_application(
+        session, slug="acme", name="Acme", cname_target="edge.example.net"
+    )
+    subscription, _ = webhook_service.create_subscription(
+        session, acme, url="http://localhost:9/hook", events=["domain.deleted"], allow_private=True
+    )
+    domain_service.claim_domain(session, acme, "forms.customer.example", "ws_1")
+    app_service.delete_application(session, acme, confirm_slug="acme", delete_domains=True)
+    session.commit()
+
+    # Still active while the domain.deleted delivery is pending.
+    assert settle_deleted_applications(session_factory) == 0
+    sent = []
+
+    def sender(url, body, headers):
+        sent.append(body)
+        return 200, "ok"
+
+    result = deliver_due(session_factory, sender=sender)
+    assert result.delivered == 1 and b"domain.deleted" in sent[0]
+    assert settle_deleted_applications(session_factory) == 1
+    session.expire_all()
+    assert session.get(WebhookSubscription, subscription.id).revoked_at is not None
+    assert session.scalar(select(WebhookDelivery)).delivered_at is not None
+
+
+def test_reissuing_for_a_new_target_covers_every_domain(session):
+    from datetime import datetime
+
+    acme = app_service.create_application(
+        session, slug="acme", name="Acme", cname_target="edge.example.net"
+    )
+    start = datetime(2026, 1, 1, tzinfo=utcnow().tzinfo)
+    total = 205  # more than a page (200); registrations spaced under the hourly limit
+    for i in range(total):
+        domain_service.claim_domain(
+            session,
+            acme,
+            f"d{i}.customer.example",
+            f"ws_{i}",
+            now=start + timedelta(seconds=31 * i),
+        )
+    app_service.set_cname_target(session, acme, "edge2.example.net")
+    assert domain_service.reissue_claims_for_target(session, acme) == total
+    assert domain_service.reissue_claims_for_target(session, acme) == 0  # all moved
+
+
+def test_cli_lists_deleted_applications(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'cli.db'}")
+    import app.db.session as session_module
+
+    monkeypatch.setattr(session_module, "_engine", None)
+    monkeypatch.setattr(session_module, "_session_factory", None)
+    assert cli.main(["db", "upgrade"]) == 0
+    create = ["application", "create", "--slug", "acme", "--name", "Acme"]
+    assert cli.main([*create, "--cname-target", "edge.example.net"]) == 0
+    assert cli.main(["application", "delete", "--application", "acme", "--confirm", "acme"]) == 0
+    capsys.readouterr()
+    assert cli.main(["application", "list"]) == 0
+    assert "acme" not in capsys.readouterr().out
+    assert cli.main(["application", "list", "--deleted"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("acme~") and "kept until" in out

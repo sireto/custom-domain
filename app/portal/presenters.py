@@ -136,6 +136,14 @@ def domain_state(domain: Domain) -> State:
 
 
 def application_state(application: Application) -> State:
+    if application.is_deleted:
+        return State(
+            "Deleted",
+            "muted",
+            "Read only. Its records are kept until "
+            + application.purge_after.strftime("%Y-%m-%d")
+            + " for auditing, then purged.",
+        )
     return APPLICATION_STATES[application.status]
 
 
@@ -360,19 +368,25 @@ def application_steps(
     elif reach is None:
         dns_done = False
         dns_detail = (
-            f"{target} resolves to {', '.join(target_dns.addresses)}, but whether that is "
-            "this server has not been checked."
+            f"{target} resolves to {', '.join(target_dns.addresses)}. Verify that those "
+            "addresses reach this edge."
         )
-    elif reach.status == "ok":
+    elif reach.status in ("ok", "warn") and reach.reached:
+        # Done only when at least one address actually answered as this edge.
         dns_done = True
-        dns_detail = (
-            f"{target} resolves to {', '.join(target_dns.addresses)} and reaches this edge."
-        )
+        if reach.status == "ok":
+            dns_detail = f"{target} reaches this edge at {', '.join(reach.reached)}."
+        else:
+            dns_detail = (
+                f"{target} reaches this edge at {', '.join(reach.reached)}. Its IPv6 "
+                "address could not be checked from here; test it from outside."
+            )
     elif reach.status == "warn":
-        dns_done = True
+        dns_done = False
         dns_detail = (
-            f"{target} reaches this edge over IPv4. Its IPv6 address could not be checked "
-            "from here; test it from outside."
+            f"{target} has only IPv6 addresses ({', '.join(target_dns.addresses)}), which "
+            "cannot be checked from inside Docker. Add an A record for this server, or "
+            "verify IPv6 from outside."
         )
     else:
         dns_done = False
@@ -385,8 +399,8 @@ def application_steps(
             "Point the CNAME target at this edge",
             dns_done,
             dns_detail,
-            "/portal/edge",
-            "DNS for the edge",
+            f"{base}?verify=1" if target_dns and target_dns.addresses else "/portal/edge",
+            "Verify now" if target_dns and target_dns.addresses else "DNS for the edge",
         ),
         Step(
             "Register the application's backend (origin)",
@@ -456,11 +470,14 @@ class EdgeNameView:
             return State("No A/AAAA record", "fail")
         if self.reachability is not None:
             status = self.reachability.status
-            return {
-                "ok": State("Reaches this edge", "ok"),
-                "warn": State("Partly verified", "warn"),
-            }.get(status, State("Does not reach this edge", "fail"))
-        return State("Resolves", "progress")
+            if status == "ok":
+                return State("Reaches this edge", "ok")
+            if status == "warn" and self.reachability.reached:
+                return State("Reaches this edge over IPv4", "warn")
+            if status == "warn":
+                return State("Not verifiable from here", "warn")
+            return State("Does not reach this edge", "fail")
+        return State("Resolves, not verified", "progress")
 
     @property
     def ipv4(self) -> list[str]:

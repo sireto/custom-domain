@@ -144,14 +144,17 @@ cascades to events.
 
 Deleting an application (`application delete`, or the portal) follows the
 same rule. It tombstones every live domain as above, revokes the
-application's credentials and webhooks, retires its origins, suspends it and
-sets its own `deleted_at` and `purge_after` (the latest `purge_after` of its
-domains, and at least 90 days). The row stays, hidden from listings, with
-its slug suffixed so the slug can be used again at once. `purge-tombstones`
-removes a deleted application once its `purge_after` has passed and none of
-its domains remains; its credentials, origins, webhooks and events go with
-it by cascade. Until then its domains' claims, checks and events are
-available for audit exactly like any other tombstone's.
+application's credentials, retires its origins, suspends it and sets its own
+`deleted_at` and `purge_after` (the latest `purge_after` of its domains, and
+at least 90 days). Its webhooks stay active until the `domain.deleted`
+events for those domains are delivered or abandoned; the webhook worker then
+revokes them. The row stays with its slug suffixed (`acme~1a2b3c4d5e6f`), so
+the slug can be used again at once. Deleted applications are listed by
+`application list --deleted` and under "Deleted applications" in the
+portal, where their domains, checks and history can be read (nothing can be
+changed). `purge-tombstones` removes a deleted application once its
+`purge_after` has passed and none of its domains remains; its credentials,
+origins, webhooks and events go with it by cascade.
 
 Reassignment between applications or workspaces is only ever delete followed
 by a fresh claim. There is no in-place transfer, so a verified claim never

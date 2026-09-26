@@ -17,7 +17,7 @@
       <td>{{ ui.badge(n.state) }}{% if n.reachability and not n.reachability.ok %}<div class="small muted" style="margin-top:6px;max-width:380px">{{ n.reachability.detail }}</div>{% endif %}</td>
     </tr>{% endfor %}
   </table></div>
-  <div class="card-foot small muted">{% if verified %}Reachability checked just now: each address was asked for this edge's health check over {{ 'HTTP' if settings.disable_https else 'HTTPS' }}, exactly as a customer's browser would connect.{% else %}Public DNS was looked up just now. <b>Verify reachability</b> also connects to every address to confirm it is this edge (a few seconds per name).{% endif %} IPv6 cannot be checked from inside Docker; test it from outside with <code>curl -6 -I https://&lt;name&gt;/.well-known/custom-domain-edge-health</code>.</div>
+  <div class="card-foot small muted">{% if verified %}Reachability checked just now: each address was asked for this edge's health check over {{ 'HTTP' if settings.disable_https else 'HTTPS' }}, exactly as a customer's browser would connect.{% else %}Public DNS was looked up just now. <b>Verify reachability</b> also connects to every address to confirm it is this edge (a few seconds per name); a result is remembered for ten minutes.{% endif %} IPv6 cannot be checked from inside Docker; test it from outside with <code>curl -6 -I https://&lt;name&gt;/.well-known/custom-domain-edge-health</code>.</div>
   {% else %}
   {{ ui.empty('No names yet', 'Set EDGE_HOSTNAME to give the edge a name of its own, or create an application with a CNAME target.', 'server') }}
   {% endif %}

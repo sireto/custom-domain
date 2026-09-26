@@ -243,6 +243,32 @@ def reissue_claim(
     return claim
 
 
+def reissue_claims_for_target(
+    session: Session, application: Application, *, now: datetime | None = None
+) -> int:
+    """Re-issue every live domain whose claim names another CNAME target.
+
+    Used after the application's CNAME target changes. Walks all of the
+    application's live domains (not a page of them); returns how many were
+    re-issued.
+    """
+    now = now or utcnow()
+    stale = session.scalars(
+        select(Domain.id)
+        .join(OwnershipClaim, OwnershipClaim.domain_id == Domain.id)
+        .where(
+            Domain.application_id == application.id,
+            Domain.deleted_at.is_(None),
+            OwnershipClaim.status != ClaimStatus.REVOKED,
+            OwnershipClaim.cname_target != application.cname_target,
+        )
+        .order_by(Domain.created_at, Domain.id)
+    ).all()
+    for domain_id in stale:
+        reissue_claim(session, application, domain_id, now=now)
+    return len(stale)
+
+
 def mark_claim_verified(
     session: Session,
     domain: Domain,

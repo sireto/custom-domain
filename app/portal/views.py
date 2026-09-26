@@ -405,6 +405,7 @@ def applications(request: Request, session: dict = Operator, db: Session = DbSes
         session,
         section="applications",
         applications=app_service.list_applications(db),
+        deleted_applications=app_service.list_deleted_applications(db),
         per_app=per_app,
         notice=_notice(ok),
         p=presenters,
@@ -459,9 +460,10 @@ def create_application(
     return redirect(f"/portal/applications/{application.slug}?ok=application_created")
 
 
-def _load_application(db: Session, slug: str):
+def _load_application(db: Session, slug: str, *, include_deleted: bool = False):
+    """The application for a page; deleted ones only for the read-only pages."""
     try:
-        return app_service.get_application_by_slug(db, slug)
+        return app_service.get_application_by_slug(db, slug, include_deleted=include_deleted)
     except ServiceError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -478,23 +480,47 @@ def _app_context(db: Session, application) -> dict[str, Any]:
     }
 
 
-def _tab_overview(request, session, db, application, *, status=200, **extra):
+REACHABILITY_TTL = 600.0  # seconds a reachability result is shown without re-probing
+
+
+def _reachability(request: Request, name: str, dns_settings, *, fresh: bool):
+    """The doctor's reachability finding for ``name``: probed now, or remembered."""
+    import time
+
+    from app.services.doctor import check_edge_name
+
+    cache = request.app.state.__dict__.setdefault("portal_reachability", {})
+    settings = _edge_settings(request)
+    if settings is None:
+        return None
+    if fresh:
+        finding = check_edge_name(
+            name,
+            settings,
+            dns_settings,
+            resolve=_resolver(request),
+            probe_target=_prober(request),
+        )
+        cache[name] = (time.monotonic(), finding)
+        return finding
+    remembered = cache.get(name)
+    if remembered and time.monotonic() - remembered[0] < REACHABILITY_TTL:
+        return remembered[1]
+    return None
+
+
+def _tab_overview(request, session, db, application, *, status=200, verify=False, **extra):
     origins = app_service.list_origins(db, application)
     credentials = app_service.list_credentials(db, application)
     ctx = _app_context(db, application)
-    from app.services.doctor import check_edge_name
-
     target = presenters.EdgeNameView(application.cname_target, [])
     dns_settings = _dns_settings()
-    resolve = _resolver(request)
-    presenters.resolve_names([target], resolve, dns_settings)
-    settings = _edge_settings(request)
-    if target.addresses and not target.error and settings is not None:
+    presenters.resolve_names([target], _resolver(request), dns_settings)
+    if target.addresses and not target.error:
         # The setup step is done only when the name reaches this edge, not
-        # merely when it resolves somewhere.
-        target.reachability = check_edge_name(
-            target.name, settings, dns_settings, resolve=resolve, probe_target=_prober(request)
-        )
+        # merely when it resolves. Probing can take seconds per address, so
+        # it runs on request and its result is remembered for a while.
+        target.reachability = _reachability(request, target.name, dns_settings, fresh=verify)
     steps = presenters.application_steps(
         application,
         origins=origins,
@@ -619,9 +645,19 @@ TABS = {
 
 @router.get("/applications/{slug}")
 def application(
-    request: Request, slug: str, session: dict = Operator, db: Session = DbSession, ok: str = ""
+    request: Request,
+    slug: str,
+    session: dict = Operator,
+    db: Session = DbSession,
+    ok: str = "",
+    verify: str = "",
 ):
-    return _tab_overview(request, session, db, _load_application(db, slug), notice=_notice(ok))
+    application = _load_application(db, slug, include_deleted=True)
+    if application.is_deleted:
+        return redirect(f"/portal/applications/{application.slug}/domains")
+    return _tab_overview(
+        request, session, db, application, verify=verify == "1", notice=_notice(ok)
+    )
 
 
 @router.get("/applications/{slug}/domains")
@@ -635,11 +671,14 @@ def application_domains(
     q: str = "",
     offset: int = 0,
 ):
+    application = _load_application(db, slug, include_deleted=True)
+    if application.is_deleted and not status:
+        status = DomainStatus.DELETING.value  # all its domains are tombstones
     return _tab_domains(
         request,
         session,
         db,
-        _load_application(db, slug),
+        application,
         domain_status=status,
         q=q[:253],
         offset=offset,
@@ -658,10 +697,21 @@ def application_tab(
 ):
     if tab not in TABS or tab in ("overview", "domains"):
         raise HTTPException(status_code=404)
-    return TABS[tab](request, session, db, _load_application(db, slug), notice=_notice(ok))
+    application = _load_application(db, slug, include_deleted=True)
+    if application.is_deleted:
+        return redirect(f"/portal/applications/{application.slug}/domains")
+    return TABS[tab](request, session, db, application, notice=_notice(ok))
 
 
-ACTION_ERRORS = (ServiceError, OriginVerificationFailed, InvalidHostname, ValueError)
+ACTION_ERRORS = (
+    ServiceError,
+    OriginVerificationFailed,
+    InvalidHostname,
+    ValueError,
+    OverflowError,
+)
+MAX_KEY_DAYS = 3650  # ten years
+MAX_GRACE_HOURS = 24 * 30
 
 
 def _action(request, session, db, slug, csrf, fn, *, tab: str, ok: str, then: str | None = None):
@@ -716,12 +766,9 @@ def set_cname_target(
     reissue_claims: bool = Form(False),
 ):
     def act(application):
-        target = app_service.set_cname_target(db, application, cname_target)
+        app_service.set_cname_target(db, application, cname_target)
         if reissue_claims:
-            for domain in domain_service.list_domains(db, application, limit=10000):
-                claim = domain.active_claim
-                if claim is not None and claim.cname_target != target:
-                    domain_service.reissue_claim(db, application, domain.id)
+            domain_service.reissue_claims_for_target(db, application)
 
     ok = "cname_target_reissued" if reissue_claims else "cname_target"
     return _action(request, session, db, slug, csrf, act, tab="settings", ok=ok)
@@ -891,8 +938,10 @@ def issue_credential(
         from app.models.types import utcnow
 
         days = int(expires_in_days) if expires_in_days.strip() else None
-        if days is not None and days < 1:
-            raise ValueError("Expiry must be at least one day, or empty for no expiry")
+        if days is not None and not 1 <= days <= MAX_KEY_DAYS:
+            raise ValueError(
+                f"Expiry must be between 1 and {MAX_KEY_DAYS} days, or empty for no expiry"
+            )
         expires_at = utcnow() + timedelta(days=days) if days else None
         credential, secret = app_service.issue_credential(
             db, application, label=label, expires_at=expires_at
@@ -930,8 +979,10 @@ def rotate_credential(
     grace_hours: int = Form(24),
 ):
     def act(application):
+        if not 0 <= grace_hours <= MAX_GRACE_HOURS:
+            raise ValueError(f"The overlap must be between 0 and {MAX_GRACE_HOURS} hours")
         credential, secret, old = app_service.rotate_credential(
-            db, application, credential_id, grace=timedelta(hours=max(0, grace_hours))
+            db, application, credential_id, grace=timedelta(hours=grace_hours)
         )
         return {
             "credential_secret": secret,
@@ -1156,7 +1207,7 @@ def domain(
     db: Session = DbSession,
     ok: str = "",
 ):
-    application = _load_application(db, slug)
+    application = _load_application(db, slug, include_deleted=True)
     return _domain_page(request, session, db, application, domain_id, notice=_notice(ok))
 
 
@@ -1211,20 +1262,15 @@ def _edge_page(request, session, db, *, verify=False, status=200, **extra):
 
     from app.edge.config import build_apps, hostnames_in, redact_apps_summary
     from app.models import EdgeLock
-    from app.services.doctor import check_edge_name
 
     settings = request.app.state.edge_settings
     names = presenters.edge_names(db, settings)
     dns_settings = _dns_settings()
     resolve = _resolver(request)
     presenters.resolve_names(names, resolve, dns_settings)
-    if verify:
-        probe = _prober(request)
-        for view in names:
-            if view.addresses and not view.error:
-                view.reachability = check_edge_name(
-                    view.name, settings, dns_settings, resolve=resolve, probe_target=probe
-                )
+    for view in names:
+        if view.addresses and not view.error:
+            view.reachability = _reachability(request, view.name, dns_settings, fresh=verify)
     apps = build_apps(db, settings)
     reconciler = getattr(request.app.state, "reconciler", None)
     return render(
