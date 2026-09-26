@@ -442,6 +442,20 @@ def test_internal_tls_ask_follows_certificate_authorization(client, session, ten
     client.delete(f"/v1/domains/{domain_id}", headers=headers)
     assert client.get(ask, params={"domain": "forms.customer.example"}).status_code == 403
 
+    # The edge holds a certificate for its own names: the CNAME target of an
+    # active application is allowed (canonicalized), other names are not.
+    target = application.cname_target
+    assert client.get(ask, params={"domain": target}).status_code == 200
+    assert client.get(ask, params={"domain": target.upper() + "."}).status_code == 200
+    assert client.get(ask, params={"domain": "other." + target}).status_code == 403
+    from app.models import ApplicationStatus
+
+    application.status = ApplicationStatus.SUSPENDED
+    session.commit()
+    assert client.get(ask, params={"domain": target}).status_code == 403
+    application.status = ApplicationStatus.ACTIVE
+    session.commit()
+
     # Untrusted client addresses are refused regardless of the domain.
     client.app.state.edge_settings = client.app.state.edge_settings.__class__(
         **{**client.app.state.edge_settings.__dict__, "ask_trusted_hosts": ("127.0.0.1",)}

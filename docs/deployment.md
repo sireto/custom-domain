@@ -50,6 +50,33 @@ browser's address to every assert subrequest, which would otherwise be taken
 for the client. A reverse proxy in front of the management API therefore
 appears under its own address in the API's logs.
 
+## Installing on a fresh server
+
+`deploy/install.sh` performs the layout below on a fresh Ubuntu 22.04/24.04
+or Debian 12 host: Docker Engine, `/opt/custom-domain` with the Compose file
+and a generated `.env` (fresh secrets, the image pinned by
+`CUSTOM_DOMAIN_VERSION`), ufw with SSH, 80 and 443 open, the stack started,
+and a `custom-domain` command on the host that runs the operator CLI in the
+API container. `deploy/cloud-init.yaml` wraps it as user data for cloud
+servers; see [hosting-hetzner.md](hosting-hetzner.md) and
+[hosting-digitalocean.md](hosting-digitalocean.md). After installation,
+`custom-domain doctor` reports the state of the deployment: database and
+migrations, edge gateway, certificate authority, reconciler, applications
+and whether their CNAME targets reach this edge.
+
+## Releasing the service
+
+A release is a git tag `v<version>` on `main` where `version` in
+`pyproject.toml` has been set to `<version>`. The tag publishes the image
+`ghcr.io/sireto/custom-domain:<version>` (and `<major>.<minor>`), and it is
+what `deploy/cloud-init.yaml` pins through `CUSTOM_DOMAIN_REF` (the tag) and
+`CUSTOM_DOMAIN_VERSION` (the image), so a user-data document only ever runs
+the installer and the Compose file of the release it names. To release:
+bump the version through a pull request, then
+`git tag v<version> <merge commit> && git push origin v<version>`, and set
+the two values in `deploy/cloud-init.yaml` to the new release in the next
+pull request.
+
 ## Images
 
 The service image is published to GitHub Container Registry by the

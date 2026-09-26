@@ -37,7 +37,7 @@ from app.hostname import InvalidHostname, canonicalize
 from app.models import Application, ApplicationStatus, OriginStatus, VerifiedOrigin
 from app.services import origin_verification
 from app.services.domains import find_live_by_hostname, is_serveable
-from app.services.edge_checks import certificate_authorized
+from app.services.edge_checks import certificate_authorized, is_edge_name
 from app.services.origin_verification import OriginVerificationFailed, allow_private_from_env
 from app.v1.deps import DbSession
 
@@ -78,7 +78,7 @@ def tls_ask(
     except InvalidHostname:
         observability.tls_ask_total.labels(decision="denied").inc()
         return Response(status_code=status.HTTP_403_FORBIDDEN)
-    if certificate_authorized(row):
+    if certificate_authorized(row) or is_edge_name(db, domain):
         observability.tls_ask_total.labels(decision="allowed").inc()
         return Response(status_code=status.HTTP_200_OK)
     observability.tls_ask_total.labels(decision="denied").inc()

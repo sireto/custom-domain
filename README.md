@@ -101,6 +101,22 @@ The management API is at http://127.0.0.1:9000/v1/docs; use the printed
 credential with the SDK against it. `docker compose -f deploy/compose.local.yml down -v`
 removes everything.
 
+## Hosting on a cloud server
+
+A single small server runs everything. [deploy/cloud-init.yaml](deploy/cloud-init.yaml)
+is a cloud-config that installs Docker, generates the configuration and
+secrets, opens the firewall and starts the production layout; paste it as
+the server's user data and the install runs unattended. Walkthroughs with
+the provider-specific steps (reserved IP, firewall, DNS):
+
+- [Hetzner Cloud](docs/hosting-hetzner.md)
+- [DigitalOcean](docs/hosting-digitalocean.md)
+
+The same script runs on any Ubuntu or Debian host as root:
+`bash deploy/install.sh`. Afterwards `custom-domain doctor` checks the
+database and migrations, the edge gateway, the certificate authority, the
+reconciler, and that each application's CNAME target reaches the edge.
+
 ## Operating it
 
 Everything an operator does is a `custom-domain` command (run it inside the

@@ -244,6 +244,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     demo.set_defaults(func=_dev_demo)
 
+    doctor = sub.add_parser(
+        "doctor",
+        help="check this deployment: database and migrations, edge gateway, certificate "
+        "authority, reconciler, applications and their CNAME targets",
+    )
+    doctor.set_defaults(func=_doctor)
+
     openapi = sub.add_parser("openapi", help="API contract").add_subparsers(dest="openapi_command")
     export = openapi.add_parser("export", help="write the OpenAPI document as JSON")
     export.add_argument("--output", default="-", help="file path, or - for stdout")
@@ -341,6 +348,30 @@ def _worker_run(args) -> int:
     except KeyboardInterrupt:
         stop.set()
     return 0
+
+
+def _doctor(args) -> int:
+    from app.dns.settings import DnsSettings
+    from app.edge.settings import EdgeConfigurationError, EdgeSettings
+    from app.services.doctor import as_rows, run_doctor, summarize
+
+    try:
+        settings = EdgeSettings.from_env()
+    except EdgeConfigurationError as exc:
+        print(f"FAIL  settings         {exc}")
+        return 1
+    try:
+        dns_settings = DnsSettings.from_env()
+    except ValueError as exc:
+        print(f"FAIL  settings         {exc}")
+        return 1
+    findings = run_doctor(get_session_factory(), settings, dns_settings)
+    width = max(len(check) for _, check, _ in as_rows(findings))
+    for status, check, detail in as_rows(findings):
+        print(f"{status:<5} {check:<{width}}  {detail}")
+    ok, warn, fail = summarize(findings)
+    print(f"\n{ok} ok, {warn} warning(s), {fail} failure(s)")
+    return 1 if fail else 0
 
 
 DEFAULT_DEMO_DOMAINS = ("alpha.sample.localtest.me=ws_alpha", "beta.sample.localtest.me=ws_beta")

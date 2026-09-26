@@ -57,6 +57,35 @@ def eligible_for_edge_checks(domain: Domain) -> bool:
     return certificate_authorized(domain)
 
 
+def is_edge_name(session: Session, hostname: str) -> bool:
+    """Whether ``hostname`` is the CNAME target of an active application.
+
+    The edge holds a certificate for its own names so that the health path
+    answers over HTTPS there; that is how `custom-domain doctor` confirms
+    that the name customers CNAME to reaches this edge and that issuance
+    works. Only the health route matches such a request, so nothing is
+    proxied for it.
+    """
+    from sqlalchemy import select
+
+    from app.hostname import InvalidHostname, canonicalize
+    from app.models import Application
+
+    try:
+        canonical = canonicalize(hostname, allow_apex=True)
+    except InvalidHostname:
+        return False
+    return (
+        session.scalar(
+            select(Application.id).where(
+                Application.cname_target == canonical,
+                Application.status == ApplicationStatus.ACTIVE,
+            )
+        )
+        is not None
+    )
+
+
 class EdgeProber(Protocol):
     def probe(self, hostname: str) -> EdgeProbe: ...
 
