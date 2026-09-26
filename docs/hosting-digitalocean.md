@@ -14,7 +14,8 @@ In the DigitalOcean console, **Create → Droplets**:
 - **Authentication**: your SSH key.
 - **Advanced options → Add initialization scripts (free)**: paste
   [deploy/cloud-init.yaml](../deploy/cloud-init.yaml) after editing the
-  values in its `write_files` block: your `ACME_EMAIL` and the release to
+  values in its `write_files` block: your `ACME_EMAIL`, `EDGE_HOSTNAME`
+  (the edge's own name from step 2) and the release to
   install (`CUSTOM_DOMAIN_VERSION`, one version number for the installer,
   the image and the SDK; never a branch). Keep
   `SKIP_FIREWALL=0` unless you attach a Cloud Firewall (below).
@@ -64,9 +65,10 @@ the certificate for its own name on the first handshake. A `TLS` or
 `certificate` error that persists points at issuance: check the edge
 container's log for the ACME error and that `ACME_EMAIL` is set.
 
-Or use the portal: with `PORTAL_ALLOWED_IPS` set in the cloud config to your
-address, open `https://edge.example.net/portal` once the DNS record exists;
-otherwise `ssh -N -L 9000:127.0.0.1:9000 root@<server>` and open
+Or use the portal: with `EDGE_HOSTNAME` and `PORTAL_ALLOWED_IPS` set in the
+cloud config, open `https://edge.example.net/portal` once the DNS record
+from step 2 resolves (the first visit obtains the certificate, so allow a
+moment); otherwise `ssh -N -L 9000:127.0.0.1:9000 root@<server>` and open
 http://localhost:9000/portal. The password is `PORTAL_PASSWORD` in
 `/opt/custom-domain/deploy/.env`. The doctor and everything in step 4 are
 pages there ([portal.md](portal.md)).
@@ -74,7 +76,7 @@ pages there ([portal.md](portal.md)).
 ## 4. Onboard the first application
 
 ```
-custom-domain application create --slug acme --name "Acme" --cname-target edge.example.net
+custom-domain application create --slug acme --name "Acme"      # CNAME target defaults to EDGE_HOSTNAME
 custom-domain origin register --application acme --host app.acme.example --scheme https --port 443
 custom-domain origin verify --application acme --host app.acme.example --activate
 custom-domain credential issue --application acme --label backend
@@ -97,11 +99,12 @@ backend, which registers customer hostnames through the API or SDK.
   PostgreSQL and set `CADDY_REDIS_ADDRESS`, `CADDY_REDIS_USERNAME`,
   `CADDY_REDIS_PASSWORD` and `CADDY_REDIS_TLS=true` for Valkey, and remove
   the `db` and `redis` services from the Compose file.
-- **Upgrade**: set `CUSTOM_DOMAIN_IMAGE` in `.env` to the new version, then
-  `cd /opt/custom-domain/deploy && docker compose -f compose.production.yml pull && docker compose -f compose.production.yml up -d`.
-- **Management API**: port 9000 inside the Docker network only. Use the
-  `custom-domain` command on the host, or put an authenticated reverse
-  proxy in front if applications must reach the API from outside.
+- **Upgrade**: `custom-domain upgrade <version>` (re-runs the installer from
+  that release: image, new settings, Compose refresh, pull and restart; see
+  [deployment.md](deployment.md#upgrading)).
+- **Management API**: published on `127.0.0.1:9000` of the host only (the
+  SSH tunnel and the `custom-domain` command use it). Put an authenticated
+  reverse proxy in front if applications must reach the API from outside.
 - **Upgrading the installer**: `CUSTOM_DOMAIN_VERSION` in the user data only
   matters at creation; on a running Droplet, upgrades are the `.env` edit
   above.

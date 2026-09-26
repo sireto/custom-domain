@@ -231,11 +231,18 @@ def _route(group: RouteGroup, settings: EdgeSettings) -> dict[str, Any]:
 PORTAL_PATHS = ["/portal", "/portal/*"]
 
 
-def portal_hosts(session: Session) -> list[str]:
-    """Every edge name of an active application: where the portal is served."""
+def portal_hosts(session: Session, settings: EdgeSettings | None = None) -> list[str]:
+    """The edge's own names: EDGE_HOSTNAME plus every active application's edge names.
+
+    The portal is served and a certificate is held on each of them; with
+    EDGE_HOSTNAME set that is true from the first start, before any
+    application exists.
+    """
     from app.services.applications import edge_names
 
     names: list[str] = []
+    if settings is not None and settings.edge_hostname:
+        names.append(settings.edge_hostname)
     for application in session.scalars(
         select(Application)
         .where(Application.status == ApplicationStatus.ACTIVE)
@@ -337,7 +344,11 @@ def _server(settings: EdgeSettings, routes: list[dict[str, Any]]) -> dict[str, A
 def build_apps(session: Session, settings: EdgeSettings) -> dict[str, Any]:
     """The ``apps`` subtree the reconciler manages: routing and TLS automation."""
     groups = serveable_route_groups(session)
-    routes = portal_routes(settings, portal_hosts(session)) if settings.portal_allowed_ips else []
+    routes = (
+        portal_routes(settings, portal_hosts(session, settings))
+        if settings.portal_allowed_ips
+        else []
+    )
     routes.extend(_route(g, settings) for g in groups)
     apps: dict[str, Any] = {"http": http_app(settings, routes)}
     if not settings.disable_https:

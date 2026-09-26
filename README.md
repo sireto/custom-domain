@@ -113,7 +113,8 @@ the provider-specific steps (reserved IP, firewall, DNS):
 - [DigitalOcean](docs/hosting-digitalocean.md)
 
 The same script runs on any Ubuntu or Debian host as root:
-`bash deploy/install.sh`. Afterwards `custom-domain doctor` checks the
+`bash deploy/install.sh`, and re-running it (or `custom-domain upgrade <version>`)
+is the upgrade path. Afterwards `custom-domain doctor` checks the
 database and migrations, the edge gateway, the certificate authority, the
 reconciler, and that each application's CNAME target reaches the edge.
 

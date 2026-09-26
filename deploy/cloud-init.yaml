@@ -23,6 +23,10 @@ write_files:
     content: |
       # Contact for the certificate authority (Let's Encrypt), recommended.
       ACME_EMAIL=ops@example.net
+      # The edge's own DNS name: point it at this server. It is the default
+      # CNAME target for applications, gets a certificate, and serves the
+      # portal from the first start.
+      EDGE_HOSTNAME=edge.example.net
       # The release to install (git tag, image tag and SDK version are one
       # number). Change it to upgrade a new server; "latest" follows main.
       CUSTOM_DOMAIN_VERSION=0.3.1

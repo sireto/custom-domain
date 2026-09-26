@@ -13,7 +13,7 @@
   <div class="row">
     <div><label for="slug">Slug</label><input type="text" id="slug" name="slug" required value="{{ form.slug if form else '' }}" placeholder="acme"></div>
     <div><label for="name">Name</label><input type="text" id="name" name="name" required value="{{ form.name if form else '' }}" placeholder="Acme"></div>
-    <div><label for="cname_target">CNAME target (the edge name customers point at)</label><input type="text" id="cname_target" name="cname_target" required value="{{ form.cname_target if form else '' }}" placeholder="edge.example.net"></div>
+    <div><label for="cname_target">CNAME target (the edge name customers point at)</label><input type="text" id="cname_target" name="cname_target" required value="{{ form.cname_target if form else (edge_hostname or '') }}" placeholder="edge.example.net"></div>
     <div class="fixed"><button type="submit">Create</button></div>
   </div>
 </form>

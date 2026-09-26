@@ -18,7 +18,8 @@ Status: implemented for issue #12. Companion to [operations.md](operations.md)
 
 Networks: `backend` (db, api, worker), `control` (api, worker, edge) and
 `edge_storage` (edge, redis). The edge publishes 80 and 443 only; the
-management API is not published (reach it from the host or through a
+management API is published on the host's loopback only (reach it through an
+SSH tunnel or a
 reverse proxy you authenticate). `EDGE_ASK_TRUSTED_HOSTS` is the `control`
 subnet so only edge containers can call the internal endpoints, and
 `EDGE_TOKEN` is additionally required on the assert, origins and metrics
@@ -100,6 +101,38 @@ manual run of the workflow ("Run workflow", target `testpypi`) rehearses a
 release on test.pypi.org (same publisher there, environment `testpypi`)
 and never publishes to PyPI.
 
+## Upgrading
+
+`custom-domain upgrade <version>` on the host re-runs the installer from
+that release. It refreshes the Compose file, adds any settings the release
+introduced to `.env` (with generated values where they are secrets), moves
+`CUSTOM_DOMAIN_IMAGE` to the version, then pulls and restarts the stack.
+Existing data and secrets are never touched. Values given on the command
+line or in the environment win over `/etc/custom-domain-install.env`, so
+the version cloud-init wrote at creation does not hold an upgrade back.
+
+The Compose file is part of a release (a published port, a setting the
+three containers must share), so the installer treats it carefully. It
+keeps two checksums beside the file: the local file as it last wrote or
+accepted it, and the release file that local copy corresponds to.
+
+- **Unmodified since the installer wrote it, and still the pristine release
+  file:** replaced by the new release's file; the upgrade proceeds.
+- **Modified locally, or installed by hand before the installer existed:**
+  the upgrade **stops before changing anything**, exits with status 3, and
+  writes the release's file next to yours as `compose.production.yml.new`.
+  Merge it into `compose.production.yml` (keeping your changes), then run
+  `custom-domain upgrade <version> --accept-compose`: the merged file is
+  recorded as the installed one and the upgrade continues.
+- **An accepted (customized) file** is never overwritten. A later release
+  that does not change the Compose file keeps it as it is; a release that
+  does change it stops for another merge, the same way, so upstream changes
+  are always seen and local changes are never silently discarded.
+
+Upgrading by editing the image tag alone is not enough and is no longer
+documented: running the new image with an old Compose file is exactly the
+failure the installer's stop prevents.
+
 ## Images
 
 The service image is published to GitHub Container Registry by the
@@ -118,6 +151,16 @@ the package's settings on GitHub: change visibility to public, and link it
 to this repository if the `org.opencontainers.image.source` label has not
 done so). Compose does not re-pull an existing tag: run
 `docker compose -f compose.production.yml pull` before `up` to upgrade.
+
+## The edge's own name
+
+`EDGE_HOSTNAME` (for example `edge.example.net`) is the name the edge is
+reached at: the default `--cname-target` for applications, a name the edge
+obtains a certificate for and answers the health path on from the first
+start, and where the portal is served. Point it at the server's addresses
+before or right after installing. Without it the edge has no name of its
+own until the first application exists, so the portal is reachable only
+over the tunnel and `doctor` says so.
 
 ## The operator portal
 

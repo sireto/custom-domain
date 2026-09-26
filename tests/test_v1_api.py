@@ -456,6 +456,13 @@ def test_internal_tls_ask_follows_certificate_authorization(client, session, ten
     application.status = ApplicationStatus.ACTIVE
     session.commit()
 
+    # The edge's own name is authorized even with no application naming it.
+    client.app.state.edge_settings = client.app.state.edge_settings.__class__(
+        **{**client.app.state.edge_settings.__dict__, "edge_hostname": "edge.example.net"}
+    )
+    assert client.get(ask, params={"domain": "edge.example.net"}).status_code == 200
+    assert client.get(ask, params={"domain": "www.edge.example.net"}).status_code == 403
+
     # After the target changes, the former name stays authorized while a live
     # claim still names it, and stops once that claim is re-issued.
     from app.services.applications import set_cname_target

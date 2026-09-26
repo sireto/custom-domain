@@ -546,3 +546,35 @@ def test_origin_rebound_to_a_private_address_is_not_routed(session, fleet, pinne
     # And a name that stops resolving is dropped too, without failing the build.
     del pinned_origins["globex.internal"]
     assert hostnames_in(build_caddy_config(session, SETTINGS)) == set()
+
+
+def test_edge_hostname_is_an_edge_name_from_the_first_start(session, make_application):
+    """EDGE_HOSTNAME is certified, answers the health path and hosts the portal
+    even before any application exists; applications' targets join it."""
+    from app.edge.config import build_apps, portal_hosts
+    from app.edge.settings import EdgeConfigurationError, EdgeSettings
+    from app.services.edge_checks import is_edge_name
+
+    settings = EdgeSettings.from_env(
+        {"EDGE_HOSTNAME": "Edge.Example.Net.", "PORTAL_ALLOWED_IPS": "93.184.216.34"}
+    )
+    assert settings.edge_hostname == "edge.example.net"
+    assert portal_hosts(session, settings) == ["edge.example.net"]
+    assert is_edge_name(session, "EDGE.example.net", settings)
+    assert not is_edge_name(session, "other.example.net", settings)
+    routes = build_apps(session, settings)["http"]["servers"]["edge"]["routes"]
+    assert [r["@id"] for r in routes] == [
+        "edge-health",
+        "portal",
+        "portal-denied",
+        "edge-unmatched",
+    ]
+    assert routes[1]["match"][0]["host"] == ["edge.example.net"]
+
+    make_application("acme", cname_target="acme.edge.example.net")
+    assert portal_hosts(session, settings) == ["acme.edge.example.net", "edge.example.net"]
+    assert portal_hosts(session) == ["acme.edge.example.net"]  # without the setting
+
+    with pytest.raises(EdgeConfigurationError):
+        EdgeSettings.from_env({"EDGE_HOSTNAME": "*.example.net"})
+    assert EdgeSettings.from_env({"EDGE_HOSTNAME": "  "}).edge_hostname is None
