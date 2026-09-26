@@ -19,7 +19,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.dns.settings import DnsSettings
-from app.edge.config import EDGE_HEALTH_HEADER, EDGE_HEALTH_VALUE
+from app.edge.config import EDGE_HEALTH_VALUE
 from app.edge.settings import HEALTH_PATH, EdgeSettings
 from app.models import Application, ApplicationStatus, EdgeLock
 from app.models.types import utcnow
@@ -29,7 +29,11 @@ MIN_TOKEN_LENGTH = 32
 
 # (status, headers) of a GET without following redirects; raises on failure.
 HttpGet = Callable[[str], tuple[int, dict[str, str]]]
-Resolve = Callable[[str], list[str]]
+# Public addresses of a name, looked up in public DNS (never the local resolver).
+Resolve = Callable[[str, DnsSettings], list[str]]
+# (status, edge marker) of the health path at ``address`` for ``hostname``; raises on failure.
+ProbeTarget = Callable[[str, str, EdgeSettings], tuple[int, str | None]]
+PUBLIC_NAMESERVERS = ("1.1.1.1", "8.8.8.8")
 
 
 @dataclass(frozen=True)
@@ -50,13 +54,58 @@ def _http_get(url: str) -> tuple[int, dict[str, str]]:
     return response.status_code, dict(response.headers)
 
 
-def _resolve(host: str) -> list[str]:
-    infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+def _resolve(host: str, dns_settings: DnsSettings) -> list[str]:
+    """A and AAAA records of ``host`` from public DNS.
+
+    The local resolver is deliberately not used: inside the API container it
+    is the host's resolver, and a host named after the edge (``edge.example``
+    as the machine's hostname) answers its own name with 127.0.1.1, which
+    is not what customers' CNAMEs will reach.
+    """
+    import dns.resolver
+
+    resolver = dns.resolver.Resolver(configure=False)
+    resolver.nameservers = list(dns_settings.nameservers or PUBLIC_NAMESERVERS)
+    resolver.timeout = resolver.lifetime = dns_settings.timeout
     addresses: list[str] = []
-    for info in infos:
-        if info[4][0] not in addresses:
-            addresses.append(info[4][0])
+    for rdtype in ("A", "AAAA"):
+        try:
+            answer = resolver.resolve(host, rdtype, raise_on_no_answer=False, search=False)
+        except dns.resolver.NXDOMAIN as exc:
+            raise LookupError(f"{host} does not exist in public DNS") from exc
+        if answer.rrset is not None:
+            addresses.extend(str(record) for record in answer.rrset)
     return addresses
+
+
+def _probe_target(hostname: str, address: str, settings: EdgeSettings) -> tuple[int, str | None]:
+    """Fetch the health path at ``address`` presenting ``hostname``, as a customer would."""
+    import http.client
+
+    from app.edge.config import EDGE_HEALTH_HEADER
+    from app.edge.probe import probe_edge
+
+    if not settings.disable_https:
+        probe = probe_edge(
+            hostname,
+            address=address,
+            port=settings.https_port,
+            ca_file=settings.probe_ca_file,
+            timeout=settings.probe_timeout,
+        )
+        return probe.status, probe.edge_header
+    sock = socket.create_connection((address, settings.https_port), timeout=settings.probe_timeout)
+    try:
+        connection = http.client.HTTPConnection(
+            hostname, settings.https_port, timeout=settings.probe_timeout
+        )
+        connection.sock = sock
+        connection.request("GET", HEALTH_PATH, headers={"Host": hostname})
+        response = connection.getresponse()
+        response.read(1024)
+        return response.status, response.getheader(EDGE_HEALTH_HEADER)
+    finally:
+        sock.close()
 
 
 def run_doctor(
@@ -66,6 +115,7 @@ def run_doctor(
     *,
     http_get: HttpGet = _http_get,
     resolve: Resolve = _resolve,
+    probe_target: ProbeTarget = _probe_target,
     now: datetime | None = None,
 ) -> list[Finding]:
     now = now or utcnow()
@@ -75,7 +125,9 @@ def run_doctor(
     findings.extend(_edge_findings(settings, http_get))
     if not any(f.check == "database" and f.status == "fail" for f in findings):
         findings.extend(_reconciler_findings(session_factory, settings, now))
-        findings.extend(_application_findings(session_factory, settings, http_get, resolve))
+        findings.extend(
+            _application_findings(session_factory, settings, dns_settings, resolve, probe_target)
+        )
     return findings
 
 
@@ -240,8 +292,9 @@ def _reconciler_findings(
 def _application_findings(
     session_factory: Callable[[], Session],
     settings: EdgeSettings,
-    http_get: HttpGet,
+    dns_settings: DnsSettings,
     resolve: Resolve,
+    probe_target: ProbeTarget,
 ) -> list[Finding]:
     findings: list[Finding] = []
     with session_factory() as session:
@@ -271,67 +324,102 @@ def _application_findings(
                 findings.append(
                     Finding(f"application {application.slug}", "ok", f"origin {origin.url}")
                 )
-            findings.extend(_cname_target_findings(application, settings, http_get, resolve))
+            findings.extend(
+                _cname_target_findings(application, settings, dns_settings, resolve, probe_target)
+            )
     return findings
 
 
+def _publicly_routable(address) -> bool:
+    """Loopback, link-local, private (RFC 1918 / ULA) and unspecified addresses are not.
+
+    Documentation ranges count as non-global in ``ipaddress`` but are left
+    alone: they never come back from real DNS and they appear in tests.
+    """
+    import ipaddress
+
+    if (
+        address.is_loopback
+        or address.is_link_local
+        or address.is_unspecified
+        or address.is_multicast
+    ):
+        return False
+    private = (
+        ipaddress.ip_network("10.0.0.0/8"),
+        ipaddress.ip_network("172.16.0.0/12"),
+        ipaddress.ip_network("192.168.0.0/16"),
+        ipaddress.ip_network("fc00::/7"),
+    )
+    return not any(address in net for net in private)
+
+
 def _cname_target_findings(
-    application: Application, settings: EdgeSettings, http_get: HttpGet, resolve: Resolve
+    application: Application,
+    settings: EdgeSettings,
+    dns_settings: DnsSettings,
+    resolve: Resolve,
+    probe_target: ProbeTarget,
 ) -> list[Finding]:
     """Does the name customers CNAME to reach this edge?
 
-    Only this edge answers the health path with ``X-Custom-Domain-Edge: 1``;
-    a plain HTTPS redirect from port 80 proves nothing, since any web server
-    does that. Over HTTPS the edge obtains a certificate for its own name on
-    the first handshake, so a fresh deployment may need a second run.
+    The name is looked up in public DNS and each address is asked for the
+    health path with the name as SNI and Host, exactly as a customer's
+    browser would; only this edge answers 204 with ``X-Custom-Domain-Edge:
+    1``. Over HTTPS the edge obtains a certificate for its own name on the
+    first handshake, so a fresh deployment may need a second run.
     """
+    import ipaddress
+
     target = application.cname_target
     check = f"cname target {target}"
     try:
-        addresses = resolve(target)
+        addresses = resolve(target, dns_settings)
     except Exception as exc:
         return [
             Finding(
                 check,
                 "fail",
-                f"does not resolve ({exc}): customers' CNAMEs point here, so it needs an "
-                "A/AAAA record for this edge",
+                f"public DNS lookup failed ({exc}): customers' CNAMEs point here, so it needs "
+                "an A/AAAA record for this edge",
             )
         ]
     if not addresses:
-        return [Finding(check, "fail", "resolves to no address")]
-    where = ", ".join(addresses)
-    scheme = "http" if settings.disable_https else "https"
-    port = ""
-    if (
-        settings.disable_https
-        and settings.https_port != 80
-        or not settings.disable_https
-        and settings.https_port != 443
-    ):
-        port = f":{settings.https_port}"
-    url = f"{scheme}://{target}{port}{HEALTH_PATH}"
-    try:
-        status, headers = http_get(url)
-    except Exception as exc:
+        return [
+            Finding(check, "fail", "has no A or AAAA record in public DNS: add one for this edge")
+        ]
+    private = [a for a in addresses if not _publicly_routable(ipaddress.ip_address(a))]
+    if private:
         return [
             Finding(
                 check,
                 "fail",
-                f"resolves to {where} but {url} does not answer ({type(exc).__name__}: {exc}); "
-                "open ports 80 and 443 to the edge, and if the certificate is still being "
-                "issued run doctor again in a minute",
+                f"resolves to {', '.join(private)}, not a public address: customers cannot "
+                "reach that; point the record at the edge's public address",
             )
         ]
-    marker = {k.lower(): v for k, v in headers.items()}.get(EDGE_HEALTH_HEADER.lower())
-    if status == 204 and marker == EDGE_HEALTH_VALUE:
-        return [Finding(check, "ok", f"resolves to {where} and reaches this edge")]
+    port = "" if settings.https_port in (80, 443) else f":{settings.https_port}"
+    scheme = "http" if settings.disable_https else "https"
+    url = f"{scheme}://{target}{port}{HEALTH_PATH}"
+    problems: list[str] = []
+    for address in addresses:
+        try:
+            status, marker = probe_target(target, address, settings)
+        except Exception as exc:
+            problems.append(f"{address}: {type(exc).__name__}: {exc}")
+            continue
+        if not (status == 204 and marker == EDGE_HEALTH_VALUE):
+            problems.append(f"{address}: HTTP {status} without this edge's marker")
+    if not problems:
+        return [Finding(check, "ok", f"{', '.join(addresses)} all answer {url} as this edge")]
     return [
         Finding(
             check,
             "fail",
-            f"resolves to {where}, but {url} answered HTTP {status} without this edge's "
-            "marker: the record points at another server",
+            f"{url} at {'; '.join(problems)}. Open TCP 80 and 443 (and UDP 443) to the edge "
+            "for every published address, run doctor again in a minute if the certificate "
+            "for this name is still being issued, and check the edge log for ACME errors "
+            "if it keeps failing",
         )
     ]
 

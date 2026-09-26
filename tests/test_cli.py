@@ -417,21 +417,21 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
 
     def fake_http_get(url):
         reached.append(url)
-        if url.endswith("/config/apps"):
+        if url.endswith("/config/apps") or url == doctor_module.ACME_DIRECTORY:
             return 200, {}
-        if url == doctor_module.ACME_DIRECTORY:
-            return 200, {}
-        if url == "https://edge.acme.example/.well-known/custom-domain-edge-health":
-            return 204, {"X-Custom-Domain-Edge": "1"}
-        if url.startswith("https://edge.globex.example/"):
-            # Another server: a redirect to HTTPS without the edge's marker.
-            return 308, {"Location": "https://edge.globex.example/"}
         raise OSError("unreachable")
 
-    def fake_resolve(host):
-        if host == "edge.nowhere.example":
-            raise OSError("NXDOMAIN")
-        return ["203.0.113.10"]
+    def fake_resolve(host, dns_settings):
+        return {
+            "edge.acme.example": ["203.0.113.10", "2001:db8::10"],
+            "edge.globex.example": ["203.0.113.20"],
+            "edge.self.example": ["127.0.1.1"],  # the host's own name, seen from a container
+        }.get(host) or (_ for _ in ()).throw(LookupError(f"{host} does not exist in public DNS"))
+
+    def fake_probe(hostname, address, settings):
+        if hostname == "edge.acme.example":
+            return 204, "1"
+        return 308, None  # another web server: a redirect, no marker
 
     settings = EdgeSettings(
         reconcile_enabled=True,
@@ -443,7 +443,12 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
 
     # Fresh database: nothing to report but the missing application and reconciler.
     findings = doctor_module.run_doctor(
-        factory, settings, DnsSettings(), http_get=fake_http_get, resolve=fake_resolve
+        factory,
+        settings,
+        DnsSettings(),
+        http_get=fake_http_get,
+        resolve=fake_resolve,
+        probe_target=fake_probe,
     )
     by_check = {f.check: f for f in findings}
     assert by_check["database"].ok and by_check["migrations"].ok
@@ -458,19 +463,29 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
         activate_origin(s, origin)
         create_application(s, slug="globex", name="Globex", cname_target="edge.globex.example")
         create_application(s, slug="nowhere", name="Nowhere", cname_target="edge.nowhere.example")
+        create_application(s, slug="selfie", name="Self", cname_target="edge.self.example")
         s.commit()
     findings = doctor_module.run_doctor(
-        factory, settings, DnsSettings(), http_get=fake_http_get, resolve=fake_resolve
+        factory,
+        settings,
+        DnsSettings(),
+        http_get=fake_http_get,
+        resolve=fake_resolve,
+        probe_target=fake_probe,
     )
     by_check = {f.check: f for f in findings}
     assert by_check["application acme"].ok
-    assert by_check["cname target edge.acme.example"].ok
+    assert by_check["cname target edge.acme.example"].ok  # both address families answer
     assert by_check["application globex"].status == "warn"  # no origin
     # A plain redirect is what any web server does; only the edge's marker passes.
     assert by_check["cname target edge.globex.example"].status == "fail"
     assert "without this edge's marker" in by_check["cname target edge.globex.example"].detail
     assert by_check["cname target edge.nowhere.example"].status == "fail"
-    assert doctor_module.summarize(findings)[2] == 2
+    # A loopback answer (the machine's own hostname shadowing the record) is
+    # named as such rather than probed.
+    assert by_check["cname target edge.self.example"].status == "fail"
+    assert "not a public address" in by_check["cname target edge.self.example"].detail
+    assert doctor_module.summarize(findings)[2] == 3
 
     # The command prints the table and fails when a check fails; with the
     # edge gateway unreachable (no edge here) it reports that as a failure.
@@ -481,6 +496,7 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
         doctor_module, "_http_get", lambda url: (_ for _ in ()).throw(OSError("down"))
     )
     monkeypatch.setattr(doctor_module, "_resolve", fake_resolve)
+    monkeypatch.setattr(doctor_module, "_probe_target", fake_probe)
     assert _run("doctor") == 1
     out = capsys.readouterr().out
     assert "FAIL  edge gateway" in out and "failure(s)" in out
