@@ -143,9 +143,9 @@ the previous volume-based deployment. `custom-domain --help` lists them all.
 
 ## Integrating an application
 
-The Python SDK in [sdk/](sdk/README.md) (`custom-domain-sdk`) has the API
-client, the assertion verifier, an ASGI middleware and the webhook signature
-verifier.
+The Python SDK in [sdk/](sdk/README.md) (`custom-domain-sdk`, released at the
+same version as the service image) has the API client, the assertion
+verifier, an ASGI middleware and the webhook signature verifier.
 
 ```python
 from custom_domain import Client, CustomDomainMiddleware
