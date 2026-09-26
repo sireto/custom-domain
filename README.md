@@ -134,7 +134,8 @@ to this deployment's edge. `origin register` prints the verification token the
 application must serve before `origin verify` succeeds. Credentials are shown
 once and can be rotated with a grace period (`credential rotate`).
 
-Other commands: `db upgrade` (migrations), `worker run` (lifecycle checks,
+Other commands: `application set-cname-target` (change the name customers
+CNAME to; existing domains keep theirs unless `--reissue-claims`), `db upgrade` (migrations), `worker run` (lifecycle checks,
 edge reconciliation and webhook delivery outside the API process),
 `edge config` and `edge reconcile` (the Caddy configuration derived from the
 database), `domain purge-tombstones`, and `legacy import` for hostnames from

@@ -45,10 +45,13 @@ custom-domain doctor
 ```
 
 Every line should be `OK` except `applications: none yet`. Once an
-application exists, the check named after its CNAME target fetches
-`https://<target>/.well-known/custom-domain-edge-health` and passes only when
-the answer is `204` with this edge's `X-Custom-Domain-Edge: 1` marker. That
-proves DNS, port 443 and certificate issuance at once. If it fails: wait for
+application exists, the check named after its CNAME target looks the name
+up in public DNS (not the server's own resolver, so naming the server after
+the edge does not confuse it), then fetches
+`https://<target>/.well-known/custom-domain-edge-health` at every published
+address with the name as SNI, and passes only when each answers `204` with
+this edge's `X-Custom-Domain-Edge: 1` marker. That proves DNS, port 443 and
+certificate issuance at once, for IPv4 and IPv6 alike. If it fails: wait for
 DNS to propagate, confirm TCP 443 (and 80, which Let's Encrypt uses for the
 challenge) is open, and run it again after a minute, since the edge obtains
 the certificate for its own name on the first handshake. A `TLS` or

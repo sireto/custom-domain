@@ -417,21 +417,23 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
 
     def fake_http_get(url):
         reached.append(url)
-        if url.endswith("/config/apps"):
+        if url.endswith("/config/apps") or url == doctor_module.ACME_DIRECTORY:
             return 200, {}
-        if url == doctor_module.ACME_DIRECTORY:
-            return 200, {}
-        if url == "https://edge.acme.example/.well-known/custom-domain-edge-health":
-            return 204, {"X-Custom-Domain-Edge": "1"}
-        if url.startswith("https://edge.globex.example/"):
-            # Another server: a redirect to HTTPS without the edge's marker.
-            return 308, {"Location": "https://edge.globex.example/"}
         raise OSError("unreachable")
 
-    def fake_resolve(host):
-        if host == "edge.nowhere.example":
-            raise OSError("NXDOMAIN")
-        return ["203.0.113.10"]
+    def fake_resolve(host, dns_settings):
+        # Globally routable example addresses (example.com's), never documentation ranges.
+        return {
+            "edge.acme.example": ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"],
+            "edge.globex.example": ["93.184.215.14"],
+            "edge.self.example": ["127.0.1.1"],  # the host's own name, seen from a container
+            "edge.cgnat.example": ["100.64.0.1"],  # shared address space (RFC 6598)
+        }.get(host) or (_ for _ in ()).throw(LookupError(f"{host} does not exist in public DNS"))
+
+    def fake_probe(hostname, address, settings):
+        if hostname == "edge.acme.example":
+            return 204, "1"
+        return 308, None  # another web server: a redirect, no marker
 
     settings = EdgeSettings(
         reconcile_enabled=True,
@@ -443,7 +445,12 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
 
     # Fresh database: nothing to report but the missing application and reconciler.
     findings = doctor_module.run_doctor(
-        factory, settings, DnsSettings(), http_get=fake_http_get, resolve=fake_resolve
+        factory,
+        settings,
+        DnsSettings(),
+        http_get=fake_http_get,
+        resolve=fake_resolve,
+        probe_target=fake_probe,
     )
     by_check = {f.check: f for f in findings}
     assert by_check["database"].ok and by_check["migrations"].ok
@@ -458,19 +465,68 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
         activate_origin(s, origin)
         create_application(s, slug="globex", name="Globex", cname_target="edge.globex.example")
         create_application(s, slug="nowhere", name="Nowhere", cname_target="edge.nowhere.example")
+        create_application(s, slug="selfie", name="Self", cname_target="edge.self.example")
+        create_application(s, slug="cgnat", name="CGNAT", cname_target="edge.cgnat.example")
         s.commit()
     findings = doctor_module.run_doctor(
-        factory, settings, DnsSettings(), http_get=fake_http_get, resolve=fake_resolve
+        factory,
+        settings,
+        DnsSettings(),
+        http_get=fake_http_get,
+        resolve=fake_resolve,
+        probe_target=fake_probe,
     )
     by_check = {f.check: f for f in findings}
     assert by_check["application acme"].ok
-    assert by_check["cname target edge.acme.example"].ok
+    assert by_check["cname target edge.acme.example"].ok  # both address families answer
     assert by_check["application globex"].status == "warn"  # no origin
     # A plain redirect is what any web server does; only the edge's marker passes.
     assert by_check["cname target edge.globex.example"].status == "fail"
     assert "without this edge's marker" in by_check["cname target edge.globex.example"].detail
     assert by_check["cname target edge.nowhere.example"].status == "fail"
-    assert doctor_module.summarize(findings)[2] == 2
+    # A loopback answer (the machine's own hostname shadowing the record) is
+    # named as such rather than probed.
+    assert by_check["cname target edge.self.example"].status == "fail"
+    assert "not a public address" in by_check["cname target edge.self.example"].detail
+    # Shared address space is not routable from the Internet either.
+    assert by_check["cname target edge.cgnat.example"].status == "fail"
+    assert "not a public address" in by_check["cname target edge.cgnat.example"].detail
+    assert doctor_module.summarize(findings)[2] == 4
+
+    # A former target still named by a live claim stays monitored: the new
+    # target is healthy, the old one is broken, and doctor says so.
+    from app.services.applications import get_application_by_slug, set_cname_target
+    from app.services.domains import claim_domain
+
+    with factory() as s:
+        acme = get_application_by_slug(s, "acme")
+        claim_domain(s, acme, "old.customer.example", "w-old")
+        set_cname_target(s, acme, "edge2.acme.example")
+        claim_domain(s, acme, "new.customer.example", "w-new")
+        s.commit()
+
+    def fake_resolve_moved(host, dns_settings):
+        if host == "edge2.acme.example":
+            return ["93.184.216.35"]
+        if host == "edge.acme.example":
+            raise LookupError("edge.acme.example does not exist in public DNS")
+        return fake_resolve(host, dns_settings)
+
+    def fake_probe_moved(hostname, address, settings):
+        return (204, "1") if hostname == "edge2.acme.example" else (308, None)
+
+    findings = doctor_module.run_doctor(
+        factory,
+        settings,
+        DnsSettings(),
+        http_get=fake_http_get,
+        resolve=fake_resolve_moved,
+        probe_target=fake_probe_moved,
+    )
+    by_check = {f.check: f for f in findings}
+    assert by_check["cname target edge2.acme.example"].ok
+    former = by_check["cname target edge.acme.example (former, still named by live claims)"]
+    assert former.status == "fail" and "does not exist" in former.detail
 
     # The command prints the table and fails when a check fails; with the
     # edge gateway unreachable (no edge here) it reports that as a failure.
@@ -481,6 +537,79 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
         doctor_module, "_http_get", lambda url: (_ for _ in ()).throw(OSError("down"))
     )
     monkeypatch.setattr(doctor_module, "_resolve", fake_resolve)
+    monkeypatch.setattr(doctor_module, "_probe_target", fake_probe)
     assert _run("doctor") == 1
     out = capsys.readouterr().out
     assert "FAIL  edge gateway" in out and "failure(s)" in out
+
+
+def test_cli_application_set_cname_target(cli_env, capsys):
+    from app.models import DomainStatus
+    from app.services import applications as app_service
+    from app.services.domains import claim_domain, find_live_by_hostname
+
+    _run(
+        "application",
+        "create",
+        "--slug",
+        "acme",
+        "--name",
+        "Acme",
+        "--cname-target",
+        "old.edge.example",
+    )
+    with cli.get_session_factory()() as s:
+        acme = app_service.get_application_by_slug(s, "acme")
+        claim_domain(s, acme, "a.customer.example", "w1")
+        s.commit()
+    capsys.readouterr()
+
+    # Change without touching existing domains: new claims use the new name,
+    # the existing one keeps what its customer published.
+    assert (
+        _run(
+            "application",
+            "set-cname-target",
+            "--application",
+            "acme",
+            "--cname-target",
+            "New.Edge.Example.",
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "old.edge.example -> new.edge.example" in out and "1 live domain(s) still" in out
+    with cli.get_session_factory()() as s:
+        acme = app_service.get_application_by_slug(s, "acme")
+        assert acme.cname_target == "new.edge.example"
+        assert (
+            find_live_by_hostname(s, "a.customer.example").active_claim.cname_target
+            == "old.edge.example"
+        )
+        b = claim_domain(s, acme, "b.customer.example", "w2")
+        assert b.active_claim.cname_target == "new.edge.example"
+        s.commit()
+
+    # Re-issuing moves the stale domain to the new target and resets it.
+    assert (
+        _run(
+            "application",
+            "set-cname-target",
+            "--application",
+            "acme",
+            "--cname-target",
+            "new.edge.example",
+            "--reissue-claims",
+        )
+        == 0
+    )
+    assert "re-issued the claim of 1 domain(s)" in capsys.readouterr().out
+    with cli.get_session_factory()() as s:
+        a = find_live_by_hostname(s, "a.customer.example")
+        assert a.active_claim.cname_target == "new.edge.example"
+        assert a.status == DomainStatus.PENDING_DNS
+
+    assert (
+        _run("application", "set-cname-target", "--application", "acme", "--cname-target", "*.bad")
+        != 0
+    )

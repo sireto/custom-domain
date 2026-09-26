@@ -71,6 +71,48 @@ def create_application(session: Session, *, slug: str, name: str, cname_target: 
     return application
 
 
+def set_cname_target(session: Session, application: Application, cname_target: str) -> str:
+    """Change the name new claims tell customers to CNAME to; returns the canonical name.
+
+    Existing domains keep the target their live claim was issued with (that
+    is what their customers published); re-issue a claim to move a domain
+    to the new target.
+    """
+    try:
+        target = canonicalize(cname_target, allow_apex=True)
+    except InvalidHostname as exc:
+        raise InvalidApplication(f"CNAME target is not valid: {exc.message}") from exc
+    application.cname_target = target
+    application.updated_at = utcnow()
+    session.flush()
+    return target
+
+
+def edge_names(session: Session, application: Application) -> list[str]:
+    """The application's CNAME target plus every target a live claim still names.
+
+    After ``set_cname_target`` the old name stays in use until the last
+    domain issued against it is re-issued or deleted, so it must keep
+    resolving to the edge, keep its certificate and keep being checked.
+    """
+    from app.models import ClaimStatus, Domain, OwnershipClaim
+
+    names = [application.cname_target]
+    for target in session.scalars(
+        select(OwnershipClaim.cname_target)
+        .join(Domain, Domain.id == OwnershipClaim.domain_id)
+        .where(
+            Domain.application_id == application.id,
+            Domain.deleted_at.is_(None),
+            OwnershipClaim.status != ClaimStatus.REVOKED,
+        )
+        .distinct()
+    ):
+        if target not in names:
+            names.append(target)
+    return names
+
+
 def get_application(session: Session, application_id: uuid.UUID) -> Application:
     application = session.get(Application, application_id)
     if application is None:
