@@ -44,9 +44,16 @@ SSH in and run:
 custom-domain doctor
 ```
 
-Every line should be `OK` except `applications: none yet`. The check named
-after your edge name confirms that port 80 at that name reaches this edge;
-if it warns, wait for DNS to propagate or check the firewall.
+Every line should be `OK` except `applications: none yet`. Once an
+application exists, the check named after its CNAME target fetches
+`https://<target>/.well-known/custom-domain-edge-health` and passes only when
+the answer is `204` with this edge's `X-Custom-Domain-Edge: 1` marker. That
+proves DNS, port 443 and certificate issuance at once. If it fails: wait for
+DNS to propagate, confirm TCP 443 (and 80, which Let's Encrypt uses for the
+challenge) is open, and run it again after a minute, since the edge obtains
+the certificate for its own name on the first handshake. A `TLS` or
+`certificate` error that persists points at issuance: check the edge
+container's log for the ACME error and that `ACME_EMAIL` is set.
 
 ## 4. Onboard the first application
 
@@ -78,8 +85,23 @@ backend, which registers customer hostnames through the API or SDK.
 - **Upgrading the installer**: `CUSTOM_DOMAIN_REF` in the cloud config only
   matters at creation; on a running server, upgrades are the `.env` edit
   above.
-- **Replacing the server**: create a new one the same way (without new
-  Primary IPs), restore the database and `.env`, then move both the Primary
-  IPv4 and the Primary IPv6 to it. Customers' DNS does not change. If the
-  old server used its own IPv6 instead of a Primary IPv6, update the `AAAA`
-  record as part of the switch, or drop it.
+- **Replacing the server**: Hetzner configures a Primary IP inside the
+  guest automatically only when it is assigned at server creation; a
+  Primary IPv6 assigned later must be configured by hand
+  (https://docs.hetzner.com/cloud/servers/primary-ips/primary-ip-configuration/).
+  So move the addresses by creating the new server with them:
+  1. Power off the old server and unassign both Primary IPs from it
+     (**Primary IPs → Unassign**; they stay, auto-delete being off).
+  2. Create the new server the same way, and under **Networking** choose
+     the existing Primary IPv4 and Primary IPv6 instead of new ones. Both
+     are then configured automatically in the guest.
+  3. Restore the database and `.env` (or let the installer run and then
+     restore), and start the stack.
+  4. Verify both address families before deleting the old server:
+     `curl -4 -I https://edge.example.net/.well-known/custom-domain-edge-health`
+     and the same with `-6` must both answer `204` with
+     `X-Custom-Domain-Edge: 1`; `custom-domain doctor` reports the same.
+  If you assigned a Primary IPv6 to a running server instead, add it to the
+  guest's network configuration as the Hetzner page describes (a netplan
+  entry for the /64 with the gateway `fe80::1`), apply it, and run the same
+  verification. Customers' DNS does not change either way.

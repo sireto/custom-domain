@@ -18,15 +18,17 @@ In the DigitalOcean console, **Create → Droplets**:
   install (`CUSTOM_DOMAIN_VERSION` and `CUSTOM_DOMAIN_REF` name the same
   release and move together; never point them at a branch). Keep
   `SKIP_FIREWALL=0` unless you attach a Cloud Firewall (below).
-- **Networking**: enable IPv6 if you intend to publish an `AAAA` record
-  (see the note under step 2).
+- **Networking**: enable IPv6 (a Reserved IPv6 requires it).
 
 Create the Droplet. Installation runs unattended and takes a few minutes;
 its log is `/var/log/custom-domain-install.log`.
 
-Then, under **Networking → Reserved IPs**, create a Reserved IP and assign
-it to the Droplet. This is the address customers' CNAMEs resolve to, and it
-must outlive any Droplet you replace later.
+Then, under **Networking → Reserved IPs**, create a Reserved IPv4 and a
+Reserved IPv6 and assign both to the Droplet. These are the addresses
+customers' CNAMEs resolve to, and they must outlive any Droplet you replace
+later; both can be reassigned to another Droplet in the same datacenter
+(Reserved IPv6 is available since June 2025, see
+https://docs.digitalocean.com/products/networking/reserved-ips/).
 
 Optionally, under **Networking → Firewalls**, create a Cloud Firewall with
 inbound SSH, HTTP (80), HTTPS (443) and a custom UDP 443 rule, and apply it
@@ -36,14 +38,9 @@ before creating the Droplet, or leave ufw on; both together also work.
 ## 2. Point a name at it
 
 In your DNS (DigitalOcean's or elsewhere), create the name customers will
-CNAME to, for example `edge.example.net`: an `A` record to the Reserved IP.
-This name is the `--cname-target` of every application.
-
-IPv6: DigitalOcean reserves IPv4 addresses only, so a Droplet's IPv6 address
-dies with the Droplet. Either publish no `AAAA` record (clients use IPv4),
-or publish one for the Droplet's IPv6 address and treat updating it as part
-of replacing the Droplet (below). Do not publish an `AAAA` record you are
-not prepared to move.
+CNAME to, for example `edge.example.net`: an `A` record to the Reserved IPv4
+and an `AAAA` record to the Reserved IPv6 (the reserved addresses, never the
+Droplet's own). This name is the `--cname-target` of every application.
 
 ## 3. Check it
 
@@ -53,9 +50,16 @@ SSH in and run:
 custom-domain doctor
 ```
 
-Every line should be `OK` except `applications: none yet`. The check named
-after your edge name confirms that port 80 at that name reaches this edge;
-if it warns, wait for DNS to propagate or check the firewall.
+Every line should be `OK` except `applications: none yet`. Once an
+application exists, the check named after its CNAME target fetches
+`https://<target>/.well-known/custom-domain-edge-health` and passes only when
+the answer is `204` with this edge's `X-Custom-Domain-Edge: 1` marker. That
+proves DNS, port 443 and certificate issuance at once. If it fails: wait for
+DNS to propagate, confirm TCP 443 (and 80, which Let's Encrypt uses for the
+challenge) is open, and run it again after a minute, since the edge obtains
+the certificate for its own name on the first handshake. A `TLS` or
+`certificate` error that persists points at issuance: check the edge
+container's log for the ACME error and that `ACME_EMAIL` is set.
 
 ## 4. Onboard the first application
 
@@ -91,8 +95,10 @@ backend, which registers customer hostnames through the API or SDK.
 - **Upgrading the installer**: `CUSTOM_DOMAIN_REF` in the user data only
   matters at creation; on a running Droplet, upgrades are the `.env` edit
   above.
-- **Replacing the Droplet**: create a new one the same way, restore the
-  database and `.env`, and reassign the Reserved IP. Customers' DNS does
-  not change for IPv4. If an `AAAA` record exists, change it to the new
-  Droplet's IPv6 address before retiring the old one, since the old address
-  goes away with it.
+- **Replacing the Droplet**: create a new one the same way in the same
+  datacenter, restore the database and `.env`, then reassign both the
+  Reserved IPv4 and the Reserved IPv6 to it. Customers' DNS does not
+  change. Verify with `curl -4 -I` and `curl -6 -I` against
+  `https://edge.example.net/.well-known/custom-domain-edge-health` (expect
+  `204` and `X-Custom-Domain-Edge: 1` on both) before retiring the old
+  Droplet.
