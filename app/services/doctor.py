@@ -336,27 +336,14 @@ def _application_findings(
 
 
 def _publicly_routable(address) -> bool:
-    """Loopback, link-local, private (RFC 1918 / ULA) and unspecified addresses are not.
+    """The standard global-address classification (RFC 6890 and the IANA registries).
 
-    Documentation ranges count as non-global in ``ipaddress`` but are left
-    alone: they never come back from real DNS and they appear in tests.
+    Loopback, link-local, private, shared address space (100.64.0.0/10),
+    benchmarking, documentation and reserved ranges are all non-global:
+    customers on the Internet cannot route to them, so a record answering
+    with one is a misconfiguration whatever the reason.
     """
-    import ipaddress
-
-    if (
-        address.is_loopback
-        or address.is_link_local
-        or address.is_unspecified
-        or address.is_multicast
-    ):
-        return False
-    private = (
-        ipaddress.ip_network("10.0.0.0/8"),
-        ipaddress.ip_network("172.16.0.0/12"),
-        ipaddress.ip_network("192.168.0.0/16"),
-        ipaddress.ip_network("fc00::/7"),
-    )
-    return not any(address in net for net in private)
+    return bool(address.is_global)
 
 
 def _cname_target_findings(

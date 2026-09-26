@@ -422,10 +422,12 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
         raise OSError("unreachable")
 
     def fake_resolve(host, dns_settings):
+        # Globally routable example addresses (example.com's), never documentation ranges.
         return {
-            "edge.acme.example": ["203.0.113.10", "2001:db8::10"],
-            "edge.globex.example": ["203.0.113.20"],
+            "edge.acme.example": ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"],
+            "edge.globex.example": ["93.184.215.14"],
             "edge.self.example": ["127.0.1.1"],  # the host's own name, seen from a container
+            "edge.cgnat.example": ["100.64.0.1"],  # shared address space (RFC 6598)
         }.get(host) or (_ for _ in ()).throw(LookupError(f"{host} does not exist in public DNS"))
 
     def fake_probe(hostname, address, settings):
@@ -464,6 +466,7 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
         create_application(s, slug="globex", name="Globex", cname_target="edge.globex.example")
         create_application(s, slug="nowhere", name="Nowhere", cname_target="edge.nowhere.example")
         create_application(s, slug="selfie", name="Self", cname_target="edge.self.example")
+        create_application(s, slug="cgnat", name="CGNAT", cname_target="edge.cgnat.example")
         s.commit()
     findings = doctor_module.run_doctor(
         factory,
@@ -485,7 +488,10 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
     # named as such rather than probed.
     assert by_check["cname target edge.self.example"].status == "fail"
     assert "not a public address" in by_check["cname target edge.self.example"].detail
-    assert doctor_module.summarize(findings)[2] == 3
+    # Shared address space is not routable from the Internet either.
+    assert by_check["cname target edge.cgnat.example"].status == "fail"
+    assert "not a public address" in by_check["cname target edge.cgnat.example"].detail
+    assert doctor_module.summarize(findings)[2] == 4
 
     # A former target still named by a live claim stays monitored: the new
     # target is healthy, the old one is broken, and doctor says so.
@@ -501,7 +507,7 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
 
     def fake_resolve_moved(host, dns_settings):
         if host == "edge2.acme.example":
-            return ["203.0.113.30"]
+            return ["93.184.216.35"]
         if host == "edge.acme.example":
             raise LookupError("edge.acme.example does not exist in public DNS")
         return fake_resolve(host, dns_settings)
