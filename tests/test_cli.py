@@ -496,7 +496,8 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
     assert hostname_check.status == "warn" and "could not be checked" in hostname_check.detail
     assert "curl -6" in hostname_check.detail
 
-    # But an IPv4 failure alongside an unroutable IPv6 is still a failure.
+    # But an IPv4 failure alongside an unroutable IPv6 is still a failure, and
+    # the unroutable IPv6 is named as not checkable rather than blamed.
     def probe_v4_broken(hostname, address, settings):
         if ":" in address:
             raise EdgeProbeFailed("connection_failed", "[Errno 101] Network is unreachable")
@@ -511,7 +512,31 @@ def test_cli_doctor_reports_the_deployment_state(cli_env, capsys, monkeypatch):
         probe_target=probe_v4_broken,
     )
     by_check = {f.check: f for f in findings}
-    assert by_check["edge hostname edge.acme.example"].status == "fail"
+    mixed = by_check["edge hostname edge.acme.example"]
+    assert mixed.status == "fail" and "not checkable from this container" in mixed.detail
+
+    # An unroutable IPv4 address is a genuine failure: only IPv6 gets the
+    # inside-Docker allowance, so an A-only target with no route fails.
+    def probe_v4_unroutable(hostname, address, settings):
+        raise EdgeProbeFailed(
+            "connection_failed", f"Cannot connect to {address}: [Errno 101] Network is unreachable"
+        )
+
+    def resolve_v4_only(host, dns_settings):
+        return ["93.184.216.34"]
+
+    findings = doctor_module.run_doctor(
+        factory,
+        named,
+        DnsSettings(),
+        http_get=fake_http_get,
+        resolve=resolve_v4_only,
+        probe_target=probe_v4_unroutable,
+    )
+    by_check = {f.check: f for f in findings}
+    v4_only = by_check["edge hostname edge.acme.example"]
+    assert v4_only.status == "fail" and "Network is unreachable" in v4_only.detail
+    assert "could not be checked" not in v4_only.detail and "curl -6" not in v4_only.detail
 
     with factory() as s:
         acme = create_application(s, slug="acme", name="Acme", cname_target="edge.acme.example")

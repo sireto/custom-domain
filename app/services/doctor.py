@@ -437,9 +437,10 @@ def _cname_target_findings(
         try:
             status, marker = probe_target(target, address, settings)
         except Exception as exc:
-            if _no_route(exc):
-                # This container has no route to that address family (Docker
-                # networks carry no IPv6 by default): not a verdict on the edge.
+            if _unverifiable_from_here(address, exc):
+                # Docker networks carry no IPv6 by default, so an IPv6 address
+                # this container cannot route to says nothing about the edge.
+                # An unroutable IPv4 address is a real failure.
                 unverifiable.append(address)
             else:
                 problems.append(f"{address}: {type(exc).__name__}: {exc}")
@@ -455,9 +456,9 @@ def _cname_target_findings(
             Finding(
                 check,
                 "warn",
-                f"{', '.join(reached)} answer {url} as this edge; {', '.join(unverifiable)} "
-                "could not be checked from this container (no route to that address "
-                "family here, which is normal for IPv6 inside Docker). Verify from outside: "
+                f"{', '.join(reached)} answer {url} as this edge; the IPv6 address(es) "
+                f"{', '.join(unverifiable)} could not be checked from this container (no "
+                "IPv6 route here, which is normal inside Docker). Verify from outside: "
                 f"curl -6 -I {url}",
             )
         ]
@@ -473,6 +474,19 @@ def _cname_target_findings(
             "if it keeps failing",
         )
     ]
+
+
+def _unverifiable_from_here(address: str, exc: BaseException) -> bool:
+    """An IPv6 address this container has no route to: the one case that is
+    an environment fact rather than a verdict on the edge."""
+    import ipaddress
+
+    try:
+        if ipaddress.ip_address(address).version != 6:
+            return False
+    except ValueError:
+        return False
+    return _no_route(exc)
 
 
 def _no_route(exc: BaseException) -> bool:
