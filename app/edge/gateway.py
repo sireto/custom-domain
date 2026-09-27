@@ -56,6 +56,8 @@ class EdgeFacts:
     portal_ranges: tuple[str, ...] = ()
     # Whether the API serves /v1 through the edge (PUBLIC_API).
     public_api: bool = False
+    # The operator API allowlist as the API states it (OPERATOR_ALLOWED_IPS).
+    operator_ranges: tuple[str, ...] = ()
 
 
 def validate_apps(apps: Any, settings: EdgeSettings, facts: Mapping[str, str] | EdgeFacts) -> None:
@@ -115,6 +117,24 @@ def validate_apps(apps: Any, settings: EdgeSettings, facts: Mapping[str, str] | 
         )
         if middle[:2] != expected:
             raise ConfigRejected("portal routes must be exactly the reconciler's portal routes")
+        middle = middle[2:]
+    if (
+        middle
+        and isinstance(middle[0], dict)
+        and middle[0].get("@id") in ("operator", "operator-denied")
+    ):
+        # The operator pair, like the portal's: exactly the reconciler's routes,
+        # on edge names the API vouches for, with the allowlist the API states.
+        if not facts.operator_ranges:
+            raise ConfigRejected("operator routes are not allowed: the API exposes no operator API")
+        hosts = _route_hosts(middle[0])
+        if not hosts or set(hosts) - set(facts.edge_names):
+            raise ConfigRejected("operator routes may only be served on the edge's own names")
+        expected = edge_config.operator_routes_for(
+            sorted(hosts), list(facts.operator_ranges), settings.assert_upstream
+        )
+        if middle[:2] != expected:
+            raise ConfigRejected("operator routes must be exactly the reconciler's operator routes")
         middle = middle[2:]
     if middle and isinstance(middle[0], dict) and middle[0].get("@id") == "api":
         # The API route must be exactly the reconciler's, on edge names the
@@ -245,6 +265,7 @@ def api_origins_provider(api_url: str, token: str | None, timeout: float = 5.0) 
             edge_names=frozenset(body.get("edge_names", [])),
             portal_ranges=tuple(body.get("portal_ranges", [])),
             public_api=bool(body.get("public_api", False)),
+            operator_ranges=tuple(body.get("operator_ranges", [])),
         )
 
     return fetch

@@ -153,6 +153,14 @@ def create_app() -> FastAPI:
     app.include_router(v1_router)
     app.include_router(internal_router)
     app.include_router(webhooks_router)
+    import os
+
+    from app.operator.api import operator_token_from_env
+    from app.operator.api import router as operator_router
+
+    app.state.operator_token = operator_token_from_env(os.environ)
+    app.state.operator_auth_limiter = FailedAuthLimiter.from_env()
+    app.include_router(operator_router)
     app.webhooks.include_router(webhooks)
     from app.portal.views import install as install_portal
 

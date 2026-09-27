@@ -139,6 +139,7 @@ def test_edge_token_required_when_configured(client, session, make_application):
         "edge_names": ["acme.edge.example.net"],
         "portal_ranges": [],
         "public_api": False,
+        "operator_ranges": [],
     }
     client.app.state.edge_settings = SETTINGS.__class__(**{**SETTINGS.__dict__, "public_api": True})
     origins = client.get("/internal/edge/origins", headers={EDGE_TOKEN_HEADER: SETTINGS.edge_token})

@@ -230,6 +230,7 @@ code and a message the application can show to the customer.
 - [docs/webhooks.md](docs/webhooks.md): subscriptions, signatures, delivery and replay.
 - [docs/deployment.md](docs/deployment.md): production layout, secrets, monitoring, backups and rollback.
 - [docs/portal.md](docs/portal.md): the operator portal, its pages, how to reach it and what it protects against.
+- [docs/operator-api.md](docs/operator-api.md): the operator actions over HTTP, for control planes and provisioning scripts.
 - [docs/hosting-aws.md](docs/hosting-aws.md), [docs/hosting-azure.md](docs/hosting-azure.md), [docs/hosting-gcp.md](docs/hosting-gcp.md), [docs/hosting-hetzner.md](docs/hosting-hetzner.md) and [docs/hosting-digitalocean.md](docs/hosting-digitalocean.md): one-server installs on each provider.
 - [docs/bettercollected-integration.md](docs/bettercollected-integration.md): a worked integration of a SaaS product.
 - [docs/operations.md](docs/operations.md) and [docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md): certificate storage, multi-instance coordination, trust boundaries.

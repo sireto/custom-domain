@@ -192,6 +192,8 @@ def edge_origins(
         "edge_names": portal_hosts(db, settings),
         "portal_ranges": settings.portal_ranges() if settings else [],
         "public_api": bool(settings and settings.public_api),
+        # Empty while the operator API is disabled (no OPERATOR_API_TOKEN).
+        "operator_ranges": settings.operator_ranges() if settings else [],
     }
 
 
