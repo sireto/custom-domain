@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from starlette.responses import RedirectResponse
 
+from app import clients
 from app.db.session import get_session
 from app.hostname import InvalidHostname
 from app.legacy import import_legacy_domains, parse_legacy_config
@@ -61,20 +62,8 @@ def _state(request: Request) -> tuple[PortalSettings, Sessions, LoginLimiter]:
     return state.portal_settings, state.portal_sessions, state.portal_limiter
 
 
-def client_address(request: Request) -> str | None:
-    """The address a portal request is attributed to.
-
-    Through the edge (a trusted peer, see EDGE_ASK_TRUSTED_HOSTS) it is the
-    last X-Forwarded-For value, which Caddy sets to the real peer; otherwise
-    the connecting address itself. The sign-in rate limit and the allowlist
-    both use it.
-    """
-    peer = request.client.host if request.client else None
-    edge_settings = getattr(request.app.state, "edge_settings", None)
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if peer and forwarded and edge_settings is not None and edge_settings.trusts(peer):
-        return forwarded.split(",")[-1].strip() or peer
-    return peer
+# The sign-in rate limit and the allowlist both use the real client address.
+client_address = clients.client_address
 
 
 def _via_https(request: Request) -> bool:
@@ -593,12 +582,22 @@ def _tab_origins(request, session, db, application, *, status=200, **extra):
     )
 
 
+def _api_url(request: Request) -> str | None:
+    """Where applications call the API, when it is served through the edge."""
+    settings = _edge_settings(request)
+    if settings is None or not settings.public_api or not settings.edge_hostname:
+        return None
+    scheme = "http" if settings.disable_https else "https"
+    return f"{scheme}://{settings.edge_hostname}"
+
+
 def _tab_credentials(request, session, db, application, *, status=200, **extra):
     return render(
         request,
         "app_credentials.html",
         session,
         status=status,
+        api_url=_api_url(request),
         credentials=app_service.list_credentials(db, application),
         **_app_context(db, application),
         **extra,

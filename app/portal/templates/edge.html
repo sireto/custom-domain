@@ -40,6 +40,7 @@
     <div class="card-body"><dl class="kv">
       <dt>Edge's own name</dt><dd>{% if settings.edge_hostname %}<code>{{ settings.edge_hostname }}</code>{% else %}<span class="muted">not set</span> <code>EDGE_HOSTNAME</code>{% endif %}</dd>
       <dt>Portal via the edge</dt><dd>{% if settings.portal_allowed_ips %}{% for r in settings.portal_allowed_ips %}<code>{{ r }}</code>{{ ', ' if not loop.last }}{% endfor %}{% else %}<span class="muted">off (SSH tunnel only)</span> <code>PORTAL_ALLOWED_IPS</code>{% endif %}</dd>
+      <dt>API via the edge</dt><dd>{% if settings.public_api %}{% if settings.edge_hostname %}<code>https://{{ settings.edge_hostname }}/v1</code>{% else %}on, at <code>/v1</code> of each edge name{% endif %}{% else %}<span class="muted">off</span> <code>PUBLIC_API</code>{% endif %}</dd>
       <dt>Caddy admin</dt><dd><code>{{ settings.admin_url }}</code></dd>
       <dt>Assertion upstream</dt><dd><code>{{ settings.assert_upstream }}</code></dd>
     </dl></div>

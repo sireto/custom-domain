@@ -222,6 +222,24 @@ def _settings_findings(settings: EdgeSettings, dns_settings: DnsSettings) -> lis
         )
     else:
         findings.append(Finding("portal", "ok", "tunnel only (PORTAL_ALLOWED_IPS is empty)"))
+    if settings.public_api:
+        where = settings.edge_hostname or "<edge name>"
+        findings.append(
+            Finding(
+                "public api",
+                "ok",
+                f"served at https://{where}/v1 for applications with a credential",
+            )
+        )
+    else:
+        findings.append(
+            Finding(
+                "public api",
+                "ok",
+                "not served through the edge (PUBLIC_API is off): applications need another "
+                "way to reach the API on port 9000",
+            )
+        )
     if dns_settings.verification_mode == "local":
         findings.append(
             Finding(

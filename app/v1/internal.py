@@ -191,6 +191,7 @@ def edge_origins(
         "upstreams": upstreams,
         "edge_names": portal_hosts(db, settings),
         "portal_ranges": settings.portal_ranges() if settings else [],
+        "public_api": bool(settings and settings.public_api),
     }
 
 

@@ -12,7 +12,7 @@ pip install custom-domain-sdk        # from PyPI; from a checkout: pip install .
 ```python
 from custom_domain import Client
 
-client = Client("https://domains.example.net", credential="cd_...")  # credential from the operator
+client = Client("https://edge.example.net", credential="cd_...")  # the edge name and credential from the operator
 
 domain = client.create_domain(
     "forms.customer.example",  # the customer's exact subdomain

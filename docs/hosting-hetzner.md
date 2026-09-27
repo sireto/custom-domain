@@ -91,10 +91,10 @@ backend, which registers customer hostnames through the API or SDK.
 - **Upgrade**: `custom-domain upgrade <version>` (re-runs the installer from
   that release: image, new settings, Compose refresh, pull and restart; see
   [deployment.md](deployment.md#upgrading)).
-- **Management API**: published on `127.0.0.1:9000` of the host only (the
-  SSH tunnel and the `custom-domain` command use it). Put an authenticated
-  reverse proxy in front if applications must reach the API from outside;
-  then also open that proxy's port in the Hetzner firewall.
+- **Management API**: applications call it at `https://edge.example.net/v1`
+  with their credential (`PUBLIC_API=true`, the installer's default); only
+  `/v1` is routed through the edge. It is also published on `127.0.0.1:9000`
+  of the host for the `custom-domain` command and the SSH tunnel.
 - **Upgrading the installer**: `CUSTOM_DOMAIN_VERSION` in the cloud config only
   matters at creation; on a running server, upgrades are the `.env` edit
   above.
