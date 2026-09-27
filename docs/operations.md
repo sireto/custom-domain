@@ -284,9 +284,10 @@ unacceptable.
 
 - The Caddy admin API must never be published outside the container, and the
   management API on port 9000 must not be a public port: the compose file
-  binds it to `127.0.0.1` so only the host (or an authenticated reverse proxy
-  on the host) reaches it. It is authenticated, but it is also where
-  credentials are used and domains are managed, so keep it off the internet.
+  binds it to `127.0.0.1`. Applications reach only its `/v1` endpoints,
+  through the edge over HTTPS, when `PUBLIC_API=true`; those require an
+  application credential, and the internal endpoints, the portal (which has
+  its own allowlist) and metrics are not routed ([deployment.md](deployment.md#the-v1-api-through-the-edge)).
 - Redis: require AUTH, enable TLS when crossing networks, restrict network
   access to the edge instances, and set `CADDY_REDIS_ENCRYPTION_KEY` so
   values are AES-encrypted at rest (values are still decrypted in memory by

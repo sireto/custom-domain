@@ -114,7 +114,12 @@ def _origin_app(
 
 
 def https_get(
-    host: str, port: int, path: str, ca_file: str, source: str | None = None
+    host: str,
+    port: int,
+    path: str,
+    ca_file: str,
+    source: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> tuple[int, str]:
     """GET through the edge with ``host`` as SNI and Host header, trusting ``ca_file``.
 
@@ -129,7 +134,7 @@ def https_get(
     try:
         connection = http.client.HTTPConnection(host, port, timeout=15)
         connection.sock = tls
-        connection.request("GET", path, headers={"Host": host})
+        connection.request("GET", path, headers={"Host": host, **(headers or {})})
         response = connection.getresponse()
         return response.status, response.read().decode()
     finally:
@@ -256,6 +261,7 @@ def test_two_applications_serve_the_right_workspaces_over_https(
         edge_token=EDGE_TOKEN,
         ask_trusted_hosts=("127.0.0.1", "::1"),
         portal_allowed_ips=("127.0.0.2",),
+        public_api=True,
         probe_address=f"127.0.0.1:{https_port}",
         probe_ca_file=str(ca_file),
         reconcile_enabled=True,
@@ -366,6 +372,26 @@ def test_two_applications_serve_the_right_workspaces_over_https(
             "alpha.customer.example", https_port, "/portal/login", str(ca_file)
         )
         assert status == 404 and "Sign in" not in body
+
+        # --- the v1 API through the edge (PUBLIC_API): the application's backend
+        # reaches it at https://<edge name>/v1 with its credential, from anywhere ---
+        auth = {"Authorization": f"Bearer {bc_secret}"}
+        status, body = https_get(
+            "bc.edge.localtest.me", https_port, "/v1/domains", str(ca_file), headers=auth
+        )
+        assert status == 200 and "alpha.customer.example" in body
+        assert "one.other-customer.example" not in body  # still scoped to the application
+        status, _ = https_get("bc.edge.localtest.me", https_port, "/v1/domains", str(ca_file))
+        assert status == 401
+        # Only /v1 is routed: the edge-only endpoints and the legacy API are not.
+        for path in ("/internal/edge/origins", "/internal/tls/ask?domain=x", "/domains"):
+            status, _ = https_get("bc.edge.localtest.me", https_port, path, str(ca_file))
+            assert status == 404, path
+        # Customer hostnames do not expose the API.
+        status, body = https_get(
+            "one.other-customer.example", https_port, "/v1/domains", str(ca_file), headers=auth
+        )
+        assert "alpha.customer.example" not in body
 
         # --- wrong host: no certificate is issued for an unknown name ---
         assert rejected("nobody.customer.example", https_port, str(ca_file))

@@ -60,8 +60,10 @@ docker compose up -d
 ```
 
 The bundled [docker-compose.yml](docker-compose.yml) publishes ports 80 and
-443 and binds the management API to `127.0.0.1:9000`; reach it from the host
-or through an authenticated reverse proxy. Swagger UI is at
+443 and binds the management API to `127.0.0.1:9000`. With `PUBLIC_API=true`
+and `EDGE_HOSTNAME` set, the edge also serves the v1 API at
+`https://<EDGE_HOSTNAME>/v1` for applications (nothing else of the API is
+routed); the production installer turns this on. Swagger UI is at
 **http://localhost:9000/v1/docs**; the OpenAPI document is served at
 `/v1/openapi.json` and committed as [docs/openapi.json](docs/openapi.json).
 
@@ -172,7 +174,7 @@ verifier, an ASGI middleware and the webhook signature verifier.
 ```python
 from custom_domain import Client, CustomDomainMiddleware
 
-client = Client("https://custom-domain.example.net", "cd_...")
+client = Client("https://edge.example.net", "cd_...")    # the edge serves /v1 (PUBLIC_API)
 domain = client.create_domain("forms.customer.example", reference="ws_8f3a1c")
 for record in domain.dns_records:      # show these to the customer
     print(record.type, record.name, record.value)

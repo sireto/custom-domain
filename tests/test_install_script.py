@@ -89,6 +89,8 @@ def test_fresh_install_writes_everything_and_starts_the_stack(tmp_path):
     assert env["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.9.9"
     assert env["EDGE_HOSTNAME"] == "Edge.Example.Net"  # canonicalized by the service on load
     assert env["PORTAL_ALLOWED_IPS"] == "203.0.113.9" and env["ACME_EMAIL"] == "ops@example.net"
+    assert env["PUBLIC_API"] == "true"  # new installs serve the API through the edge
+    assert "https://Edge.Example.Net/v1" in result.stdout
     for key in ("POSTGRES_PASSWORD", "EDGE_TOKEN", "PORTAL_PASSWORD", "CADDY_REDIS_PASSWORD"):
         assert len(env[key]) >= 32
     assert env["EDGE_ASSERTION_KEYS"].startswith("1:") and len(env["EDGE_ASSERTION_KEYS"]) > 40
@@ -232,3 +234,18 @@ def test_explicit_version_wins_over_the_cloud_init_config_file(tmp_path):
     assert upgraded.returncode == 0, upgraded.stderr
     assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.9.9"
     assert "Image set to ghcr.io/sireto/custom-domain:0.9.9" in upgraded.stdout
+
+
+def test_upgrade_leaves_public_api_alone_unless_given(tmp_path):
+    assert run_install(tmp_path, "0.9.8").returncode == 0
+    deploy = tmp_path / "opt" / "deploy"
+    # An installation from before PUBLIC_API existed.
+    text = (deploy / ".env").read_text()
+    kept = [line for line in text.splitlines() if not line.startswith("PUBLIC_API=")]
+    (deploy / ".env").write_text("\n".join(kept) + "\n")
+    assert run_install(tmp_path, None).returncode == 0
+    assert "PUBLIC_API" not in env_of(tmp_path)  # not turned on behind the operator's back
+    assert run_install(tmp_path, None, PUBLIC_API="true").returncode == 0
+    assert env_of(tmp_path)["PUBLIC_API"] == "true"
+    assert run_install(tmp_path, None, PUBLIC_API="false").returncode == 0
+    assert env_of(tmp_path)["PUBLIC_API"] == "false"

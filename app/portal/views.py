@@ -593,12 +593,22 @@ def _tab_origins(request, session, db, application, *, status=200, **extra):
     )
 
 
+def _api_url(request: Request) -> str | None:
+    """Where applications call the API, when it is served through the edge."""
+    settings = _edge_settings(request)
+    if settings is None or not settings.public_api or not settings.edge_hostname:
+        return None
+    scheme = "http" if settings.disable_https else "https"
+    return f"{scheme}://{settings.edge_hostname}"
+
+
 def _tab_credentials(request, session, db, application, *, status=200, **extra):
     return render(
         request,
         "app_credentials.html",
         session,
         status=status,
+        api_url=_api_url(request),
         credentials=app_service.list_credentials(db, application),
         **_app_context(db, application),
         **extra,

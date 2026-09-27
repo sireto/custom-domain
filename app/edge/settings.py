@@ -112,6 +112,9 @@ class EdgeSettings:
     # gets a certificate, answers the health path and serves the portal even
     # before the first application exists, and is the default CNAME target.
     edge_hostname: str | None = None
+    # Serve the v1 API (credential-authenticated) on the edge's own names over
+    # HTTPS, so applications can reach it without a separate reverse proxy.
+    public_api: bool = False
     _validated: bool = field(default=False, repr=False, compare=False)
 
     @classmethod
@@ -157,6 +160,7 @@ class EdgeSettings:
             assertion_ttl=int(env.get("EDGE_ASSERTION_TTL", "60")),
             portal_allowed_ips=_csv(env, "PORTAL_ALLOWED_IPS"),
             edge_hostname=_edge_hostname(env.get("EDGE_HOSTNAME", "")),
+            public_api=_flag(env, "PUBLIC_API", False),
         )
         settings.validate()
         return settings

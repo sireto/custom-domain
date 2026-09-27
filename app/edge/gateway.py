@@ -12,7 +12,8 @@ exposes exactly:
 Everything else is 404, including ``/load``. Validation is structural and
 strict: the only handlers allowed are the header strip, the assert
 subrequest to the configured upstream, ``reverse_proxy`` to an upstream that
-the management API currently lists as a verified active origin, and the two
+the management API currently lists as a verified active origin (or, for the
+portal and the public API routes, to the management API itself), and the
 fixed body-less ``static_response`` routes. No ``file_server``, no other
 listeners, no changes to TLS automation beyond the expected policy.
 """
@@ -53,6 +54,8 @@ class EdgeFacts:
     # The portal allowlist as the API states it; the edge container needs no
     # copy of PORTAL_ALLOWED_IPS, so changing it never requires an edge restart.
     portal_ranges: tuple[str, ...] = ()
+    # Whether the API serves /v1 through the edge (PUBLIC_API).
+    public_api: bool = False
 
 
 def validate_apps(apps: Any, settings: EdgeSettings, facts: Mapping[str, str] | EdgeFacts) -> None:
@@ -113,6 +116,17 @@ def validate_apps(apps: Any, settings: EdgeSettings, facts: Mapping[str, str] | 
         if middle[:2] != expected:
             raise ConfigRejected("portal routes must be exactly the reconciler's portal routes")
         middle = middle[2:]
+    if middle and isinstance(middle[0], dict) and middle[0].get("@id") == "api":
+        # The API route must be exactly the reconciler's, on edge names the
+        # API vouches for, and only while the API says it is public.
+        if not facts.public_api:
+            raise ConfigRejected("the api route is not allowed: the API is not public")
+        hosts = _route_hosts(middle[0])
+        if not hosts or set(hosts) - set(facts.edge_names):
+            raise ConfigRejected("the api route may only be served on the edge's own names")
+        if middle[:1] != edge_config.api_route_for(sorted(hosts), settings.assert_upstream):
+            raise ConfigRejected("the api route must be exactly the reconciler's api route")
+        middle = middle[1:]
     seen_hosts: set[str] = set()
     for route in middle:
         _validate_app_route(route, settings, allowed_upstreams, seen_hosts)
@@ -124,6 +138,15 @@ def validate_apps(apps: Any, settings: EdgeSettings, facts: Mapping[str, str] | 
         return
     if tls != _expected_tls(settings):
         raise ConfigRejected("tls automation must be exactly the on-demand policy")
+
+
+def _route_hosts(route: dict[str, Any]) -> list[str] | None:
+    match = route.get("match")
+    if isinstance(match, list) and match and isinstance(match[0], dict):
+        hosts = match[0].get("host")
+        if isinstance(hosts, list):
+            return hosts
+    return None
 
 
 def _expected_tls(settings: EdgeSettings) -> dict[str, Any]:
@@ -221,6 +244,7 @@ def api_origins_provider(api_url: str, token: str | None, timeout: float = 5.0) 
             upstreams={item["dial"]: item["host"] for item in body["upstreams"]},
             edge_names=frozenset(body.get("edge_names", [])),
             portal_ranges=tuple(body.get("portal_ranges", [])),
+            public_api=bool(body.get("public_api", False)),
         )
 
     return fetch

@@ -18,9 +18,9 @@ Status: implemented for issue #12. Companion to [operations.md](operations.md)
 
 Networks: `backend` (db, api, worker), `control` (api, worker, edge) and
 `edge_storage` (edge, redis). The edge publishes 80 and 443 only; the
-management API is published on the host's loopback only (reach it through an
-SSH tunnel or a
-reverse proxy you authenticate). `EDGE_ASK_TRUSTED_HOSTS` is the `control`
+management API is published on the host's loopback only, and applications
+reach its `/v1` endpoints through the edge when `PUBLIC_API=true` (see
+below). `EDGE_ASK_TRUSTED_HOSTS` is the `control`
 subnet so only edge containers can call the internal endpoints, and
 `EDGE_TOKEN` is additionally required on the assert, origins and metrics
 calls.
@@ -187,6 +187,29 @@ installer fills in the address you install from); the API is also
 published on `127.0.0.1:9000` of the host, so an SSH tunnel
 (`ssh -N -L 9000:127.0.0.1:9000 root@<server>`, then
 http://localhost:9000/portal) always works. See [portal.md](portal.md).
+
+## The v1 API through the edge
+
+With `PUBLIC_API=true` (the installer's default for new installations), the
+edge serves the v1 API at `https://<edge name>/v1` on each of its own names,
+so an application's backend anywhere on the internet calls
+`https://edge.example.net/v1/...` with its credential and needs no reverse
+proxy of your own. Nothing else of the management API is routed: `/internal`
+(the edge-only endpoints), `/portal` (which has its own allowlisted route),
+`/metrics` and the legacy `/domains` API stay unreachable from outside, and
+customer hostnames never expose the API. Every v1 call requires an
+application credential, and the edge strips its own `X-Custom-Domain-*`
+headers from these requests. As with the portal, the configuration gateway
+accepts the route only in the reconciler's exact shape, on the edge names,
+and only while the API states that it is public; the edge container needs
+no copy of the setting.
+
+`custom-domain doctor` reports where the API is served. With
+`PUBLIC_API=false` it listens on `127.0.0.1:9000` of the host only; put an
+authenticated reverse proxy in front if applications must reach it. Existing
+installations keep their setting on upgrade: add `PUBLIC_API=true` to
+`deploy/.env` (or run `PUBLIC_API=true custom-domain upgrade <version>`) and
+restart the api and worker to turn it on.
 
 ## Secrets
 

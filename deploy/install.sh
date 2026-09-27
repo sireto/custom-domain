@@ -25,6 +25,10 @@
 #   EDGE_HOSTNAME           the edge's own DNS name, for example edge.example.net: the
 #                           default CNAME target, certified and serving the portal from the
 #                           first start (recommended)
+#   PUBLIC_API              true (the default for new installs) serves the v1 API at
+#                           https://<EDGE_HOSTNAME>/v1, so applications need no reverse proxy
+#                           of their own; false keeps it on 127.0.0.1:9000. On an upgrade,
+#                           only an explicitly given value changes .env.
 #   PORTAL_ALLOWED_IPS      addresses or networks that may open the portal through the
 #                           edge (default: the address you are installing from over SSH,
 #                           when there is one; empty means SSH tunnel only)
@@ -41,7 +45,7 @@ set -euo pipefail
 
 CONFIG_FILE="${CUSTOM_DOMAIN_INSTALL_ENV:-/etc/custom-domain-install.env}"
 SETTINGS="CUSTOM_DOMAIN_VERSION CUSTOM_DOMAIN_REF CUSTOM_DOMAIN_DIR CUSTOM_DOMAIN_SOURCE \
-ACME_EMAIL EDGE_HOSTNAME PORTAL_ALLOWED_IPS SKIP_FIREWALL SKIP_DOCKER_INSTALL \
+ACME_EMAIL EDGE_HOSTNAME PUBLIC_API PORTAL_ALLOWED_IPS SKIP_FIREWALL SKIP_DOCKER_INSTALL \
 CUSTOM_DOMAIN_ACCEPT_COMPOSE"
 if [ -f "${CONFIG_FILE}" ]; then
     # Remember what the caller set explicitly, load the file, then put the
@@ -221,6 +225,7 @@ EDGE_ASSERTION_KEYS=1:$(secret 32)
 EDGE_TOKEN=$(secret 24)
 PORTAL_PASSWORD=$(secret 16)
 PORTAL_ALLOWED_IPS=${PORTAL_ALLOWED_IPS:-}
+PUBLIC_API=${PUBLIC_API:-true}
 CADDY_REDIS_PASSWORD=$(secret 24)
 CADDY_REDIS_ENCRYPTION_KEY=$(secret 32)
 CUSTOM_DOMAIN_IMAGE=${IMAGE}
@@ -235,6 +240,10 @@ else
     if [ -n "${EDGE_HOSTNAME:-}" ] && [ -z "$(env_get EDGE_HOSTNAME)" ]; then
         env_set EDGE_HOSTNAME "${EDGE_HOSTNAME}"
     fi
+    if [ -n "${PUBLIC_API:-}" ]; then
+        # Existing installations keep the API private unless asked.
+        env_set PUBLIC_API "${PUBLIC_API}"
+    fi
     if [ -n "${VERSION_GIVEN}" ]; then
         env_set CUSTOM_DOMAIN_IMAGE "${IMAGE}"
         log "Image set to ${IMAGE}"
@@ -246,6 +255,7 @@ else
 fi
 edge_hostname="$(env_get EDGE_HOSTNAME)"
 portal_ips="$(env_get PORTAL_ALLOWED_IPS)"
+public_api="$(env_get PUBLIC_API)"
 
 # --- Host command ---------------------------------------------------------------
 # `custom-domain ...` runs the operator CLI inside the API container;
@@ -316,7 +326,16 @@ cat <<EOF
   4. Upgrade later with:   custom-domain upgrade <version>
      (docs/deployment.md for backups, monitoring and the Compose refresh rules)
 
-The management API and portal listen on 127.0.0.1:9000 of this host only
-(plus the edge route above); applications reach the API through a reverse
-proxy of your own if they run elsewhere (docs/deployment.md).
 EOF
+if [ "${public_api}" = "true" ]; then
+    cat <<EOF
+Applications call the API at https://${name}/v1 with their credential
+(PUBLIC_API=true). It also listens on 127.0.0.1:9000 of this host.
+EOF
+else
+    cat <<EOF
+The management API and portal listen on 127.0.0.1:9000 of this host only
+(plus the portal route above). Set PUBLIC_API=true in .env to serve the API at
+https://${name}/v1 for applications (docs/deployment.md).
+EOF
+fi

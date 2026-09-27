@@ -7,6 +7,12 @@ document is served at `/v1/openapi.json` with Swagger UI at `/v1/docs`.
 
 The Python SDK ([sdk/README.md](../sdk/README.md)) wraps everything below.
 
+**Base URL.** On a deployment with `PUBLIC_API=true` (the installer's default)
+the API is served through the edge at `https://<edge name>/v1`, for example
+`https://edge.example.net/v1/domains`; otherwise it is on port 9000 of the
+server behind whatever proxy the operator provides. Every call needs the
+application's credential as `Authorization: Bearer cd_...`.
+
 ## Applications and credentials
 
 An application is a SaaS product that integrates with the service. There is no

@@ -298,6 +298,41 @@ def portal_routes_for(hosts: list[str], ranges: list[str], upstream: str) -> lis
     ]
 
 
+API_PATHS = ["/v1", "/v1/*"]
+
+
+def api_route(settings: EdgeSettings, hosts: list[str]) -> list[dict[str, Any]]:
+    """The v1 API on the edge's own names, when ``PUBLIC_API`` is on.
+
+    Only ``/v1`` is routed: the internal endpoints, the portal (which has its
+    own allowlisted routes) and the legacy API stay unreachable through the
+    edge. Every v1 call needs an application credential; the edge-only
+    headers are stripped so a client cannot pass them to the API.
+    """
+    return api_route_for(hosts, settings.assert_upstream) if settings.public_api else []
+
+
+def api_route_for(hosts: list[str], upstream: str) -> list[dict[str, Any]]:
+    """``api_route`` from its parts; the gateway builds the expected route this way."""
+    if not hosts:
+        return []
+    return [
+        {
+            "@id": "api",
+            "match": [{"host": list(hosts), "path": list(API_PATHS)}],
+            "handle": [
+                {"handler": "headers", "request": {"delete": list(STRIPPED_REQUEST_HEADERS)}},
+                {
+                    "handler": "reverse_proxy",
+                    "upstreams": [{"dial": upstream}],
+                    "headers": {"request": {"set": {"Host": ["{http.request.host}"]}}},
+                },
+            ],
+            "terminal": True,
+        }
+    ]
+
+
 def health_route() -> dict[str, Any]:
     """Answers the readiness probe on every hostname so it can tell this edge apart."""
     return {
@@ -344,11 +379,9 @@ def _server(settings: EdgeSettings, routes: list[dict[str, Any]]) -> dict[str, A
 def build_apps(session: Session, settings: EdgeSettings) -> dict[str, Any]:
     """The ``apps`` subtree the reconciler manages: routing and TLS automation."""
     groups = serveable_route_groups(session)
-    routes = (
-        portal_routes(settings, portal_hosts(session, settings))
-        if settings.portal_allowed_ips
-        else []
-    )
+    hosts = portal_hosts(session, settings)
+    routes = portal_routes(settings, hosts) if settings.portal_allowed_ips else []
+    routes.extend(api_route(settings, hosts))
     routes.extend(_route(g, settings) for g in groups)
     apps: dict[str, Any] = {"http": http_app(settings, routes)}
     if not settings.disable_https:

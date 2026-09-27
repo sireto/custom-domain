@@ -138,7 +138,12 @@ def test_edge_token_required_when_configured(client, session, make_application):
         "upstreams": [{"dial": "203.0.113.10:443", "host": "app.acme.example"}],
         "edge_names": ["acme.edge.example.net"],
         "portal_ranges": [],
+        "public_api": False,
     }
+    client.app.state.edge_settings = SETTINGS.__class__(**{**SETTINGS.__dict__, "public_api": True})
+    origins = client.get("/internal/edge/origins", headers={EDGE_TOKEN_HEADER: SETTINGS.edge_token})
+    assert origins.json()["public_api"] is True
+    client.app.state.edge_settings = SETTINGS
 
     # The ask endpoint cannot carry headers: address trust only.
     assert (
@@ -378,3 +383,57 @@ def test_gateway_accepts_only_the_reconcilers_portal_routes(session, make_applic
         "app-acme",
     ]
     assert portal_routes(SETTINGS, ["acme.edge.example.net"]) == []
+
+
+def test_gateway_accepts_only_the_reconcilers_api_route(session, make_application):
+    import copy
+
+    from app.edge.config import api_route
+    from app.edge.gateway import EdgeFacts
+
+    acme = make_application("acme", cname_target="acme.edge.example.net")
+    _ready_domain(session, acme)
+    public = SETTINGS.__class__(**{**SETTINGS.__dict__, "public_api": True})
+    apps = build_apps(session, public)
+    routes = apps["http"]["servers"]["edge"]["routes"]
+    assert [r["@id"] for r in routes[:3]] == ["edge-health", "api", "app-acme"]
+    api = routes[1]
+    assert api["match"] == [{"host": ["acme.edge.example.net"], "path": ["/v1", "/v1/*"]}]
+    assert api["handle"][0]["request"]["delete"] == list(edge_config.STRIPPED_REQUEST_HEADERS)
+    assert api["handle"][1]["upstreams"] == [{"dial": SETTINGS.assert_upstream}]
+
+    facts = EdgeFacts(
+        upstreams=ALLOWED, edge_names=frozenset({"acme.edge.example.net"}), public_api=True
+    )
+    validate_apps(apps, SETTINGS, facts)  # judged by the API's facts, not the edge's env
+    with pytest.raises(ConfigRejected):  # the API does not say it is public
+        validate_apps(apps, SETTINGS, EdgeFacts(upstreams=ALLOWED, edge_names=facts.edge_names))
+    with pytest.raises(ConfigRejected):  # a host the API does not vouch for
+        validate_apps(apps, SETTINGS, EdgeFacts(upstreams=ALLOWED, public_api=True))
+    for mutate in (
+        lambda r: r[1]["match"][0].__setitem__("path", ["/*"]),  # the whole API, /internal too
+        lambda r: r[1]["match"][0]["host"].append("forms.customer.example"),
+        lambda r: r[1]["handle"][1]["upstreams"].__setitem__(0, {"dial": "evil:1"}),
+        lambda r: r[1]["handle"].pop(0),  # no longer strips the edge-only headers
+    ):
+        bad = copy.deepcopy(apps)
+        mutate(bad["http"]["servers"]["edge"]["routes"])
+        with pytest.raises(ConfigRejected):
+            validate_apps(bad, SETTINGS, facts)
+
+    # Off by default: no route, and the portal and API can both be on.
+    assert api_route(SETTINGS, ["acme.edge.example.net"]) == []
+    both = SETTINGS.__class__(**{**public.__dict__, "portal_allowed_ips": ("203.0.113.9",)})
+    both_apps = build_apps(session, both)
+    ids = [r["@id"] for r in both_apps["http"]["servers"]["edge"]["routes"]]
+    assert ids[:4] == ["edge-health", "portal", "portal-denied", "api"]
+    validate_apps(
+        both_apps,
+        SETTINGS,
+        EdgeFacts(
+            upstreams=ALLOWED,
+            edge_names=facts.edge_names,
+            portal_ranges=("203.0.113.9/32",),
+            public_api=True,
+        ),
+    )
