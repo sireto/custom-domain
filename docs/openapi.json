@@ -79,6 +79,23 @@
             "title": "Id",
             "type": "string"
           },
+          "live_domains": {
+            "description": "Registered and not deleted domains.",
+            "title": "Live Domains",
+            "type": "integer"
+          },
+          "max_domains": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The application's limit; null for none.",
+            "title": "Max Domains"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -103,6 +120,8 @@
           "status",
           "cname_target",
           "workspace_probe",
+          "max_domains",
+          "live_domains",
           "created_at"
         ],
         "title": "ApplicationResource",
@@ -122,6 +141,19 @@
               }
             ],
             "title": "Cname Target"
+          },
+          "max_domains": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "At most this many live domains; null removes the limit. Omit to leave it unchanged. Lowering it below the current count keeps existing domains working and refuses new ones with domain_limit_reached.",
+            "title": "Max Domains"
           },
           "name": {
             "anyOf": [
@@ -3394,7 +3426,7 @@
         ]
       },
       "post": {
-        "description": "Claims an exact customer subdomain for a workspace of the calling application and returns the DNS records the customer must publish. The hostname is normalized before it is stored. A hostname can be live in only one application; a second claim anywhere returns `hostname_already_claimed`.\n\nSend an `Idempotency-Key` header to make retries safe: a repeated key with the same body returns the original domain with status 200 and `Idempotent-Replayed: true`; a repeated key with a different body returns `idempotency_key_reused`. Keys are scoped to the application and expire after 24 hours.",
+        "description": "Claims an exact customer subdomain for a workspace of the calling application and returns the DNS records the customer must publish. The hostname is normalized before it is stored. A hostname can be live in only one application; a second claim anywhere returns `hostname_already_claimed`. When the application or the deployment already has as many live domains as its limit allows, the request returns `domain_limit_reached`; existing domains are unaffected.\n\nSend an `Idempotency-Key` header to make retries safe: a repeated key with the same body returns the original domain with status 200 and `Idempotent-Replayed: true`; a repeated key with a different body returns `idempotency_key_reused`. Keys are scoped to the application and expire after 24 hours.",
         "operationId": "create_domain_v1_domains_post",
         "parameters": [
           {
@@ -3540,11 +3572,28 @@
           "409": {
             "content": {
               "application/json": {
-                "example": {
-                  "error": {
-                    "code": "hostname_already_claimed",
-                    "details": {},
-                    "message": "forms.customer.example is already claimed"
+                "examples": {
+                  "domain_limit_reached": {
+                    "value": {
+                      "error": {
+                        "code": "domain_limit_reached",
+                        "details": {
+                          "limit": 200,
+                          "live": 200,
+                          "scope": "application"
+                        },
+                        "message": "Application 'forms' has reached its limit of 200 live domains"
+                      }
+                    }
+                  },
+                  "hostname_already_claimed": {
+                    "value": {
+                      "error": {
+                        "code": "hostname_already_claimed",
+                        "details": {},
+                        "message": "forms.customer.example is already claimed"
+                      }
+                    }
                   }
                 },
                 "schema": {
@@ -3552,7 +3601,7 @@
                 }
               }
             },
-            "description": "The hostname is already claimed."
+            "description": "The hostname is already claimed, or the application or deployment has reached its limit of live domains."
           },
           "422": {
             "content": {

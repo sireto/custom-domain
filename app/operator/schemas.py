@@ -38,6 +38,13 @@ class ApplicationUpdate(_Strict):
         default=None, description="Whether readiness requires the origin's workspace check."
     )
     status: Literal["active", "suspended"] | None = None
+    max_domains: int | None = Field(
+        default=None,
+        ge=1,
+        description="At most this many live domains; null removes the limit. Omit to leave "
+        "it unchanged. Lowering it below the current count keeps existing domains working "
+        "and refuses new ones with domain_limit_reached.",
+    )
 
 
 class ApplicationResource(BaseModel):
@@ -47,10 +54,12 @@ class ApplicationResource(BaseModel):
     status: str
     cname_target: str
     workspace_probe: bool
+    max_domains: int | None = Field(description="The application's limit; null for none.")
+    live_domains: int = Field(description="Registered and not deleted domains.")
     created_at: datetime
 
     @classmethod
-    def of(cls, application: Application) -> ApplicationResource:
+    def of(cls, application: Application, live_domains: int) -> ApplicationResource:
         return cls(
             id=application.id,
             slug=application.slug,
@@ -58,6 +67,8 @@ class ApplicationResource(BaseModel):
             status=application.status.value,
             cname_target=application.cname_target,
             workspace_probe=application.workspace_probe_enabled,
+            max_domains=application.max_domains,
+            live_domains=live_domains,
             created_at=application.created_at,
         )
 

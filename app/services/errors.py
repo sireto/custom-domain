@@ -42,6 +42,10 @@ class ConfirmationMismatch(ServiceError):
     code = "confirmation_mismatch"
 
 
+class DomainLimitReached(ServiceError):
+    code = "domain_limit_reached"
+
+
 class HostnameAlreadyClaimed(ServiceError):
     code = "hostname_already_claimed"
 

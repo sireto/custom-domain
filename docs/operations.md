@@ -77,6 +77,34 @@ TXT value and the new CNAME) until their customers update both records,
 so announce it first. The old name must keep resolving to the edge until
 the last customer has moved.
 
+### Limiting the number of domains
+
+Two optional limits cap how many domains can be live at once. A live
+domain is one that is registered and not deleted, in any status, including
+one still waiting for DNS. Deleted domains (tombstones) do not count.
+
+- **Per application:** `custom-domain application set-domain-limit --application <slug> --max 200`,
+  or `--none` to remove it. The same setting is in the portal under the
+  application's Settings, and in the operator API as `max_domains`.
+- **Per deployment:** `MAX_DOMAINS=10000` in `deploy/.env` caps all
+  applications together. Leave it unset for no limit. The API refuses to
+  start when it is not a whole number of at least 1.
+
+At a limit, a new registration is refused with `409 domain_limit_reached`,
+and `details` says which limit (`scope`), the limit and the live count.
+Domains that already exist are never affected, so a limit can be set below
+the current count: nothing stops working, and new registrations wait until
+the count drops below it. `legacy import` reports the hostnames over the
+limit as skipped with the same code and imports the rest.
+
+The doctor warns once usage reaches 80% of a limit, and again at the limit.
+The portal shows the usage on the application's Domains page.
+
+Both limits are exact under concurrent registrations. Registrations for one
+application are already serialized by its row lock. While `MAX_DOMAINS` is
+set, every registration also takes the `domain-limit` row of `edge_locks`,
+which serializes registrations across applications.
+
 ## Reconciliation
 
 Caddy starts from a bootstrap configuration (admin listener on

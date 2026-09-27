@@ -50,7 +50,9 @@ router = APIRouter(
         "Claims an exact customer subdomain for a workspace of the calling application "
         "and returns the DNS records the customer must publish. The hostname is "
         "normalized before it is stored. A hostname can be live in only one application; "
-        "a second claim anywhere returns `hostname_already_claimed`.\n\n"
+        "a second claim anywhere returns `hostname_already_claimed`. When the application "
+        "or the deployment already has as many live domains as its limit allows, the "
+        "request returns `domain_limit_reached`; existing domains are unaffected.\n\n"
         "Send an `Idempotency-Key` header to make retries safe: a repeated key with the "
         "same body returns the original domain with status 200 and "
         "`Idempotent-Replayed: true`; a repeated key with a different body returns "
@@ -85,9 +87,19 @@ router = APIRouter(
         },
         409: {
             "model": ErrorResponse,
-            "description": "The hostname is already claimed.",
+            "description": (
+                "The hostname is already claimed, or the application or deployment "
+                "has reached its limit of live domains."
+            ),
             "content": {
-                "application/json": {"example": examples.ERRORS["hostname_already_claimed"]}
+                "application/json": {
+                    "examples": {
+                        "hostname_already_claimed": {
+                            "value": examples.ERRORS["hostname_already_claimed"]
+                        },
+                        "domain_limit_reached": {"value": examples.ERRORS["domain_limit_reached"]},
+                    }
+                }
             },
         },
         422: {

@@ -88,16 +88,28 @@ def rename_application(session: Session, application: Application, name: str) ->
 
 
 def live_domain_count(session: Session, application: Application) -> int:
-    from app.models import Domain
+    from app.services.limits import live_domains
 
-    return (
-        session.scalar(
-            select(func.count())
-            .select_from(Domain)
-            .where(Domain.application_id == application.id, Domain.deleted_at.is_(None))
-        )
-        or 0
-    )
+    return live_domains(session, application)
+
+
+def set_domain_limit(
+    session: Session, application: Application, max_domains: int | None
+) -> Application:
+    """Limit the application to ``max_domains`` live domains; None removes the limit.
+
+    A limit below the current count is allowed: existing domains keep
+    working and only new registrations are refused until the count drops.
+    """
+    from app.services.limits import InvalidLimit, validate_application_limit
+
+    try:
+        application.max_domains = validate_application_limit(max_domains)
+    except InvalidLimit as exc:
+        raise InvalidApplication(str(exc)) from exc
+    application.updated_at = utcnow()
+    session.flush()
+    return application
 
 
 def delete_application(

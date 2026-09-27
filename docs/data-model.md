@@ -48,7 +48,13 @@ timestamp is stored in UTC and returned timezone-aware on both backends.
    under the old token carries over. Tokens are globally unique.
 3. **One active origin per application.** Activation deactivates the previous
    origin in a separate flush so the index never sees two active rows.
-4. **Enumerations are CHECK constraints.** Unknown statuses cannot be written
+4. **Domain limits are exact.** `applications.max_domains` (nullable) and
+   `MAX_DOMAINS` cap live domains per application and per deployment. The
+   count and the insert run under the application's row lock and, with
+   `MAX_DOMAINS` set, the `domain-limit` row of `edge_locks`, so concurrent
+   registrations cannot exceed either. See
+   [operations.md](operations.md#limiting-the-number-of-domains).
+5. **Enumerations are CHECK constraints.** Unknown statuses cannot be written
    by any client, including raw SQL.
 
 ## Application scoping
@@ -173,6 +179,7 @@ header backed by this table and removes the global key.
 ```
 uv run custom-domain db upgrade
 uv run custom-domain application create --slug acme --name "Acme Forms" --cname-target acme.edge.example.net
+uv run custom-domain application set-domain-limit --application acme --max 200
 uv run custom-domain credential issue --application acme --label backend
 uv run custom-domain origin register --application acme --host app.acme.example
 uv run custom-domain legacy import --application acme --file domains/caddy.json --reference-map refs.json --grandfather --dry-run
