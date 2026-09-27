@@ -121,12 +121,21 @@ reconciler, and that each application's CNAME target reaches the edge.
 ## Operating it
 
 Every operator action is available in two equivalent forms: the
-`custom-domain` command below, and the **portal** at `/portal` of the
-management API (set `PORTAL_PASSWORD` to enable it; reach it over an SSH
-tunnel to port 9000, see [docs/portal.md](docs/portal.md)).
+`custom-domain` command, and the **portal** at `/portal` of the management
+API. Both call the same code, so they never diverge.
 
-Everything an operator does is a `custom-domain` command (run it inside the
-container, or with `uv run custom-domain` in a checkout):
+**The portal** (set `PORTAL_PASSWORD` to enable it) is where most operators
+start. It shows a setup checklist for each application, and for each
+customer hostname the two DNS records with what public DNS currently returns
+for them. The Edge & DNS page lists every name the edge answers for and
+checks that it reaches this server. Everything below can be done there too,
+including deletes, webhooks and the legacy import. Reach it at
+`https://<EDGE_HOSTNAME>/portal` from the addresses in `PORTAL_ALLOWED_IPS`,
+or through an SSH tunnel to port 9000 ([docs/portal.md](docs/portal.md)).
+
+**The command** runs inside the API container (the installer puts a
+`custom-domain` wrapper on the host), or with `uv run custom-domain` in a
+checkout:
 
 ```bash
 custom-domain application create --slug acme --name "Acme" --cname-target acme.edge.example.net
@@ -136,16 +145,23 @@ custom-domain credential issue --application acme --label backend
 ```
 
 `--cname-target` is the name customers point their CNAME at; it must resolve
-to this deployment's edge. `origin register` prints the verification token the
-application must serve before `origin verify` succeeds. Credentials are shown
-once and can be rotated with a grace period (`credential rotate`).
+to this deployment's edge, and defaults to `EDGE_HOSTNAME`. `origin register`
+prints the verification token the application must serve before `origin
+verify` succeeds. Credentials are shown once and can be rotated with a grace
+period (`credential rotate`).
 
-Other commands: `application set-cname-target` (change the name customers
-CNAME to; existing domains keep theirs unless `--reissue-claims`), `db upgrade` (migrations), `worker run` (lifecycle checks,
-edge reconciliation and webhook delivery outside the API process),
-`edge config` and `edge reconcile` (the Caddy configuration derived from the
-database), `domain purge-tombstones`, and `legacy import` for hostnames from
-the previous volume-based deployment. `custom-domain --help` lists them all.
+| Area | Commands |
+|---|---|
+| Applications | `application list [--deleted]`, `rename`, `set-cname-target [--reissue-claims]`, `set-workspace-probe`, `delete --confirm <slug> [--delete-domains]` |
+| Origins | `origin list`, `register`, `verify`, `activate`, `retire`, `delete` |
+| Credentials | `credential list`, `issue`, `rotate`, `revoke`, `delete` |
+| Edge | `edge config`, `edge reconcile` (the Caddy configuration derived from the database) |
+| Operations | `doctor` (checks the whole deployment), `upgrade <version>` (host wrapper), `db upgrade`, `worker run`, `domain purge-tombstones`, `legacy import` |
+
+Deleting keeps the audit trail: a deleted hostname, or every hostname of a
+deleted application, is kept as a tombstone with its history for 90 days,
+then removed by `domain purge-tombstones`. `custom-domain --help` lists
+every command and option.
 
 ## Integrating an application
 
@@ -204,12 +220,18 @@ code and a message the application can show to the customer.
 - [docs/lifecycle.md](docs/lifecycle.md): the status machine, the workspace probe and the worker.
 - [docs/webhooks.md](docs/webhooks.md): subscriptions, signatures, delivery and replay.
 - [docs/deployment.md](docs/deployment.md): production layout, secrets, monitoring, backups and rollback.
-- [docs/portal.md](docs/portal.md): the operator portal, how to reach it and what it protects against.
+- [docs/portal.md](docs/portal.md): the operator portal, its pages, how to reach it and what it protects against.
+- [docs/hosting-hetzner.md](docs/hosting-hetzner.md) and [docs/hosting-digitalocean.md](docs/hosting-digitalocean.md): one-server installs on those providers.
+- [docs/bettercollected-integration.md](docs/bettercollected-integration.md): a worked integration of a SaaS product.
 - [docs/operations.md](docs/operations.md) and [docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md): certificate storage, multi-instance coordination, trust boundaries.
+- [AGENTS.md](AGENTS.md): how to work on this repository, for people and coding agents alike.
 
 ## Development
 
-The project uses [uv](https://docs.astral.sh/uv/); the SDK is a workspace member.
+The project uses [uv](https://docs.astral.sh/uv/); the SDK is a workspace
+member. [AGENTS.md](AGENTS.md) has the conventions, the rules the code
+depends on, what each kind of change must include, and the release steps.
+Coding agents read it automatically (Claude Code through `CLAUDE.md`).
 
 ```bash
 uv sync                      # install dependencies from uv.lock
