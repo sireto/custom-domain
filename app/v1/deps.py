@@ -9,8 +9,9 @@ from sqlalchemy.orm import Session
 from app.db.session import get_session
 from app.models import Application
 from app.services.applications import authenticate_credential
-from app.services.errors import InvalidCredential
+from app.services.errors import InvalidCredential, RateLimited
 from app.v1.errors import unauthorized
+from app.v1.throttle import limited_client
 
 bearer_scheme = HTTPBearer(
     auto_error=False,
@@ -30,11 +31,25 @@ def current_application(
     db: DbSession,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> Application:
+    limiter = getattr(request.app.state, "v1_auth_limiter", None)
+    client = limited_client(request) if limiter is not None and limiter.enabled else None
+    if client is not None:
+        wait = limiter.retry_after(client)
+        if wait:
+            # Refused before any hashing or database work (app/v1/throttle.py).
+            raise RateLimited(
+                "Too many requests with an invalid credential from this address; retry later",
+                retry_after=wait,
+            )
     if credentials is None or credentials.scheme.lower() != "bearer":
+        if client is not None:
+            limiter.record_failure(client)
         raise unauthorized()
     try:
         credential = authenticate_credential(db, credentials.credentials)
     except InvalidCredential as exc:
+        if client is not None:
+            limiter.record_failure(client)
         raise unauthorized() from exc
     # last_used_at was updated by authenticate_credential; persist it now so a
     # failing request body does not discard it.
