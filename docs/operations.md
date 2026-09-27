@@ -288,13 +288,17 @@ unacceptable.
   through the edge over HTTPS, when `PUBLIC_API=true`; those require an
   application credential, and the internal endpoints, the portal (which has
   its own allowlist) and metrics are not routed ([deployment.md](deployment.md#the-v1-api-through-the-edge)).
-  Requests without a valid credential are refused but not rate limited:
-  the per-application limits apply only after authentication, and each
-  refused request still costs a hash and a database lookup. Credentials are
-  32 random bytes, so guessing is not the risk; load is. Watch the
-  `app.v1.access` log (one line per v1 call with the real client address,
-  the application and the key prefix, never the key) for bursts of 401s,
-  and block abusive addresses in the cloud firewall.
+  Requests without a valid credential cost a hash and a database lookup, so
+  each client address (IPv6 per /64) may fail authentication at most
+  `V1_AUTH_FAILURES_PER_MINUTE` times a minute (default 30, `0` disables);
+  after that the API answers `429` with `Retry-After`, before any lookup,
+  until the minute has passed. The count is per API process and keyed on
+  the real client behind the edge. Credentials are 32 random bytes, so
+  guessing is not the risk; load is. A legitimate backend sharing an
+  address with a misbehaving client is refused too for that minute. The
+  `app.v1.access` log has one line per v1 call with the real client
+  address, the application and the key prefix (never the key); block
+  persistent abusers in the cloud firewall.
 - Redis: require AUTH, enable TLS when crossing networks, restrict network
   access to the edge instances, and set `CADDY_REDIS_ENCRYPTION_KEY` so
   values are AES-encrypted at rest (values are still decrypted in memory by

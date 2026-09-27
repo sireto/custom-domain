@@ -468,3 +468,58 @@ def test_v1_access_log_names_the_real_client_behind_the_edge(
     ), lines
     assert any("401 application=- key=- client=10.1.2.3" in line for line in lines), lines
     assert all(secret not in line for line in lines)
+
+
+def test_failed_authentication_is_throttled_per_client_before_any_lookup(
+    client, session, make_application, monkeypatch
+):
+    from app.services.applications import issue_credential
+    from app.v1 import deps
+    from app.v1.throttle import FailedAuthLimiter
+
+    acme = make_application("acme")
+    _, secret = issue_credential(session, acme, label="backend")
+    session.commit()
+    client.app.state.v1_auth_limiter = FailedAuthLimiter(max_failures=3)
+    lookups = []
+    real = deps.authenticate_credential
+    monkeypatch.setattr(
+        deps, "authenticate_credential", lambda db, s: (lookups.append(s), real(db, s))[1]
+    )
+    edge = TestClient(client.app, client=("127.0.0.1", 1000))  # a trusted edge peer
+    attacker = {"X-Forwarded-For": "8.8.8.8"}
+    bad = {**attacker, "Authorization": "Bearer cd_wrong_wrong_wrong_wrong_wrong_wrong0"}
+    for _ in range(2):
+        assert edge.get("/v1/domains", headers=bad).status_code == 401
+    assert edge.get("/v1/domains", headers=attacker).status_code == 401  # no key counts too
+    refused = edge.get("/v1/domains", headers=bad)
+    assert refused.status_code == 429 and int(refused.headers["Retry-After"]) >= 1
+    assert refused.json()["error"]["code"] == "rate_limited"
+    assert len(lookups) == 2  # the refused request never reached the credential lookup
+    # Even a valid key is refused from that address until the window passes ...
+    good = {"Authorization": f"Bearer {secret}"}
+    assert edge.get("/v1/domains", headers={**attacker, **good}).status_code == 429
+    # ... while other clients are unaffected.
+    assert (
+        edge.get("/v1/domains", headers={"X-Forwarded-For": "1.1.1.1", **good}).status_code == 200
+    )
+    assert edge.get("/v1/domains", headers={"X-Forwarded-For": "1.1.1.1"}).status_code == 401
+
+
+def test_failed_auth_limiter_groups_ipv6_and_bounds_its_memory():
+    from app.v1.throttle import FailedAuthLimiter, client_key
+
+    assert client_key("2001:db8:1:2:3:4:5:6") == client_key("2001:db8:1:2:ffff::1")
+    assert client_key("2001:db8:1:2::1") != client_key("2001:db8:1:3::1")
+    assert client_key("8.8.8.8") == "8.8.8.8" and client_key(None) == "unknown"
+
+    limiter = FailedAuthLimiter(max_failures=2, window=60, max_tracked=100)
+    limiter.record_failure("a", now=0)
+    limiter.record_failure("a", now=1)
+    assert limiter.retry_after("a", now=2) == 59 and limiter.retry_after("b", now=2) == 0
+    assert limiter.retry_after("a", now=61) == 0  # the window has passed
+    for i in range(1000):  # address rotation cannot grow the table without bound
+        limiter.record_failure(f"k{i}", now=100 + i * 0.001)
+    assert limiter.tracked() <= 100
+    assert limiter.retry_after("never-seen", now=200) == 0 and limiter.tracked() <= 100
+    assert FailedAuthLimiter(max_failures=0).retry_after("x") == 0  # 0 disables it
