@@ -65,6 +65,13 @@ servers; see [hosting-hetzner.md](hosting-hetzner.md) and
 migrations, edge gateway, certificate authority, reconciler, applications
 and whether their CNAME targets reach this edge.
 
+Outbound requests the installer makes: Docker's package repository and
+registry, `raw.githubusercontent.com` (the installer and the Compose file at
+the release) and `ghcr.io` (the image). When the server's own IPv4 address
+is private (behind 1:1 NAT, as with an AWS Elastic IP), it also asks
+`checkip.amazonaws.com` for the public address, only to print the A record
+in its summary; nothing is configured from the answer.
+
 ## Releasing
 
 A release is one version number, for example `0.3.1`, used everywhere: the

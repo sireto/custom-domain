@@ -281,3 +281,26 @@ def test_summary_shows_the_public_address_behind_nat_and_one_cname_hint(tmp_path
     assert without.returncode == 0, without.stderr
     create = [line for line in without.stdout.splitlines() if "application create" in line][0]
     assert create.endswith('--name "Acme" --cname-target edge.example.net'), create
+
+
+def test_upgrade_brings_an_untouched_compose_file_up_to_date(tmp_path):
+    """A release that changes the Compose file (0.6.1 adds log rotation) replaces an
+    unmodified installed copy without stopping for a merge."""
+    release = tmp_path / "old-release"
+    (release / "deploy").mkdir(parents=True)
+    current = (ROOT / "deploy" / "compose.production.yml").read_text()
+    previous = "\n".join(
+        line
+        for line in current.splitlines()
+        if "logging" not in line
+        and "max-" not in line
+        and "driver: json-file" not in line
+        and "options:" not in line
+    )
+    (release / "deploy" / "compose.production.yml").write_text(previous + "\n")
+    first = run_install(tmp_path, "0.9.8", CUSTOM_DOMAIN_SOURCE=str(release))
+    assert first.returncode == 0, first.stderr + first.stdout
+    upgraded = run_install(tmp_path, "0.9.9")
+    assert upgraded.returncode == 0, upgraded.stderr + upgraded.stdout
+    installed = (tmp_path / "opt" / "deploy" / "compose.production.yml").read_text()
+    assert installed == current and "max-size" in installed

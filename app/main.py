@@ -179,12 +179,12 @@ def create_app() -> FastAPI:
             from app.clients import client_address
 
             access_logger.info(
-                "%s %s %s application=%s key=%s client=%s",
+                "%s %s %s application=%s credential=%s client=%s",
                 request.method,
                 request.url.path,
                 response.status_code,
                 getattr(request.state, "application_slug", "-"),
-                getattr(request.state, "credential_prefix", "-"),
+                getattr(request.state, "credential_id", "-"),
                 client_address(request) or "-",
             )
         return response

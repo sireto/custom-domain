@@ -54,8 +54,9 @@ def current_application(
     # last_used_at was updated by authenticate_credential; persist it now so a
     # failing request body does not discard it.
     db.commit()
-    # For the access log (app.main): which key made the call, never the key.
-    request.state.credential_prefix = credential.key_prefix
+    # For the access log (app.main): which credential made the call, by id.
+    # Not the key prefix: it starts with cd_ and the log redactor masks it.
+    request.state.credential_id = str(credential.id)
     request.state.application_slug = credential.application.slug
     return credential.application
 

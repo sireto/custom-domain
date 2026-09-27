@@ -300,7 +300,8 @@ unacceptable.
   out. Rate-limit at that proxy instead. The count is per API process.
   Credentials are 32 random bytes, so guessing is not the risk; load is. The
   `app.v1.access` log has one line per v1 call with the real client
-  address, the application and the key prefix (never the key); block
+  address, the application and the credential's id (never the key; `custom-domain
+  credential revoke --id <id>` takes it); block
   persistent abusers in the cloud firewall.
 - Redis: require AUTH, enable TLS when crossing networks, restrict network
   access to the edge instances, and set `CADDY_REDIS_ENCRYPTION_KEY` so

@@ -447,9 +447,12 @@ def test_v1_access_log_names_the_real_client_behind_the_edge(
     acme = make_application("acme")
     from app.services.applications import issue_credential
 
-    _, secret = issue_credential(session, acme, label="backend")
+    credential, secret = issue_credential(session, acme, label="backend")
     session.commit()
     auth = {"Authorization": f"Bearer {secret}"}
+    from app.observability import install_log_redaction
+
+    install_log_redaction()  # as in production: the lines pass through the redactor
     with caplog.at_level(logging.INFO, logger="app.v1.access"):
         # From the edge (a trusted peer): the forwarded address is the client.
         edge = TestClient(client.app, client=("127.0.0.1", 1000))
@@ -461,13 +464,12 @@ def test_v1_access_log_names_the_real_client_behind_the_edge(
         other = TestClient(client.app, client=("10.1.2.3", 1000))
         assert other.get("/v1/domains", headers={"X-Forwarded-For": "8.8.8.8"}).status_code == 401
     lines = [r.getMessage() for r in caplog.records if r.name == "app.v1.access"]
-    assert any(
-        line.startswith("GET /v1/domains 200 application=acme key=cd_")
-        and line.endswith("client=8.8.8.8")
-        for line in lines
-    ), lines
-    assert any("401 application=- key=- client=10.1.2.3" in line for line in lines), lines
-    assert all(secret not in line for line in lines)
+    # The exact credential id survives redaction, so the line says which key it was
+    # (`custom-domain credential revoke --id <id>` takes it).
+    expected = f"GET /v1/domains 200 application=acme credential={credential.id} client=8.8.8.8"
+    assert expected in lines, lines
+    assert "GET /v1/domains 401 application=- credential=- client=10.1.2.3" in lines, lines
+    assert all(secret not in line and "***" not in line for line in lines), lines
 
 
 def test_failed_authentication_is_throttled_per_client_before_any_lookup(
@@ -614,6 +616,10 @@ def test_doctor_fails_an_acme_email_lets_encrypt_refuses():
     )
     (https,) = [f for f in _settings_findings(public, DnsSettings()) if f.check == "https"]
     assert https.status == "fail" and "invalidContact" in https.detail
+    not_an_address = SETTINGS.__class__(**{**public.__dict__, "acme_email": "nobody"})
+    (https,) = [f for f in _settings_findings(not_an_address, DnsSettings()) if f.check == "https"]
+    assert https.status == "fail" and "is not an email address" in https.detail
+    assert "reserved" not in https.detail
     fine = SETTINGS.__class__(**{**public.__dict__, "acme_email": "ops@sireto.com"})
     (https,) = [f for f in _settings_findings(fine, DnsSettings()) if f.check == "https"]
     assert https.status == "ok"

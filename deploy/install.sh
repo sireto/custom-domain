@@ -297,7 +297,11 @@ if command -v ip >/dev/null 2>&1; then
     ip6="$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") print $(i+1)}' | head -1 || true)"
 fi
 # Behind 1:1 NAT (an AWS Elastic IP, a GCP external address) the server only
-# sees its private address; the A record needs the public one.
+# sees its private address; the A record needs the public one. Only then, and
+# only for this summary, the installer asks checkip.amazonaws.com (an outbound
+# HTTPS request to AWS, on any cloud) which address it is seen from; nothing is
+# configured from the answer. Cloud metadata services would avoid the third
+# party but differ per provider.
 private_ip4=""
 case "${ip4}" in
     10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*)

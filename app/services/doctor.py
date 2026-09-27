@@ -255,6 +255,16 @@ def _settings_findings(settings: EdgeSettings, dns_settings: DnsSettings) -> lis
         findings.append(
             Finding("https", "warn", "EDGE_TLS_ISSUER=internal: certificates from a private CA")
         )
+    elif settings.acme_email and not _looks_like_email(settings.acme_email):
+        findings.append(
+            Finding(
+                "https",
+                "fail",
+                f"ACME_EMAIL {settings.acme_email!r} is not an email address, and Let's "
+                "Encrypt refuses it: no certificate can be issued. Set a real address in .env "
+                "for the api, worker and edge alike, and restart all three",
+            )
+        )
     elif settings.acme_email and reserved_email_domain(settings.acme_email):
         findings.append(
             Finding(
@@ -279,6 +289,11 @@ def _settings_findings(settings: EdgeSettings, dns_settings: DnsSettings) -> lis
 # Domains Let's Encrypt refuses as contacts (RFC 2606 and RFC 6761 names).
 RESERVED_EMAIL_DOMAINS = ("example.com", "example.net", "example.org")
 RESERVED_EMAIL_TLDS = ("example", "test", "invalid", "localhost", "local")
+
+
+def _looks_like_email(email: str) -> bool:
+    local, _, domain = email.strip().rpartition("@")
+    return bool(local) and "." in domain.strip(".")
 
 
 def reserved_email_domain(email: str) -> bool:
