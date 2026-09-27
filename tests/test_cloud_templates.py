@@ -255,9 +255,22 @@ def test_azure_template_validates_what_reaches_the_nsg_and_the_installer():
     arm = json.loads(AZURE_JSON.read_text())
     variables = arm["variables"]
     for name, parameter, message in (
-        ("adminNetwork", "adminCidr", "adminCidr must be an IPv4 address with a prefix of /8"),
-        ("adminNetworkIpv6", "adminCidrIpv6", "adminCidrIpv6 must be empty or an IPv6 network"),
-        ("release", "version", "version must be a release such as"),
+        # ARM names the failing variable in its error, so the names explain it.
+        (
+            "adminCidr_must_be_an_IPv4_network_8_to_32",
+            "adminCidr",
+            "adminCidr must be an IPv4 address with a prefix of /8",
+        ),
+        (
+            "adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128",
+            "adminCidrIpv6",
+            "adminCidrIpv6 must be empty or an IPv6 network",
+        ),
+        (
+            "version_must_be_a_release_like_0_6_0_or_latest",
+            "version",
+            "version must be a release such as",
+        ),
     ):
         expression = variables[name]
         assert expression.startswith("[if(variables("), name  # only one branch is evaluated
@@ -267,7 +280,8 @@ def test_azure_template_validates_what_reaches_the_nsg_and_the_installer():
     assert "0123456789abcdefABCDEF:" in chars and "adminIpv6CharsValid" in chars
     assert "adminIpv6CharsValid" in variables["adminIpv6Valid"]
     install_env = json.dumps(variables["installEnv"])
-    assert "variables('release')" in install_env and "variables('portalAllowed')" in install_env
+    assert "variables('version_must_be_a_release_like_0_6_0_or_latest')" in install_env
+    assert "variables('portalAllowed')" in install_env
     assert "parameters('version')" not in install_env
     assert "parameters('adminCidr')" not in install_env
 
@@ -284,12 +298,16 @@ def test_azure_template_network_and_access():
     }
     assert "destinationPortRanges: [ '80', '443' ]" in rules["http-https"]
     assert "protocol: 'Udp'" in rules["http3"] and "destinationPortRange: '443'" in rules["http3"]
-    assert "sourceAddressPrefix: adminNetwork\n" in rules["ssh-admin"]
-    assert "sourceAddressPrefix: adminNetworkIpv6\n" in rules["ssh-admin-ipv6"]
+    assert "sourceAddressPrefix: adminCidr_must_be_an_IPv4_network_8_to_32\n" in rules["ssh-admin"]
+    assert (
+        "sourceAddressPrefix: adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128\n"
+        in rules["ssh-admin-ipv6"]
+    )
     # SSH comes only from the validated admin networks, never the raw parameter.
     assert "[parameters('adminCidr')]" not in AZURE_JSON.read_text().split('"resources"')[1]
     nsg = json.dumps(resources["Microsoft.Network/networkSecurityGroups"]["properties"])
-    assert "variables('adminNetwork')" in nsg and "variables('adminNetworkIpv6')" in nsg
+    assert "variables('adminCidr_must_be_an_IPv4_network_8_to_32')" in nsg
+    assert "variables('adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128')" in nsg
     vm = resources["Microsoft.Compute/virtualMachines"]["properties"]
     assert vm["osProfile"]["linuxConfiguration"]["disablePasswordAuthentication"] is True
     ips = [r for r in arm["resources"] if r["type"] == "Microsoft.Network/publicIPAddresses"]

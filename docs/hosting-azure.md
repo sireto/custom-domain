@@ -19,7 +19,8 @@ Choose a subscription, a new resource group and a region, then fill in:
 - **Admin cidr**: your public IPv4 address as a `/32` (search "what is my
   IP"), or a network of `/8` to `/32`. It may open the portal and connect
   with SSH. Anything else, including the whole internet, stops the
-  deployment with a message naming the parameter.
+  deployment before anything is created; the error names the rule, for
+  example `The template variable 'adminCidr_must_be_an_IPv4_network_8_to_32' is not valid`.
 - **Admin cidr ipv6**: optional, but add it if your connection has IPv6 (for
   example `2001:db8:1234::/64`). Your browser prefers the edge's IPv6 address
   once the `AAAA` record exists, and the portal admits only listed

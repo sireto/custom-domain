@@ -48,8 +48,10 @@ param location string = resourceGroup().location
 // ARM has no regular expressions, so the admin networks and the version are
 // checked with expressions. They are written into the NSG and into the file
 // the installer sources as root, so an invalid value stops the deployment:
-// bool() of the message fails with that message, and if() evaluates only the
-// branch it takes.
+// bool() of a message fails, and if() evaluates only the branch it takes.
+// ARM reports the failing variable by name, so the names say what is wrong
+// ("The template variable 'adminCidr_must_be_an_IPv4_network_8_to_32' is not
+// valid").
 
 var adminParts = split(adminCidr, '/')
 var adminOctets = split(adminParts[0], '.')
@@ -59,7 +61,7 @@ var adminPrefix = adminShapeValid ? adminParts[1] : '0'
 var adminOctetValues = adminShapeValid ? adminOctets : [ '0', '0', '0', '0' ]
 var adminOctetsValid = [for octet in adminOctetValues: int(octet) >= 0 && int(octet) <= 255 && string(int(octet)) == octet]
 var adminCidrValid = adminShapeValid && !contains(adminOctetsValid, false) && int(adminPrefix) >= 8 && int(adminPrefix) <= 32 && string(int(adminPrefix)) == adminPrefix
-var adminNetwork = adminCidrValid ? adminCidr : string(bool('adminCidr must be an IPv4 address with a prefix of /8 to /32, for example 203.0.113.9/32'))
+var adminCidr_must_be_an_IPv4_network_8_to_32 = adminCidrValid ? adminCidr : string(bool('adminCidr must be an IPv4 address with a prefix of /8 to /32, for example 203.0.113.9/32'))
 
 var adminIpv6Parts = split(adminCidrIpv6, '/')
 var adminIpv6Prefix = length(adminIpv6Parts) == 2 ? adminIpv6Parts[1] : '0'
@@ -67,20 +69,20 @@ var adminIpv6Address = length(adminIpv6Parts) == 2 ? adminIpv6Parts[0] : ''
 // Hex digits and colons only: the value is written into a file sourced as root.
 var adminIpv6CharsValid = [for i in range(0, length(adminIpv6Address)): contains('0123456789abcdefABCDEF:', substring(adminIpv6Address, i, 1))]
 var adminIpv6Valid = empty(adminCidrIpv6) || (length(adminIpv6Parts) == 2 && contains(adminIpv6Address, ':') && !contains(adminIpv6CharsValid, false) && int(adminIpv6Prefix) >= 16 && int(adminIpv6Prefix) <= 128 && string(int(adminIpv6Prefix)) == adminIpv6Prefix)
-var adminNetworkIpv6 = adminIpv6Valid ? adminCidrIpv6 : string(bool('adminCidrIpv6 must be empty or an IPv6 network with a prefix of /16 to /128, for example 2001:db8:1234::/64'))
+var adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128 = adminIpv6Valid ? adminCidrIpv6 : string(bool('adminCidrIpv6 must be empty or an IPv6 network with a prefix of /16 to /128, for example 2001:db8:1234::/64'))
 
 var versionParts = split(version, '.')
 var versionNumbers = length(versionParts) == 3 ? versionParts : [ '-1' ]
 var versionNumbersValid = [for part in versionNumbers: int(part) >= 0 && string(int(part)) == part]
 var versionValid = version == 'latest' || (length(versionParts) == 3 && !contains(versionNumbersValid, false))
-var release = versionValid ? version : string(bool('version must be a release such as 0.6.0, or latest'))
+var version_must_be_a_release_like_0_6_0_or_latest = versionValid ? version : string(bool('version must be a release such as 0.6.0, or latest'))
 
-var portalAllowed = empty(adminNetworkIpv6) ? adminNetwork : '${adminNetwork},${adminNetworkIpv6}'
+var portalAllowed = empty(adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128) ? adminCidr_must_be_an_IPv4_network_8_to_32 : '${adminCidr_must_be_an_IPv4_network_8_to_32},${adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128}'
 
 var installEnv = join([
   'ACME_EMAIL=${acmeEmail}'
   'EDGE_HOSTNAME=${edgeHostname}'
-  'CUSTOM_DOMAIN_VERSION=${release}'
+  'CUSTOM_DOMAIN_VERSION=${version_must_be_a_release_like_0_6_0_or_latest}'
   'PORTAL_ALLOWED_IPS=${portalAllowed}'
   'PUBLIC_API=true'
   'SKIP_FIREWALL=1'
@@ -158,13 +160,13 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
           direction: 'Inbound'
           access: 'Allow'
           protocol: 'Tcp'
-          sourceAddressPrefix: adminNetwork
+          sourceAddressPrefix: adminCidr_must_be_an_IPv4_network_8_to_32
           sourcePortRange: '*'
           destinationAddressPrefix: '*'
           destinationPortRange: '22'
         }
       }
-    ], empty(adminNetworkIpv6) ? [] : [
+    ], empty(adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128) ? [] : [
       {
         name: 'ssh-admin-ipv6'
         properties: {
@@ -172,7 +174,7 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
           direction: 'Inbound'
           access: 'Allow'
           protocol: 'Tcp'
-          sourceAddressPrefix: adminNetworkIpv6
+          sourceAddressPrefix: adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128
           sourcePortRange: '*'
           destinationAddressPrefix: '*'
           destinationPortRange: '22'

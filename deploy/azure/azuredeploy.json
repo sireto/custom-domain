@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.47.16.16243",
-      "templateHash": "18240473381717463451"
+      "templateHash": "311142593612263003"
     }
   },
   "parameters": {
@@ -108,18 +108,18 @@
     "adminPrefix": "[if(variables('adminShapeValid'), variables('adminParts')[1], '0')]",
     "adminOctetValues": "[if(variables('adminShapeValid'), variables('adminOctets'), createArray('0', '0', '0', '0'))]",
     "adminCidrValid": "[and(and(and(and(variables('adminShapeValid'), not(contains(variables('adminOctetsValid'), false()))), greaterOrEquals(int(variables('adminPrefix')), 8)), lessOrEquals(int(variables('adminPrefix')), 32)), equals(string(int(variables('adminPrefix'))), variables('adminPrefix')))]",
-    "adminNetwork": "[if(variables('adminCidrValid'), parameters('adminCidr'), string(bool('adminCidr must be an IPv4 address with a prefix of /8 to /32, for example 203.0.113.9/32')))]",
+    "adminCidr_must_be_an_IPv4_network_8_to_32": "[if(variables('adminCidrValid'), parameters('adminCidr'), string(bool('adminCidr must be an IPv4 address with a prefix of /8 to /32, for example 203.0.113.9/32')))]",
     "adminIpv6Parts": "[split(parameters('adminCidrIpv6'), '/')]",
     "adminIpv6Prefix": "[if(equals(length(variables('adminIpv6Parts')), 2), variables('adminIpv6Parts')[1], '0')]",
     "adminIpv6Address": "[if(equals(length(variables('adminIpv6Parts')), 2), variables('adminIpv6Parts')[0], '')]",
     "adminIpv6Valid": "[or(empty(parameters('adminCidrIpv6')), and(and(and(and(and(equals(length(variables('adminIpv6Parts')), 2), contains(variables('adminIpv6Address'), ':')), not(contains(variables('adminIpv6CharsValid'), false()))), greaterOrEquals(int(variables('adminIpv6Prefix')), 16)), lessOrEquals(int(variables('adminIpv6Prefix')), 128)), equals(string(int(variables('adminIpv6Prefix'))), variables('adminIpv6Prefix'))))]",
-    "adminNetworkIpv6": "[if(variables('adminIpv6Valid'), parameters('adminCidrIpv6'), string(bool('adminCidrIpv6 must be empty or an IPv6 network with a prefix of /16 to /128, for example 2001:db8:1234::/64')))]",
+    "adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128": "[if(variables('adminIpv6Valid'), parameters('adminCidrIpv6'), string(bool('adminCidrIpv6 must be empty or an IPv6 network with a prefix of /16 to /128, for example 2001:db8:1234::/64')))]",
     "versionParts": "[split(parameters('version'), '.')]",
     "versionNumbers": "[if(equals(length(variables('versionParts')), 3), variables('versionParts'), createArray('-1'))]",
     "versionValid": "[or(equals(parameters('version'), 'latest'), and(equals(length(variables('versionParts')), 3), not(contains(variables('versionNumbersValid'), false()))))]",
-    "release": "[if(variables('versionValid'), parameters('version'), string(bool('version must be a release such as 0.6.0, or latest')))]",
-    "portalAllowed": "[if(empty(variables('adminNetworkIpv6')), variables('adminNetwork'), format('{0},{1}', variables('adminNetwork'), variables('adminNetworkIpv6')))]",
-    "installEnv": "[join(createArray(format('ACME_EMAIL={0}', parameters('acmeEmail')), format('EDGE_HOSTNAME={0}', parameters('edgeHostname')), format('CUSTOM_DOMAIN_VERSION={0}', variables('release')), format('PORTAL_ALLOWED_IPS={0}', variables('portalAllowed')), 'PUBLIC_API=true', 'SKIP_FIREWALL=1'), '\n')]",
+    "version_must_be_a_release_like_0_6_0_or_latest": "[if(variables('versionValid'), parameters('version'), string(bool('version must be a release such as 0.6.0, or latest')))]",
+    "portalAllowed": "[if(empty(variables('adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128')), variables('adminCidr_must_be_an_IPv4_network_8_to_32'), format('{0},{1}', variables('adminCidr_must_be_an_IPv4_network_8_to_32'), variables('adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128')))]",
+    "installEnv": "[join(createArray(format('ACME_EMAIL={0}', parameters('acmeEmail')), format('EDGE_HOSTNAME={0}', parameters('edgeHostname')), format('CUSTOM_DOMAIN_VERSION={0}', variables('version_must_be_a_release_like_0_6_0_or_latest')), format('PORTAL_ALLOWED_IPS={0}', variables('portalAllowed')), 'PUBLIC_API=true', 'SKIP_FIREWALL=1'), '\n')]",
     "cloudInit": "[format('#cloud-config\npackage_update: true\npackages: [ca-certificates, curl]\nwrite_files:\n  - path: /etc/custom-domain-install.env\n    permissions: \"0600\"\n    encoding: b64\n    content: {0}\nruncmd:\n  - [sh, -c, \". /etc/custom-domain-install.env; ref=\\\"$CUSTOM_DOMAIN_VERSION\\\"; [ \\\"$ref\\\" = latest ] && ref=main; curl -fsSL \\\"https://raw.githubusercontent.com/sireto/custom-domain/$ref/deploy/install.sh\\\" -o /root/custom-domain-install.sh\"]\n  - [sh, -c, \"bash /root/custom-domain-install.sh >/var/log/custom-domain-install.log 2>&1\"]\n', base64(format('{0}\n', variables('installEnv'))))]"
   },
   "resources": [
@@ -155,7 +155,7 @@
       "name": "[format('{0}-nsg', parameters('name'))]",
       "location": "[parameters('location')]",
       "properties": {
-        "securityRules": "[concat(createArray(createObject('name', 'http-https', 'properties', createObject('priority', 100, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Tcp', 'sourceAddressPrefix', '*', 'sourcePortRange', '*', 'destinationAddressPrefix', '*', 'destinationPortRanges', createArray('80', '443'))), createObject('name', 'http3', 'properties', createObject('priority', 110, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Udp', 'sourceAddressPrefix', '*', 'sourcePortRange', '*', 'destinationAddressPrefix', '*', 'destinationPortRange', '443')), createObject('name', 'ssh-admin', 'properties', createObject('priority', 120, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Tcp', 'sourceAddressPrefix', variables('adminNetwork'), 'sourcePortRange', '*', 'destinationAddressPrefix', '*', 'destinationPortRange', '22'))), if(empty(variables('adminNetworkIpv6')), createArray(), createArray(createObject('name', 'ssh-admin-ipv6', 'properties', createObject('priority', 130, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Tcp', 'sourceAddressPrefix', variables('adminNetworkIpv6'), 'sourcePortRange', '*', 'destinationAddressPrefix', '*', 'destinationPortRange', '22')))))]"
+        "securityRules": "[concat(createArray(createObject('name', 'http-https', 'properties', createObject('priority', 100, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Tcp', 'sourceAddressPrefix', '*', 'sourcePortRange', '*', 'destinationAddressPrefix', '*', 'destinationPortRanges', createArray('80', '443'))), createObject('name', 'http3', 'properties', createObject('priority', 110, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Udp', 'sourceAddressPrefix', '*', 'sourcePortRange', '*', 'destinationAddressPrefix', '*', 'destinationPortRange', '443')), createObject('name', 'ssh-admin', 'properties', createObject('priority', 120, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Tcp', 'sourceAddressPrefix', variables('adminCidr_must_be_an_IPv4_network_8_to_32'), 'sourcePortRange', '*', 'destinationAddressPrefix', '*', 'destinationPortRange', '22'))), if(empty(variables('adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128')), createArray(), createArray(createObject('name', 'ssh-admin-ipv6', 'properties', createObject('priority', 130, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Tcp', 'sourceAddressPrefix', variables('adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128'), 'sourcePortRange', '*', 'destinationAddressPrefix', '*', 'destinationPortRange', '22')))))]"
       }
     },
     {
