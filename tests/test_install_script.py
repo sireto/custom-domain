@@ -249,3 +249,35 @@ def test_upgrade_leaves_public_api_alone_unless_given(tmp_path):
     assert env_of(tmp_path)["PUBLIC_API"] == "true"
     assert run_install(tmp_path, None, PUBLIC_API="false").returncode == 0
     assert env_of(tmp_path)["PUBLIC_API"] == "false"
+
+
+def test_summary_shows_the_public_address_behind_nat_and_one_cname_hint(tmp_path):
+    """On EC2 the server sees only its private address; the A record needs the public one."""
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    (stubs / "ip").write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$*" in *-4*) echo "1.1.1.1 via 10.0.0.1 dev ens5 src 10.0.0.12 uid 0" ;; esac\n'
+    )
+    (stubs / "curl").write_text(
+        '#!/usr/bin/env bash\ncase "$*" in *checkip*) echo "198.51.100.7" ;; *) exit 22 ;; esac\n'
+    )
+    for stub in ("ip", "curl"):
+        (stubs / stub).chmod(0o755)
+    result = run_install(tmp_path, "0.9.9", EDGE_HOSTNAME="edge.example.net")
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "This server:        198.51.100.7   (private address 10.0.0.12)" in result.stdout
+    assert "A 198.51.100.7" in result.stdout and "A 10.0.0.12" not in result.stdout
+    create = [line for line in result.stdout.splitlines() if "application create" in line][0]
+    assert create.endswith("(CNAME target defaults to edge.example.net)"), create
+
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "stubs").mkdir()
+    for stub in ("ip", "curl"):
+        (plain / "stubs" / stub).write_text((stubs / stub).read_text())
+        (plain / "stubs" / stub).chmod(0o755)
+    without = run_install(plain, "0.9.9")
+    assert without.returncode == 0, without.stderr
+    create = [line for line in without.stdout.splitlines() if "application create" in line][0]
+    assert create.endswith('--name "Acme" --cname-target edge.example.net'), create

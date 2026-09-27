@@ -296,7 +296,18 @@ if command -v ip >/dev/null 2>&1; then
     ip4="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") print $(i+1)}' | head -1 || true)"
     ip6="$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") print $(i+1)}' | head -1 || true)"
 fi
+# Behind 1:1 NAT (an AWS Elastic IP, a GCP external address) the server only
+# sees its private address; the A record needs the public one.
+private_ip4=""
+case "${ip4}" in
+    10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*)
+        private_ip4="${ip4}"
+        ip4="$(curl -4 -fsS -m 5 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]' || true)"
+        ;;
+esac
 name="${edge_hostname:-edge.example.net}"
+cname_flag=""
+[ -n "${edge_hostname}" ] || cname_flag=" --cname-target ${name}"
 cat <<EOF
 
 Custom Domain is running.
@@ -304,7 +315,7 @@ Custom Domain is running.
   Install directory:  ${DIR}
   Configuration:      ${ENV_FILE}   (secrets; back it up)
   Image:              ${IMAGE}
-  This server:        ${ip4:-?}${ip6:+  ${ip6}}
+  This server:        ${ip4:-?}${ip6:+  ${ip6}}${private_ip4:+   (private address ${private_ip4})}
   Edge hostname:      ${edge_hostname:-not set (EDGE_HOSTNAME in .env)}
 
 Next steps
@@ -321,7 +332,7 @@ cat <<EOF
        ssh -N -L 9000:127.0.0.1:9000 root@${ip4:-<server>}   then   http://localhost:9000/portal
      or check from the shell:   custom-domain doctor
   3. Create the first application (in the portal, or):
-       custom-domain application create --slug acme --name "Acme"${edge_hostname:+   (CNAME target defaults to ${edge_hostname})}${edge_hostname:- --cname-target ${name}}
+       custom-domain application create --slug acme --name "Acme"${edge_hostname:+   (CNAME target defaults to ${edge_hostname})}${cname_flag}
      then register and verify its origin and issue a credential.
   4. Upgrade later with:   custom-domain upgrade <version>
      (docs/deployment.md for backups, monitoring and the Compose refresh rules)

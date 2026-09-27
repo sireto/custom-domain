@@ -131,6 +131,32 @@ def _redacting_factory(*args, **kwargs) -> logging.LogRecord:
     return record
 
 
+# Client libraries that log every request at INFO; their details are not needed.
+QUIET_LOGGERS = ("httpx", "httpcore", "urllib3", "botocore")
+
+
+def configure_logging(level: str | None = None) -> None:
+    """Send the service's own log records to stderr, once, at ``LOG_LEVEL`` (default INFO).
+
+    Without this nothing configures the root logger in the containers, so
+    every INFO record of the service (the v1 access log, reconciler and
+    worker progress) was dropped: only WARNING and above reached stderr.
+    When something else configured logging already (pytest, an application
+    embedding the service), it is left alone.
+    """
+    import os
+
+    root = logging.getLogger()
+    if root.handlers:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    root.addHandler(handler)
+    root.setLevel((level or os.environ.get("LOG_LEVEL") or "INFO").upper())
+    for name in QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def install_log_redaction() -> None:
     if logging.getLogRecordFactory() is not _redacting_factory:
         logging.setLogRecordFactory(_redacting_factory)

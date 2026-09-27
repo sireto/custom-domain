@@ -566,3 +566,30 @@ def test_failed_auth_limiter_groups_ipv6_and_bounds_its_memory():
     assert limiter.tracked() <= 100
     assert limiter.retry_after("8.8.8.8", now=102) > 0
     assert FailedAuthLimiter(max_failures=0).retry_after("8.8.8.8") == 0  # 0 disables it
+
+
+def test_service_logs_reach_stderr_in_a_fresh_process(tmp_path):
+    """The containers configure no logging themselves: INFO records must not be dropped."""
+    import subprocess
+    import sys
+
+    code = (
+        "import logging\n"
+        "from app.main import create_app\n"
+        "create_app()\n"
+        "logging.getLogger('app.v1.access').info('GET /v1/domains 200 client=8.8.8.8')\n"
+        "logging.getLogger('httpx').info('HTTP Request: GET https://example')\n"
+    )
+    env = {
+        **__import__("os").environ,
+        "DATABASE_URL": f"sqlite:///{tmp_path / 'x.db'}",
+        "ENABLE_LEGACY_API": "false",
+        "EDGE_RECONCILE_ENABLED": "false",
+    }
+    env.pop("LOG_LEVEL", None)
+    result = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+    assert "INFO app.v1.access: GET /v1/domains 200 client=8.8.8.8" in result.stderr
+    assert "HTTP Request" not in result.stderr  # client libraries stay at WARNING
