@@ -37,6 +37,7 @@ from app.v1.webhooks_api import router as webhooks_router
 from app.webhooks.worker import WebhookWorker
 
 logger = logging.getLogger(__name__)
+access_logger = logging.getLogger("app.v1.access")
 
 API_DESCRIPTION = """
 Custom domains for multi-tenant SaaS. Applications register customer hostnames
@@ -163,6 +164,27 @@ def create_app() -> FastAPI:
         allow_methods=_csv("ALLOWED_METHODS", "*"),
         allow_headers=_csv("ALLOWED_HEADERS", "*"),
     )
+
+    @app.middleware("http")
+    async def v1_access_log(request, call_next):
+        # One line per v1 call with the real client address: behind the edge
+        # the connecting peer is always the edge, which says nothing about who
+        # used a credential. The query string is left out.
+        response = await call_next(request)
+        if request.url.path.startswith("/v1/") or request.url.path == "/v1":
+            from app.clients import client_address
+
+            access_logger.info(
+                "%s %s %s application=%s key=%s client=%s",
+                request.method,
+                request.url.path,
+                response.status_code,
+                getattr(request.state, "application_slug", "-"),
+                getattr(request.state, "credential_prefix", "-"),
+                client_address(request) or "-",
+            )
+        return response
+
     trusted_hosts = _csv("TRUSTED_HOSTS", "")
     if trusted_hosts:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)

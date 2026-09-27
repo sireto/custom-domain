@@ -8,7 +8,8 @@ from app.db.session import create_engine_from_url, get_database_url
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep loggers configured before migrations ran (the app, tests) working.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

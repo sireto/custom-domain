@@ -437,3 +437,34 @@ def test_gateway_accepts_only_the_reconcilers_api_route(session, make_applicatio
             public_api=True,
         ),
     )
+
+
+def test_v1_access_log_names_the_real_client_behind_the_edge(
+    client, session, make_application, caplog
+):
+    import logging
+
+    acme = make_application("acme")
+    from app.services.applications import issue_credential
+
+    _, secret = issue_credential(session, acme, label="backend")
+    session.commit()
+    auth = {"Authorization": f"Bearer {secret}"}
+    with caplog.at_level(logging.INFO, logger="app.v1.access"):
+        # From the edge (a trusted peer): the forwarded address is the client.
+        edge = TestClient(client.app, client=("127.0.0.1", 1000))
+        assert (
+            edge.get("/v1/domains", headers={**auth, "X-Forwarded-For": "8.8.8.8"}).status_code
+            == 200
+        )
+        # From anyone else the header is ignored.
+        other = TestClient(client.app, client=("10.1.2.3", 1000))
+        assert other.get("/v1/domains", headers={"X-Forwarded-For": "8.8.8.8"}).status_code == 401
+    lines = [r.getMessage() for r in caplog.records if r.name == "app.v1.access"]
+    assert any(
+        line.startswith("GET /v1/domains 200 application=acme key=cd_")
+        and line.endswith("client=8.8.8.8")
+        for line in lines
+    ), lines
+    assert any("401 application=- key=- client=10.1.2.3" in line for line in lines), lines
+    assert all(secret not in line for line in lines)

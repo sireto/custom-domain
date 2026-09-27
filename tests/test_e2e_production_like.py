@@ -384,9 +384,21 @@ def test_two_applications_serve_the_right_workspaces_over_https(
         status, _ = https_get("bc.edge.localtest.me", https_port, "/v1/domains", str(ca_file))
         assert status == 401
         # Only /v1 is routed: the edge-only endpoints and the legacy API are not.
-        for path in ("/internal/edge/origins", "/internal/tls/ask?domain=x", "/domains"):
-            status, _ = https_get("bc.edge.localtest.me", https_port, path, str(ca_file))
+        for path in (
+            "/internal/edge/origins",
+            "/internal/tls/ask?domain=x",
+            "/domains",
+            # Path tricks must not reach /internal through the /v1 route: Caddy
+            # cleans the path before matching, and what it passes on stays in /v1.
+            "/v1/../internal/tls/ask?domain=x",
+            "/v1/%2e%2e/internal/tls/ask?domain=x",
+            "/v1/..%2finternal/tls/ask?domain=x",
+            "/v1%2f..%2finternal/tls/ask?domain=x",
+            "/V1/../internal/edge/origins",
+        ):
+            status, body = https_get("bc.edge.localtest.me", https_port, path, str(ca_file))
             assert status == 404, path
+            assert "approved" not in body and "upstreams" not in body, path
         # Customer hostnames do not expose the API.
         status, body = https_get(
             "one.other-customer.example", https_port, "/v1/domains", str(ca_file), headers=auth
