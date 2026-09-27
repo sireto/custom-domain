@@ -32,6 +32,15 @@ def main(argv: list[str] | None = None) -> int:
     if not hasattr(args, "func"):
         parser.print_help()
         return 1
+    from app.observability import configure_logging, install_log_redaction
+
+    install_log_redaction()
+    # Long-running roles log their progress; one-shot commands print their
+    # own output and log only warnings (LOG_LEVEL overrides both).
+    long_running = args.command == "worker" or (
+        args.command == "edge" and getattr(args, "edge_command", None) == "gateway"
+    )
+    configure_logging(os.environ.get("LOG_LEVEL") or ("INFO" if long_running else "WARNING"))
     try:
         return args.func(args) or 0
     except ServiceError as exc:

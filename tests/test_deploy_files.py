@@ -39,3 +39,14 @@ def test_production_compose_shares_the_edge_settings_the_gateway_checks():
     assert services["edge"]["environment"]["API_URL"] == "http://api:9000"
     # The management API and portal are published on the host's loopback only.
     assert services["api"]["ports"] == ["127.0.0.1:9000:9000"]
+
+
+def test_every_production_service_rotates_its_log():
+    """With INFO logging on, an unrotated json-file log grows without bound."""
+    compose = yaml.safe_load((ROOT / "deploy" / "compose.production.yml").read_text())
+    for name, service in compose["services"].items():
+        logging = service.get("logging")
+        assert logging and logging["driver"] == "json-file", name
+        options = logging["options"]
+        assert options["max-size"].endswith("m") and int(options["max-size"][:-1]) <= 50, name
+        assert 1 <= int(options["max-file"]) <= 10, name

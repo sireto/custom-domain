@@ -447,9 +447,12 @@ def test_v1_access_log_names_the_real_client_behind_the_edge(
     acme = make_application("acme")
     from app.services.applications import issue_credential
 
-    _, secret = issue_credential(session, acme, label="backend")
+    credential, secret = issue_credential(session, acme, label="backend")
     session.commit()
     auth = {"Authorization": f"Bearer {secret}"}
+    from app.observability import install_log_redaction
+
+    install_log_redaction()  # as in production: the lines pass through the redactor
     with caplog.at_level(logging.INFO, logger="app.v1.access"):
         # From the edge (a trusted peer): the forwarded address is the client.
         edge = TestClient(client.app, client=("127.0.0.1", 1000))
@@ -461,13 +464,12 @@ def test_v1_access_log_names_the_real_client_behind_the_edge(
         other = TestClient(client.app, client=("10.1.2.3", 1000))
         assert other.get("/v1/domains", headers={"X-Forwarded-For": "8.8.8.8"}).status_code == 401
     lines = [r.getMessage() for r in caplog.records if r.name == "app.v1.access"]
-    assert any(
-        line.startswith("GET /v1/domains 200 application=acme key=cd_")
-        and line.endswith("client=8.8.8.8")
-        for line in lines
-    ), lines
-    assert any("401 application=- key=- client=10.1.2.3" in line for line in lines), lines
-    assert all(secret not in line for line in lines)
+    # The exact credential id survives redaction, so the line says which key it was
+    # (`custom-domain credential revoke --application <slug> --id <id>` takes both).
+    expected = f"GET /v1/domains 200 application=acme credential={credential.id} client=8.8.8.8"
+    assert expected in lines, lines
+    assert "GET /v1/domains 401 application=- credential=- client=10.1.2.3" in lines, lines
+    assert all(secret not in line and "***" not in line for line in lines), lines
 
 
 def test_failed_authentication_is_throttled_per_client_before_any_lookup(
@@ -566,3 +568,58 @@ def test_failed_auth_limiter_groups_ipv6_and_bounds_its_memory():
     assert limiter.tracked() <= 100
     assert limiter.retry_after("8.8.8.8", now=102) > 0
     assert FailedAuthLimiter(max_failures=0).retry_after("8.8.8.8") == 0  # 0 disables it
+
+
+def test_service_logs_reach_stderr_in_a_fresh_process(tmp_path):
+    """The containers configure no logging themselves: INFO records must not be dropped."""
+    import subprocess
+    import sys
+
+    code = (
+        "import logging\n"
+        "from app.main import create_app\n"
+        "create_app()\n"
+        "logging.getLogger('app.v1.access').info('GET /v1/domains 200 client=8.8.8.8')\n"
+        "logging.getLogger('httpx').info('HTTP Request: GET https://example')\n"
+    )
+    env = {
+        **__import__("os").environ,
+        "DATABASE_URL": f"sqlite:///{tmp_path / 'x.db'}",
+        "ENABLE_LEGACY_API": "false",
+        "EDGE_RECONCILE_ENABLED": "false",
+    }
+    env.pop("LOG_LEVEL", None)
+    result = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+    assert "INFO app.v1.access: GET /v1/domains 200 client=8.8.8.8" in result.stderr
+    assert "HTTP Request" not in result.stderr  # client libraries stay at WARNING
+
+
+def test_doctor_fails_an_acme_email_lets_encrypt_refuses():
+    """A reserved contact domain made issuance impossible while the doctor said OK."""
+    from app.dns.settings import DnsSettings
+    from app.services.doctor import _settings_findings, reserved_email_domain
+
+    for bad in ("ops@example.net", "a@EXAMPLE.com", "x@mail.example.org", "a@b.test", "nobody"):
+        assert reserved_email_domain(bad), bad
+    for good in ("ops@sireto.com", "a@example-corp.io", "x@mail.examples.net"):
+        assert not reserved_email_domain(good), good
+    public = SETTINGS.__class__(
+        **{
+            **SETTINGS.__dict__,
+            "tls_issuer": "acme",
+            "disable_https": False,
+            "acme_email": "ops@example.net",
+        }
+    )
+    (https,) = [f for f in _settings_findings(public, DnsSettings()) if f.check == "https"]
+    assert https.status == "fail" and "invalidContact" in https.detail
+    not_an_address = SETTINGS.__class__(**{**public.__dict__, "acme_email": "nobody"})
+    (https,) = [f for f in _settings_findings(not_an_address, DnsSettings()) if f.check == "https"]
+    assert https.status == "fail" and "is not an email address" in https.detail
+    assert "reserved" not in https.detail
+    fine = SETTINGS.__class__(**{**public.__dict__, "acme_email": "ops@sireto.com"})
+    (https,) = [f for f in _settings_findings(fine, DnsSettings()) if f.check == "https"]
+    assert https.status == "ok"

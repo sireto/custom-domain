@@ -133,9 +133,10 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     load_dotenv()
-    from app.observability import install_log_redaction
+    from app.observability import configure_logging, install_log_redaction
 
     install_log_redaction()
+    configure_logging()
     app = FastAPI(
         title="Custom Domain API",
         version="1.0.0",
@@ -178,12 +179,12 @@ def create_app() -> FastAPI:
             from app.clients import client_address
 
             access_logger.info(
-                "%s %s %s application=%s key=%s client=%s",
+                "%s %s %s application=%s credential=%s client=%s",
                 request.method,
                 request.url.path,
                 response.status_code,
                 getattr(request.state, "application_slug", "-"),
-                getattr(request.state, "credential_prefix", "-"),
+                getattr(request.state, "credential_id", "-"),
                 client_address(request) or "-",
             )
         return response

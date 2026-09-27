@@ -3,10 +3,20 @@
 # env.production.example, never committed). Compose reads that file both for
 # the ${...} substitutions below and, through env_file, for the containers.
 # See docs/deployment.md for the walkthrough, backups and rollback.
+# Every service rotates its log: with INFO logging on (one line per v1 call and
+# per reconcile) Docker's default json-file driver would otherwise grow without
+# bound. At most 5 x 10 MB per container.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: postgres:16
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_USER: custom_domain
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in deploy/.env}
@@ -23,6 +33,7 @@ services:
   redis:
     image: redis:7
     restart: unless-stopped
+    logging: *logging
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${CADDY_REDIS_PASSWORD:?set in deploy/.env}"]
     environment:
       # Only for the health check below; the server reads --requirepass.
@@ -39,6 +50,7 @@ services:
   api:
     image: ${CUSTOM_DOMAIN_IMAGE:-ghcr.io/sireto/custom-domain:latest}
     restart: unless-stopped
+    logging: *logging
     env_file: .env
     environment:
       CONTAINER_ROLE: api
@@ -64,6 +76,7 @@ services:
   worker:
     image: ${CUSTOM_DOMAIN_IMAGE:-ghcr.io/sireto/custom-domain:latest}
     restart: unless-stopped
+    logging: *logging
     env_file: .env
     environment:
       CONTAINER_ROLE: worker
@@ -79,6 +92,7 @@ services:
   edge:
     image: ${CUSTOM_DOMAIN_IMAGE:-ghcr.io/sireto/custom-domain:latest}
     restart: unless-stopped
+    logging: *logging
     env_file: .env
     environment:
       CONTAINER_ROLE: edge
