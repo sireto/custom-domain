@@ -252,3 +252,24 @@ def test_a_short_token_turns_the_edge_routes_off_too(monkeypatch):
     assert not short.operator_api_enabled and short.operator_ranges() == []
     full = EdgeSettings.from_env({**env, "OPERATOR_API_TOKEN": TOKEN})
     assert full.operator_api_enabled and full.operator_ranges() == ["93.184.216.34/32"]
+
+
+def test_a_crashing_operator_call_is_still_audited(session_factory, session, monkeypatch, caplog):
+    """An unhandled error inside an endpoint must not leave the call unrecorded."""
+    import logging
+
+    from app.services import applications as app_service
+
+    app = make_app(session_factory, monkeypatch)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr(app_service, "list_applications", boom)
+    with (
+        caplog.at_level(logging.INFO, logger="app.operator.audit"),
+        TestClient(app, client=("10.0.0.5", 1000), raise_server_exceptions=False) as client,
+    ):
+        assert client.get("/operator/v1/applications", headers=AUTH).status_code == 500
+    lines = [r.getMessage() for r in caplog.records if r.name == "app.operator.audit"]
+    assert lines == ["GET /operator/v1/applications 500 target=- client=10.0.0.5"], lines

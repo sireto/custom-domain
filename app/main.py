@@ -182,12 +182,22 @@ def create_app() -> FastAPI:
     async def v1_access_log(request, call_next):
         # One line per v1 call with the real client address: behind the edge
         # the connecting peer is always the edge, which says nothing about who
-        # used a credential. The query string is left out.
-        response = await call_next(request)
+        # used a credential. The query string is left out. A call that crashes
+        # is still recorded, as 500, before the exception goes on: an operator
+        # mutation may have been attempted.
+        try:
+            response = await call_next(request)
+        except Exception:
+            _log_call(request, 500)
+            raise
+        _log_call(request, response.status_code)
+        return response
+
+    def _log_call(request, status_code: int) -> None:
+        from app.clients import client_address
+
         path = request.url.path
         if path.startswith("/operator/") or path == "/operator":
-            from app.clients import client_address
-
             # The operator token can do everything, so every call is recorded,
             # refused ones included: what was touched, and from where. Never
             # the token, a request body or a returned secret.
@@ -195,23 +205,20 @@ def create_app() -> FastAPI:
                 "%s %s %s target=%s client=%s",
                 request.method,
                 path,
-                response.status_code,
+                status_code,
                 getattr(request.state, "operator_target", "-"),
                 client_address(request) or "-",
             )
         elif path.startswith("/v1/") or path == "/v1":
-            from app.clients import client_address
-
             access_logger.info(
                 "%s %s %s application=%s credential=%s client=%s",
                 request.method,
-                request.url.path,
-                response.status_code,
+                path,
+                status_code,
                 getattr(request.state, "application_slug", "-"),
                 getattr(request.state, "credential_id", "-"),
                 client_address(request) or "-",
             )
-        return response
 
     trusted_hosts = _csv("TRUSTED_HOSTS", "")
     if trusted_hosts:
