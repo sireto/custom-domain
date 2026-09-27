@@ -88,12 +88,12 @@ attention") with the reason next to them.
 | Overview | counts of live, waiting and failing hostnames; what needs attention; recent activity; purging deleted hostnames and applications past retention | `domain purge-tombstones` |
 | Applications | every application with its origin and hostname counts; creating one | `application list`, `application create` |
 | Application → Overview | the setup checklist (CNAME target in DNS, origin, verification, API key, first hostname, first live hostname), with the next step highlighted | |
-| Application → Domains | customer hostnames, filtered by status and searched by hostname or workspace; registering one | |
+| Application → Domains | customer hostnames, filtered by status and searched by hostname or workspace; registering one; usage against the domain limits, when set | |
 | Domain | the two DNS records for the customer, each marked found, not found or wrong (with what DNS returns); the four checks; the history; check now, issue new records, delete | |
 | Application → Origins | the backend traffic goes to; the token to serve and the exact URL while it is unverified; verify, activate, retire, delete | `origin register`, `origin verify --activate`, `origin activate`, `origin retire`, `origin delete` |
 | Application → API keys | issue (shown once), rotate with a 24-hour overlap, revoke, delete revoked or expired keys | `credential issue`, `credential rotate`, `credential revoke`, `credential delete` |
 | Application → Webhooks | endpoints with their events, signing secrets (shown once), rotation, revocation, deletion, and each endpoint's deliveries with replay | the v1 API's webhook endpoints |
-| Application → Settings | name, CNAME target (optionally moving existing hostnames), the readiness check, suspend or resume, delete | `application rename`, `application set-cname-target`, `application set-workspace-probe`, `application delete` |
+| Application → Settings | name, CNAME target (optionally moving existing hostnames), the domain limit, the readiness check, suspend or resume, delete | `application rename`, `application set-cname-target`, `application set-domain-limit`, `application set-workspace-probe`, `application delete` |
 | Edge & DNS | every name the edge answers for, why, and what public DNS returns for it; **Verify reachability** connects to each address as a customer would; the routing summary; applying the configuration now | `edge reconcile` |
 | Health checks | the doctor's findings, problems first | `doctor` |
 | Import | the legacy import, with a dry run first | `legacy import` |

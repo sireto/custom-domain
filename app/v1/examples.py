@@ -140,6 +140,13 @@ ERRORS = {
             "details": {},
         }
     },
+    "domain_limit_reached": {
+        "error": {
+            "code": "domain_limit_reached",
+            "message": "Application 'forms' has reached its limit of 200 live domains",
+            "details": {"scope": "application", "limit": 200, "live": 200},
+        }
+    },
     "apex_not_supported": {
         "error": {
             "code": "apex_not_supported",

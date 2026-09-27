@@ -18,6 +18,31 @@ from app.models import EdgeLock
 from app.models.types import utcnow
 
 RECONCILE_LOCK = "reconcile"
+# Serializes registrations across applications while MAX_DOMAINS is set, so
+# the deployment-wide count and the insert cannot interleave.
+DOMAIN_LIMIT_LOCK = "domain-limit"
+
+
+def acquire_lock(session: Session, name: str, holder: str) -> None:
+    """Take the ``edge_locks`` row ``name`` for the rest of the transaction.
+
+    Blocks while another transaction holds it. The row is created on first
+    use if it does not exist.
+    """
+    stmt = (
+        update(EdgeLock)
+        .where(EdgeLock.name == name)
+        .values(holder=holder[:128], locked_at=utcnow())
+    )
+    if session.execute(stmt).rowcount:
+        return
+    try:
+        with session.begin_nested():
+            session.add(EdgeLock(name=name))
+            session.flush()
+    except IntegrityError:
+        pass
+    session.execute(stmt)
 
 
 def acquire_reconcile_lock(session: Session, holder: str) -> None:
@@ -25,20 +50,7 @@ def acquire_reconcile_lock(session: Session, holder: str) -> None:
 
     Blocks while another transaction holds it. Must be the first statement
     of the transaction so SQLite does not carry a stale read snapshot into
-    the write.
+    the write. The seed row is created by the migration and recreated if it
+    was removed.
     """
-    stmt = (
-        update(EdgeLock)
-        .where(EdgeLock.name == RECONCILE_LOCK)
-        .values(holder=holder[:128], locked_at=utcnow())
-    )
-    if session.execute(stmt).rowcount:
-        return
-    # The seed row is created by the migration; recreate it if it was removed.
-    try:
-        with session.begin_nested():
-            session.add(EdgeLock(name=RECONCILE_LOCK))
-            session.flush()
-    except IntegrityError:
-        pass
-    session.execute(stmt)
+    acquire_lock(session, RECONCILE_LOCK, holder)

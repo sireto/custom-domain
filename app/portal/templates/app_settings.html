@@ -29,6 +29,16 @@
 </div>
 
 <div class="card">
+  <div class="card-head"><div><h2>Domain limit</h2><p>The most hostnames this application may have registered at once, counting every hostname not deleted, including those still waiting for DNS. At the limit, new registrations are refused with <code>domain_limit_reached</code>; hostnames that already exist are never affected.</p></div></div>
+  <form method="post" action="{{ base }}/domain-limit"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="card-body form-row">
+      <div class="grow"><label for="max_domains">Maximum hostnames</label><input type="number" id="max_domains" name="max_domains" min="1" step="1" inputmode="numeric" value="{{ application.max_domains if application.max_domains is not none else '' }}" placeholder="No limit"><div class="hint">{{ live_domains }} registered now. Leave empty for no limit of its own.{% for u in limits if u.scope == 'deployment' %} This deployment allows {{ u.limit }} across all applications (MAX_DOMAINS), {{ u.live }} in use.{% endfor %}</div></div>
+    </div>
+    <div class="card-foot actions" style="justify-content:flex-end"><button type="submit" class="btn-primary">Save limit</button></div>
+  </form>
+</div>
+
+<div class="card">
   <div class="card-head"><div><h2>Readiness</h2><p>Whether a hostname goes live only after your backend confirms it serves the right workspace.</p></div></div>
   <form method="post" action="{{ base }}/workspace-probe"><input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="card-body">

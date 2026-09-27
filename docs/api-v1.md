@@ -226,6 +226,7 @@ Every error has the same body:
 | 401 | `unauthorized` | Missing, malformed, unknown, revoked or expired credential, or suspended application. `WWW-Authenticate: Bearer` is set. |
 | 404 | `domain_not_found` | No such domain in the calling application, including domains of other applications and deleted domains without `include_deleted`. |
 | 409 | `hostname_already_claimed` | The hostname is live in this or another application. |
+| 409 | `domain_limit_reached` | The application or the whole deployment already has as many live domains as its limit allows. `details` gives `scope` (`application` or `deployment`), `limit` and `live`. Domains already registered keep working; delete one or ask the operator to raise the limit. |
 | 409 | `invalid_status_transition` | The operation does not apply to the domain's current status (for example rechecking a deleted domain). |
 | 409 | `idempotency_request_in_progress` | The original request with this key has not finished. |
 | 422 | `validation_error` | Body or query does not match the schema. `details.errors` lists locations. Unknown fields such as `upstream` are rejected. |

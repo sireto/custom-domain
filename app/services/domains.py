@@ -47,6 +47,7 @@ from app.models import (
     OwnershipClaim,
 )
 from app.models.types import utcnow
+from app.services import limits
 from app.services.errors import (
     ApplicationSuspended,
     DomainNotFound,
@@ -133,7 +134,9 @@ def claim_domain(
 ) -> Domain:
     """Atomically claim ``hostname`` for ``application`` and issue ownership material.
 
-    Raises ``InvalidHostname`` for unusable names and ``HostnameAlreadyClaimed``
+    Raises ``DomainLimitReached`` when the application or the deployment is
+    at its limit of live domains (see app/services/limits.py),
+    ``InvalidHostname`` for unusable names and ``HostnameAlreadyClaimed``
     when a live row exists in any application. The loser of a concurrent claim
     gets the same error; the session stays usable because the insert runs in a
     savepoint.
@@ -147,6 +150,7 @@ def claim_domain(
     # Serialize registrations per application: the budget check below and the
     # insert happen under the application lock (see lock_application).
     lock_application(session, application.id)
+    limits.enforce(session, application)
     _enforce_registration_limit(session, application, now)
 
     domain = Domain(

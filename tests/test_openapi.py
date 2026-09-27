@@ -54,7 +54,11 @@ def test_examples_cover_the_lifecycle(spec):
     ]
     assert deleted["example"]["status"] == "deleting" and deleted["example"]["dns_records"] == []
     conflict = paths["/v1/domains"]["post"]["responses"]["409"]["content"]["application/json"]
-    assert conflict["example"]["error"]["code"] == "hostname_already_claimed"
+    assert conflict["examples"]["hostname_already_claimed"]["value"]["error"]["code"] == (
+        "hostname_already_claimed"
+    )
+    limit = conflict["examples"]["domain_limit_reached"]["value"]["error"]
+    assert limit["code"] == "domain_limit_reached" and limit["details"]["scope"] == "application"
 
 
 def test_status_and_check_enums_are_published(spec):
