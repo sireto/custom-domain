@@ -74,8 +74,14 @@ run the SDK at the version of the service they integrate with, and
 upgrading is one number. To release:
 
 1. Set `version` in `pyproject.toml` and `sdk/pyproject.toml` to the same
-   value, set `CUSTOM_DOMAIN_VERSION` in `deploy/cloud-init.yaml` to it,
-   refresh `uv.lock`, and merge that through a pull request.
+   value, and set the same version as the default of the cloud templates:
+   `CUSTOM_DOMAIN_VERSION` in `deploy/cloud-init.yaml`, `Version` in
+   `deploy/aws/custom-domain.yaml`, `version` in `deploy/azure/main.bicep`
+   (then rebuild `deploy/azure/azuredeploy.json` with
+   `az bicep build --file deploy/azure/main.bicep --outfile deploy/azure/azuredeploy.json`)
+   and the default in `deploy/gcp/deploy.sh`. Refresh `uv.lock` and merge
+   that through a pull request; `tests/test_cloud_templates.py` fails until
+   every template names the release.
 2. Tag the merge commit with the bare version and push the tag:
    `git tag 0.3.1 <merge commit> && git push origin 0.3.1`.
 3. The tag runs both publish workflows. Each first checks that the tag
@@ -85,7 +91,27 @@ upgrading is one number. To release:
 
 `deploy/cloud-init.yaml` fetches the installer and the Compose file at the
 tag named by `CUSTOM_DOMAIN_VERSION`, so a user-data document only ever
-runs the release it names.
+runs the release it names. The AWS, Azure and Google Cloud templates do the
+same. The Azure and Google Cloud buttons load their files from `main`, where
+the defaults always name the latest release.
+
+### Cloud template publishing setup
+
+CloudFormation opens templates only from S3, so the AWS Launch Stack link
+needs the template there. `.github/workflows/publish-templates.yml` uploads
+it on every release tag to `s3://<bucket>/custom-domain/<version>/` and
+`.../latest/` once two repository variables are set (it does nothing until
+then):
+
+- `AWS_TEMPLATES_BUCKET`: a bucket whose objects under `custom-domain/` are
+  publicly readable (a bucket policy granting `s3:GetObject` on
+  `arn:aws:s3:::<bucket>/custom-domain/*`).
+- `AWS_TEMPLATES_ROLE_ARN`: an IAM role that trusts GitHub's OIDC provider
+  (`token.actions.githubusercontent.com`) for `repo:sireto/custom-domain:ref:refs/tags/*`
+  and may `s3:PutObject` on the same prefix. No AWS keys are stored.
+
+The Launch Stack link in [hosting-aws.md](hosting-aws.md) then points at
+`https://<bucket>.s3.amazonaws.com/custom-domain/latest/custom-domain.yaml`.
 
 ### SDK publishing setup
 

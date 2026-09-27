@@ -1,0 +1,378 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Custom Domain on one EC2 instance: PostgreSQL, the certificate store, the
+  API, the worker and the Caddy edge, installed by deploy/install.sh from the
+  release named by Version. A fixed IPv4 (Elastic IP) and IPv6 address on a
+  dedicated network interface are what customers' CNAMEs resolve to.
+  https://github.com/sireto/custom-domain
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: "The edge" }
+        Parameters: [EdgeHostname, AcmeEmail, AdminCidr, AdminCidrIpv6]
+      - Label: { default: "Server" }
+        Parameters: [InstanceType, KeyName, Version, UbuntuAmiParameter]
+    ParameterLabels:
+      EdgeHostname: { default: "Edge hostname (the name customers CNAME to)" }
+      AcmeEmail: { default: "Contact email for Let's Encrypt" }
+      AdminCidr: { default: "Your IPv4 address (portal and SSH access)" }
+      AdminCidrIpv6: { default: "Your IPv6 network (optional)" }
+      InstanceType: { default: "Instance type" }
+      KeyName: { default: "EC2 key pair for SSH (optional)" }
+      Version: { default: "Custom Domain release" }
+      UbuntuAmiParameter: { default: "Ubuntu image parameter (leave as is)" }
+
+Parameters:
+  EdgeHostname:
+    Type: String
+    Description: >-
+      The edge's own DNS name, for example edge.example.net. After the stack is
+      created, point it at the addresses in the Outputs (A and AAAA records).
+    AllowedPattern: "^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)+[a-zA-Z]{2,63}$"
+    ConstraintDescription: a DNS name such as edge.example.net
+  AcmeEmail:
+    Type: String
+    Description: >-
+      Where Let's Encrypt sends certificate notices. A real address: Let's
+      Encrypt refuses reserved domains such as example.com.
+    AllowedPattern: "^(?!.*@([^@]*\\.)?example\\.(com|net|org)$)(?!.*\\.(example|test|invalid|localhost|local)$)[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+    ConstraintDescription: a real email address (Let's Encrypt refuses example.com, example.net, example.org and .test, .example, .invalid, .localhost, .local)
+  AdminCidr:
+    Type: String
+    Description: >-
+      The address or network you administer from, for example 203.0.113.9/32
+      (search "what is my IP"). It may open the portal at
+      https://<edge hostname>/portal and connect with SSH. Not the whole internet.
+    AllowedPattern: "^((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)/([89]|[12]\\d|3[0-2])$"
+    ConstraintDescription: an IPv4 address with a prefix of /8 to /32, for example 203.0.113.9/32
+  AdminCidrIpv6:
+    Type: String
+    Default: ""
+    Description: >-
+      Optional. Your IPv6 network, for example 2001:db8:1234::/64. Add it if
+      your connection has IPv6: your browser then prefers the edge's IPv6
+      address, and the portal only admits listed addresses.
+    AllowedPattern: "^$|^[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4}){2,7}/(1[6-9]|[2-9]\\d|1[01]\\d|12[0-8])$"
+    ConstraintDescription: empty, or an IPv6 network with a prefix of /16 to /128
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.small, t3.medium, t3.large, t3a.small, t3a.medium, t3a.large, m6i.large]
+    Description: t3.small (2 vCPU, 2 GB) is enough to start; the edge is I/O bound.
+  KeyName:
+    Type: String
+    Default: ""
+    Description: >-
+      Optional. An existing EC2 key pair for SSH. Without one, connect with
+      Session Manager (Systems Manager), which this stack enables.
+  Version:
+    Type: String
+    Default: "0.6.0"
+    AllowedPattern: "^(\\d+\\.\\d+\\.\\d+|latest)$"
+    Description: The release to install (image, installer and SDK share one version number).
+  UbuntuAmiParameter:
+    Type: String
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+    AllowedPattern: "^/aws/service/canonical/.+$"
+    Description: >-
+      Canonical's public SSM parameter for the Ubuntu image. It is read once,
+      when the stack is created, so a later stack update never replaces the
+      instance (and its data) because Canonical published a newer image.
+
+Conditions:
+  HasKeyName: !Not [!Equals [!Ref KeyName, ""]]
+  HasAdminIpv6: !Not [!Equals [!Ref AdminCidrIpv6, ""]]
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.80.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}" }]
+
+  VpcIpv6:
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      VpcId: !Ref Vpc
+      AmazonProvidedIpv6CidrBlock: true
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}" }]
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  Subnet:
+    Type: AWS::EC2::Subnet
+    DependsOn: VpcIpv6
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.80.1.0/24
+      Ipv6CidrBlock: !Select [0, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 1, 64]]
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}" }]
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}" }]
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  DefaultRouteIpv6:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationIpv6CidrBlock: "::/0"
+      GatewayId: !Ref InternetGateway
+
+  SubnetRoutes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet
+      RouteTableId: !Ref RouteTable
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Custom Domain edge (HTTP, HTTPS, HTTP/3) and SSH from the admin address
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: ACME challenges and redirects }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIpv6: "::/0", Description: ACME challenges and redirects }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIpv6: "::/0", Description: HTTPS }
+        - { IpProtocol: udp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTP/3 }
+        - { IpProtocol: udp, FromPort: 443, ToPort: 443, CidrIpv6: "::/0", Description: HTTP/3 }
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: !Ref AdminCidr, Description: SSH from the admin address }
+        - !If
+          - HasAdminIpv6
+          - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIpv6: !Ref AdminCidrIpv6, Description: SSH from the admin IPv6 network }
+          - !Ref AWS::NoValue
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}" }]
+
+  # The addresses customers' DNS points at live on their own interface and
+  # Elastic IP, so they survive replacing the instance.
+  NetworkInterface:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref Subnet
+      GroupSet: [!Ref SecurityGroup]
+      Ipv6AddressCount: 1
+      EnablePrimaryIpv6: true
+      Description: Custom Domain edge addresses
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}" }]
+
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    DependsOn: GatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}" }]
+
+  ElasticIpAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ElasticIp.AllocationId
+      NetworkInterfaceId: !Ref NetworkInterface
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Session Manager access instead of an open SSH port or a key pair.
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  # Resolves the Ubuntu image once, at creation. An SSM-typed parameter or a
+  # dynamic reference would be resolved again on every stack update, and a
+  # new image ID would replace the instance, which fails (its network
+  # interface is still attached to the old one) or loses the server's data.
+  ImageResolverRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: read-ubuntu-image-parameter
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}::parameter${UbuntuAmiParameter}"
+              # Writing to its own log group only; without logs:CreateLogGroup,
+              # late log lines cannot recreate the group after the stack is deleted.
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-image-resolver:*"
+
+  # Owned by the stack, so deleting the stack removes it (Lambda would
+  # otherwise create a log group of its own that outlives the stack).
+  ImageResolverLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-image-resolver"
+      RetentionInDays: 14
+
+  ImageResolverFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Reads the Ubuntu image ID once, when the stack is created
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 30
+      Role: !GetAtt ImageResolverRole.Arn
+      LoggingConfig:
+        LogGroup: !Ref ImageResolverLogGroup
+      Code:
+        ZipFile: |
+          import json
+          import urllib.request
+
+          import boto3
+
+
+          def handler(event, context):
+              status, reason = "SUCCESS", ""
+              image = event.get("PhysicalResourceId", "none")
+              try:
+                  if event["RequestType"] == "Create":
+                      name = event["ResourceProperties"]["Parameter"]
+                      image = boto3.client("ssm").get_parameter(Name=name)["Parameter"]["Value"]
+                  # Update keeps the image resolved at creation; Delete has nothing to do.
+              except Exception as exc:  # report every failure to CloudFormation
+                  status, reason = "FAILED", f"{type(exc).__name__}: {exc}"
+              body = {
+                  "Status": status,
+                  "Reason": reason or "ok",
+                  "PhysicalResourceId": image,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": {"ImageId": image},
+              }
+              request = urllib.request.Request(
+                  event["ResponseURL"],
+                  data=json.dumps(body).encode(),
+                  method="PUT",
+                  headers={"Content-Type": ""},
+              )
+              urllib.request.urlopen(request, timeout=10)
+
+  UbuntuImage:
+    Type: Custom::UbuntuImage
+    Properties:
+      ServiceToken: !GetAtt ImageResolverFunction.Arn
+      Parameter: !Ref UbuntuAmiParameter
+
+  Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: [ElasticIpAssociation, DefaultRoute, DefaultRouteIpv6, SubnetRoutes]
+    # Should an update ever require a replacement, keep the old instance (and
+    # its data) instead of deleting it. Deleting the stack does delete it
+    # (back up first, docs/hosting-aws.md).
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks: [W3011]
+    Properties:
+      ImageId: !GetAtt UbuntuImage.ImageId
+      InstanceType: !Ref InstanceType
+      KeyName: !If [HasKeyName, !Ref KeyName, !Ref "AWS::NoValue"]
+      IamInstanceProfile: !Ref InstanceProfile
+      NetworkInterfaces:
+        - NetworkInterfaceId: !Ref NetworkInterface
+          DeviceIndex: "0"
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: { VolumeSize: 30, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}" }]
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #cloud-config
+            # Written by deploy/aws/custom-domain.yaml; the same steps as deploy/cloud-init.yaml.
+            package_update: true
+            packages: [ca-certificates, curl]
+            write_files:
+              - path: /etc/custom-domain-install.env
+                permissions: "0600"
+                content: |
+                  ACME_EMAIL=${AcmeEmail}
+                  EDGE_HOSTNAME=${EdgeHostname}
+                  CUSTOM_DOMAIN_VERSION=${Version}
+                  PORTAL_ALLOWED_IPS=${AdminCidr}${AdminIpv6}
+                  PUBLIC_API=true
+                  SKIP_FIREWALL=1
+            runcmd:
+              - [sh, -c, ". /etc/custom-domain-install.env; ref=\"$CUSTOM_DOMAIN_VERSION\"; [ \"$ref\" = latest ] && ref=main; curl -fsSL \"https://raw.githubusercontent.com/sireto/custom-domain/$ref/deploy/install.sh\" -o /root/custom-domain-install.sh"]
+              - [sh, -c, "bash /root/custom-domain-install.sh >/var/log/custom-domain-install.log 2>&1"]
+          - AdminIpv6: !If [HasAdminIpv6, !Sub ",${AdminCidrIpv6}", ""]
+
+Outputs:
+  PublicIpv4:
+    Description: Create an A record for the edge hostname with this address.
+    Value: !Ref ElasticIp
+  PublicIpv6:
+    Description: Create an AAAA record for the edge hostname with this address.
+    Value: !GetAtt NetworkInterface.PrimaryIpv6Address
+  DnsRecords:
+    Description: The records to create in your DNS, then wait a few minutes.
+    Value: !Sub
+      - "${EdgeHostname} A ${ElasticIp}  and  ${EdgeHostname} AAAA ${Ipv6}"
+      - Ipv6: !GetAtt NetworkInterface.PrimaryIpv6Address
+  PortalUrl:
+    Description: The operator portal, from the admin address, once DNS resolves (allow ten minutes for the install).
+    Value: !Sub "https://${EdgeHostname}/portal"
+  ApiUrl:
+    Description: Where applications call the API with their credential.
+    Value: !Sub "https://${EdgeHostname}/v1"
+  PortalPassword:
+    Description: >-
+      Read the generated portal password on the instance, for example in a
+      Session Manager session (Connect > Session Manager in the EC2 console).
+    Value: "sudo grep PORTAL_PASSWORD /opt/custom-domain/deploy/.env"
+  SessionManager:
+    Description: Open a shell on the instance without SSH.
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/systems-manager/session-manager/${Instance}?region=${AWS::Region}"
+  InstallLog:
+    Description: Installation progress on the instance.
+    Value: "sudo tail -f /var/log/custom-domain-install.log"

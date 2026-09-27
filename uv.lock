@@ -249,6 +249,7 @@ dependencies = [
 dev = [
     { name = "custom-domain-sdk" },
     { name = "pytest" },
+    { name = "pyyaml" },
     { name = "ruff" },
 ]
 
@@ -273,6 +274,7 @@ requires-dist = [
 dev = [
     { name = "custom-domain-sdk", editable = "sdk" },
     { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.16.9" },
 ]
 

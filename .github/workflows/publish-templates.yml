@@ -1,0 +1,48 @@
+# Publishes the AWS CloudFormation template to S3 on every release tag, so
+# the "Launch Stack" link in docs/hosting-aws.md can open it (CloudFormation
+# only loads templates from S3). The Azure and Google Cloud buttons load
+# their files from GitHub directly and need nothing here.
+#
+# Configure once (repository Settings > Secrets and variables > Actions >
+# Variables); until both are set this workflow does nothing:
+#   AWS_TEMPLATES_BUCKET    bucket whose objects under custom-domain/ are publicly readable
+#   AWS_TEMPLATES_ROLE_ARN  IAM role trusted for this repository's GitHub OIDC tokens,
+#                           allowed s3:PutObject on arn:aws:s3:::<bucket>/custom-domain/*
+name: Publish cloud templates
+
+# Tag pushes only: a manual or branch run could overwrite a released
+# template with unreleased content.
+on:
+  push:
+    tags: ["[0-9]*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  aws:
+    if: vars.AWS_TEMPLATES_BUCKET != '' && vars.AWS_TEMPLATES_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_TEMPLATES_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Upload the template (versioned and latest)
+        env:
+          BUCKET: ${{ vars.AWS_TEMPLATES_BUCKET }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          template=deploy/aws/custom-domain.yaml
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+          if [ "${GITHUB_REF_TYPE}" != tag ] || [ "${REF}" != "${version}" ]; then
+            echo "only a release tag equal to pyproject.toml (${version}) publishes" >&2
+            exit 1
+          fi
+          aws s3 cp "${template}" "s3://${BUCKET}/custom-domain/${version}/custom-domain.yaml" \
+            --content-type text/yaml
+          aws s3 cp "${template}" "s3://${BUCKET}/custom-domain/latest/custom-domain.yaml" \
+            --content-type text/yaml --cache-control max-age=300
