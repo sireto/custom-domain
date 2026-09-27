@@ -105,14 +105,21 @@ removes everything.
 
 ## Hosting on a cloud server
 
-A single small server runs everything. [deploy/cloud-init.yaml](deploy/cloud-init.yaml)
-is a cloud-config that installs Docker, generates the configuration and
-secrets, opens the firewall and starts the production layout; paste it as
-the server's user data and the install runs unattended. Walkthroughs with
-the provider-specific steps (reserved IP, firewall, DNS):
+A single small server runs everything, with fixed IPv4 and IPv6 addresses
+for customers' CNAMEs to resolve to. Each guide takes about fifteen minutes,
+ending with the portal open at `https://<edge hostname>/portal` and the API
+at `https://<edge hostname>/v1`.
 
-- [Hetzner Cloud](docs/hosting-hetzner.md)
-- [DigitalOcean](docs/hosting-digitalocean.md)
+| Cloud | How | Guide |
+|---|---|---|
+| Azure | [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fsireto%2Fcustom-domain%2Fmain%2Fdeploy%2Fazure%2Fazuredeploy.json) (ARM/Bicep template) | [docs/hosting-azure.md](docs/hosting-azure.md) |
+| AWS | CloudFormation stack ([deploy/aws/custom-domain.yaml](deploy/aws/custom-domain.yaml)) | [docs/hosting-aws.md](docs/hosting-aws.md) |
+| Google Cloud | [![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https%3A%2F%2Fgithub.com%2Fsireto%2Fcustom-domain&cloudshell_git_branch=main&cloudshell_tutorial=deploy%2Fgcp%2Ftutorial.md&show=terminal) (guided script) | [docs/hosting-gcp.md](docs/hosting-gcp.md) |
+| Hetzner Cloud | paste [deploy/cloud-init.yaml](deploy/cloud-init.yaml) as the server's cloud config | [docs/hosting-hetzner.md](docs/hosting-hetzner.md) |
+| DigitalOcean | paste [deploy/cloud-init.yaml](deploy/cloud-init.yaml) as the Droplet's user data | [docs/hosting-digitalocean.md](docs/hosting-digitalocean.md) |
+
+All of them run the same installer at a released version: Docker, generated
+configuration and secrets, and the production layout, unattended.
 
 The same script runs on any Ubuntu or Debian host as root:
 `bash deploy/install.sh`, and re-running it (or `custom-domain upgrade <version>`)
@@ -223,7 +230,7 @@ code and a message the application can show to the customer.
 - [docs/webhooks.md](docs/webhooks.md): subscriptions, signatures, delivery and replay.
 - [docs/deployment.md](docs/deployment.md): production layout, secrets, monitoring, backups and rollback.
 - [docs/portal.md](docs/portal.md): the operator portal, its pages, how to reach it and what it protects against.
-- [docs/hosting-hetzner.md](docs/hosting-hetzner.md) and [docs/hosting-digitalocean.md](docs/hosting-digitalocean.md): one-server installs on those providers.
+- [docs/hosting-aws.md](docs/hosting-aws.md), [docs/hosting-azure.md](docs/hosting-azure.md), [docs/hosting-gcp.md](docs/hosting-gcp.md), [docs/hosting-hetzner.md](docs/hosting-hetzner.md) and [docs/hosting-digitalocean.md](docs/hosting-digitalocean.md): one-server installs on each provider.
 - [docs/bettercollected-integration.md](docs/bettercollected-integration.md): a worked integration of a SaaS product.
 - [docs/operations.md](docs/operations.md) and [docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md): certificate storage, multi-instance coordination, trust boundaries.
 - [AGENTS.md](AGENTS.md): how to work on this repository, for people and coding agents alike.

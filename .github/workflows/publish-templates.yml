@@ -1,0 +1,49 @@
+# Publishes the AWS CloudFormation template to S3 on every release tag, so
+# the "Launch Stack" link in docs/hosting-aws.md can open it (CloudFormation
+# only loads templates from S3). The Azure and Google Cloud buttons load
+# their files from GitHub directly and need nothing here.
+#
+# Configure once (repository Settings > Secrets and variables > Actions >
+# Variables); until both are set this workflow does nothing:
+#   AWS_TEMPLATES_BUCKET    bucket whose objects under custom-domain/ are publicly readable
+#   AWS_TEMPLATES_ROLE_ARN  IAM role trusted for this repository's GitHub OIDC tokens,
+#                           allowed s3:PutObject on arn:aws:s3:::<bucket>/custom-domain/*
+name: Publish cloud templates
+
+on:
+  push:
+    tags: ["[0-9]*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  aws:
+    if: vars.AWS_TEMPLATES_BUCKET != '' && vars.AWS_TEMPLATES_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TEMPLATES_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Upload the template (versioned and latest)
+        env:
+          BUCKET: ${{ vars.AWS_TEMPLATES_BUCKET }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          template=deploy/aws/custom-domain.yaml
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${REF}" != "${version}" ]; then
+            echo "tag ${REF} does not match pyproject.toml ${version}" >&2
+            exit 1
+          fi
+          aws s3 cp "${template}" "s3://${BUCKET}/custom-domain/${version}/custom-domain.yaml" \
+            --content-type text/yaml
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            aws s3 cp "${template}" "s3://${BUCKET}/custom-domain/latest/custom-domain.yaml" \
+              --content-type text/yaml --cache-control max-age=300
+          fi

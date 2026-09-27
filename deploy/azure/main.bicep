@@ -1,0 +1,237 @@
+// Custom Domain on one Azure VM: PostgreSQL, the certificate store, the API,
+// the worker and the Caddy edge, installed by deploy/install.sh from the
+// release named by `version`. Static public IPv4 and IPv6 addresses are what
+// customers' CNAMEs resolve to. Compile with `az bicep build --file main.bicep
+// --outfile azuredeploy.json` (the "Deploy to Azure" button uses the JSON).
+
+@description('The edge\'s own DNS name, for example edge.example.net. After deployment, point it at the addresses in the outputs (A and AAAA records).')
+param edgeHostname string
+
+@description('Where Let\'s Encrypt sends certificate notices.')
+param acmeEmail string
+
+@description('The IPv4 address or network you administer from, for example 203.0.113.9/32. It may open the portal at https://<edge hostname>/portal and connect with SSH.')
+param adminCidr string
+
+@description('Your SSH public key (ssh-ed25519 or ssh-rsa ...), for the admin user.')
+param adminSshPublicKey string
+
+@description('The admin user on the VM.')
+param adminUsername string = 'azureuser'
+
+@description('Standard_B2s (2 vCPU, 4 GB) is enough to start; the edge is I/O bound.')
+@allowed([
+  'Standard_B2s'
+  'Standard_B2ms'
+  'Standard_B4ms'
+  'Standard_D2s_v5'
+  'Standard_D4s_v5'
+])
+param vmSize string = 'Standard_B2s'
+
+@description('The Custom Domain release to install (image, installer and SDK share one version number).')
+param version string = '0.5.0'
+
+@description('Name prefix for the resources.')
+param name string = 'custom-domain'
+
+param location string = resourceGroup().location
+
+var installEnv = join([
+  'ACME_EMAIL=${acmeEmail}'
+  'EDGE_HOSTNAME=${edgeHostname}'
+  'CUSTOM_DOMAIN_VERSION=${version}'
+  'PORTAL_ALLOWED_IPS=${adminCidr}'
+  'PUBLIC_API=true'
+  'SKIP_FIREWALL=1'
+], '\n')
+
+// The same steps as deploy/cloud-init.yaml.
+var cloudInit = format('''#cloud-config
+package_update: true
+packages: [ca-certificates, curl]
+write_files:
+  - path: /etc/custom-domain-install.env
+    permissions: "0600"
+    encoding: b64
+    content: {0}
+runcmd:
+  - [sh, -c, ". /etc/custom-domain-install.env; ref=\"$CUSTOM_DOMAIN_VERSION\"; [ \"$ref\" = latest ] && ref=main; curl -fsSL \"https://raw.githubusercontent.com/sireto/custom-domain/$ref/deploy/install.sh\" -o /root/custom-domain-install.sh"]
+  - [sh, -c, "bash /root/custom-domain-install.sh >/var/log/custom-domain-install.log 2>&1"]
+''', base64('${installEnv}\n'))
+
+resource ipv4 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
+  name: '${name}-ipv4'
+  location: location
+  sku: { name: 'Standard' }
+  properties: {
+    publicIPAllocationMethod: 'Static'
+    publicIPAddressVersion: 'IPv4'
+  }
+}
+
+resource ipv6 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
+  name: '${name}-ipv6'
+  location: location
+  sku: { name: 'Standard' }
+  properties: {
+    publicIPAllocationMethod: 'Static'
+    publicIPAddressVersion: 'IPv6'
+  }
+}
+
+resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
+  name: '${name}-nsg'
+  location: location
+  properties: {
+    securityRules: [
+      {
+        name: 'http-https'
+        properties: {
+          priority: 100
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourceAddressPrefix: '*'
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRanges: [ '80', '443' ]
+        }
+      }
+      {
+        name: 'http3'
+        properties: {
+          priority: 110
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: 'Udp'
+          sourceAddressPrefix: '*'
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRange: '443'
+        }
+      }
+      {
+        name: 'ssh-admin'
+        properties: {
+          priority: 120
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourceAddressPrefix: adminCidr
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRange: '22'
+        }
+      }
+    ]
+  }
+}
+
+resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
+  name: '${name}-vnet'
+  location: location
+  properties: {
+    addressSpace: { addressPrefixes: [ '10.80.0.0/16', 'fd00:80::/48' ] }
+    subnets: [
+      {
+        name: 'edge'
+        properties: {
+          addressPrefixes: [ '10.80.1.0/24', 'fd00:80:0:1::/64' ]
+          networkSecurityGroup: { id: nsg.id }
+        }
+      }
+    ]
+  }
+}
+
+resource nic 'Microsoft.Network/networkInterfaces@2023-11-01' = {
+  name: '${name}-nic'
+  location: location
+  properties: {
+    ipConfigurations: [
+      {
+        name: 'ipv4'
+        properties: {
+          primary: true
+          privateIPAddressVersion: 'IPv4'
+          privateIPAllocationMethod: 'Dynamic'
+          subnet: { id: vnet.properties.subnets[0].id }
+          publicIPAddress: { id: ipv4.id }
+        }
+      }
+      {
+        name: 'ipv6'
+        properties: {
+          privateIPAddressVersion: 'IPv6'
+          privateIPAllocationMethod: 'Dynamic'
+          subnet: { id: vnet.properties.subnets[0].id }
+          publicIPAddress: { id: ipv6.id }
+        }
+      }
+    ]
+  }
+}
+
+resource vm 'Microsoft.Compute/virtualMachines@2024-03-01' = {
+  name: '${name}-vm'
+  location: location
+  properties: {
+    hardwareProfile: { vmSize: vmSize }
+    osProfile: {
+      computerName: name
+      adminUsername: adminUsername
+      customData: base64(cloudInit)
+      linuxConfiguration: {
+        disablePasswordAuthentication: true
+        ssh: {
+          publicKeys: [
+            {
+              path: '/home/${adminUsername}/.ssh/authorized_keys'
+              keyData: adminSshPublicKey
+            }
+          ]
+        }
+      }
+    }
+    storageProfile: {
+      imageReference: {
+        publisher: 'Canonical'
+        offer: 'ubuntu-24_04-lts'
+        sku: 'server'
+        version: 'latest'
+      }
+      osDisk: {
+        createOption: 'FromImage'
+        diskSizeGB: 30
+        managedDisk: { storageAccountType: 'StandardSSD_LRS' }
+        deleteOption: 'Delete'
+      }
+    }
+    networkProfile: {
+      networkInterfaces: [ { id: nic.id } ]
+    }
+    securityProfile: {
+      securityType: 'TrustedLaunch'
+      uefiSettings: { secureBootEnabled: true, vTpmEnabled: true }
+    }
+  }
+}
+
+@description('Create an A record for the edge hostname with this address.')
+output publicIpv4 string = ipv4.properties.ipAddress
+
+@description('Create an AAAA record for the edge hostname with this address.')
+output publicIpv6 string = ipv6.properties.ipAddress
+
+@description('The records to create in your DNS.')
+output dnsRecords string = '${edgeHostname} A ${ipv4.properties.ipAddress}  and  ${edgeHostname} AAAA ${ipv6.properties.ipAddress}'
+
+@description('The operator portal, from the admin address, once DNS resolves (allow ten minutes for the install).')
+output portalUrl string = 'https://${edgeHostname}/portal'
+
+@description('Where applications call the API with their credential.')
+output apiUrl string = 'https://${edgeHostname}/v1'
+
+@description('SSH in, then read the generated portal password with: sudo grep PORTAL_PASSWORD /opt/custom-domain/deploy/.env')
+output ssh string = 'ssh ${adminUsername}@${ipv4.properties.ipAddress}'

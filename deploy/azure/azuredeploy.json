@@ -1,0 +1,337 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.47.16.16243",
+      "templateHash": "2126645699242834587"
+    }
+  },
+  "parameters": {
+    "edgeHostname": {
+      "type": "string",
+      "metadata": {
+        "description": "The edge's own DNS name, for example edge.example.net. After deployment, point it at the addresses in the outputs (A and AAAA records)."
+      }
+    },
+    "acmeEmail": {
+      "type": "string",
+      "metadata": {
+        "description": "Where Let's Encrypt sends certificate notices."
+      }
+    },
+    "adminCidr": {
+      "type": "string",
+      "metadata": {
+        "description": "The IPv4 address or network you administer from, for example 203.0.113.9/32. It may open the portal at https://<edge hostname>/portal and connect with SSH."
+      }
+    },
+    "adminSshPublicKey": {
+      "type": "string",
+      "metadata": {
+        "description": "Your SSH public key (ssh-ed25519 or ssh-rsa ...), for the admin user."
+      }
+    },
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "azureuser",
+      "metadata": {
+        "description": "The admin user on the VM."
+      }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_B2s",
+      "allowedValues": [
+        "Standard_B2s",
+        "Standard_B2ms",
+        "Standard_B4ms",
+        "Standard_D2s_v5",
+        "Standard_D4s_v5"
+      ],
+      "metadata": {
+        "description": "Standard_B2s (2 vCPU, 4 GB) is enough to start; the edge is I/O bound."
+      }
+    },
+    "version": {
+      "type": "string",
+      "defaultValue": "0.5.0",
+      "metadata": {
+        "description": "The Custom Domain release to install (image, installer and SDK share one version number)."
+      }
+    },
+    "name": {
+      "type": "string",
+      "defaultValue": "custom-domain",
+      "metadata": {
+        "description": "Name prefix for the resources."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]"
+    }
+  },
+  "variables": {
+    "installEnv": "[join(createArray(format('ACME_EMAIL={0}', parameters('acmeEmail')), format('EDGE_HOSTNAME={0}', parameters('edgeHostname')), format('CUSTOM_DOMAIN_VERSION={0}', parameters('version')), format('PORTAL_ALLOWED_IPS={0}', parameters('adminCidr')), 'PUBLIC_API=true', 'SKIP_FIREWALL=1'), '\n')]",
+    "cloudInit": "[format('#cloud-config\npackage_update: true\npackages: [ca-certificates, curl]\nwrite_files:\n  - path: /etc/custom-domain-install.env\n    permissions: \"0600\"\n    encoding: b64\n    content: {0}\nruncmd:\n  - [sh, -c, \". /etc/custom-domain-install.env; ref=\\\"$CUSTOM_DOMAIN_VERSION\\\"; [ \\\"$ref\\\" = latest ] && ref=main; curl -fsSL \\\"https://raw.githubusercontent.com/sireto/custom-domain/$ref/deploy/install.sh\\\" -o /root/custom-domain-install.sh\"]\n  - [sh, -c, \"bash /root/custom-domain-install.sh >/var/log/custom-domain-install.log 2>&1\"]\n', base64(format('{0}\n', variables('installEnv'))))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-11-01",
+      "name": "[format('{0}-ipv4', parameters('name'))]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static",
+        "publicIPAddressVersion": "IPv4"
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-11-01",
+      "name": "[format('{0}-ipv6', parameters('name'))]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static",
+        "publicIPAddressVersion": "IPv6"
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2023-11-01",
+      "name": "[format('{0}-nsg', parameters('name'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "http-https",
+            "properties": {
+              "priority": 100,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "Tcp",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRanges": [
+                "80",
+                "443"
+              ]
+            }
+          },
+          {
+            "name": "http3",
+            "properties": {
+              "priority": 110,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "Udp",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "443"
+            }
+          },
+          {
+            "name": "ssh-admin",
+            "properties": {
+              "priority": 120,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "Tcp",
+              "sourceAddressPrefix": "[parameters('adminCidr')]",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "22"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-11-01",
+      "name": "[format('{0}-vnet', parameters('name'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "10.80.0.0/16",
+            "fd00:80::/48"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "edge",
+            "properties": {
+              "addressPrefixes": [
+                "10.80.1.0/24",
+                "fd00:80:0:1::/64"
+              ],
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('name')))]"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('name')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-11-01",
+      "name": "[format('{0}-nic', parameters('name'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipv4",
+            "properties": {
+              "primary": true,
+              "privateIPAddressVersion": "IPv4",
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('name'))), '2023-11-01').subnets[0].id]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-ipv4', parameters('name')))]"
+              }
+            }
+          },
+          {
+            "name": "ipv6",
+            "properties": {
+              "privateIPAddressVersion": "IPv6",
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('name'))), '2023-11-01').subnets[0].id]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-ipv6', parameters('name')))]"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-ipv4', parameters('name')))]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-ipv6', parameters('name')))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('name')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2024-03-01",
+      "name": "[format('{0}-vm', parameters('name'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[parameters('name')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "customData": "[base64(variables('cloudInit'))]",
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": true,
+            "ssh": {
+              "publicKeys": [
+                {
+                  "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]",
+                  "keyData": "[parameters('adminSshPublicKey')]"
+                }
+              ]
+            }
+          }
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "Canonical",
+            "offer": "ubuntu-24_04-lts",
+            "sku": "server",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage",
+            "diskSizeGB": 30,
+            "managedDisk": {
+              "storageAccountType": "StandardSSD_LRS"
+            },
+            "deleteOption": "Delete"
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('name')))]"
+            }
+          ]
+        },
+        "securityProfile": {
+          "securityType": "TrustedLaunch",
+          "uefiSettings": {
+            "secureBootEnabled": true,
+            "vTpmEnabled": true
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('name')))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "publicIpv4": {
+      "type": "string",
+      "metadata": {
+        "description": "Create an A record for the edge hostname with this address."
+      },
+      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-ipv4', parameters('name'))), '2023-11-01').ipAddress]"
+    },
+    "publicIpv6": {
+      "type": "string",
+      "metadata": {
+        "description": "Create an AAAA record for the edge hostname with this address."
+      },
+      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-ipv6', parameters('name'))), '2023-11-01').ipAddress]"
+    },
+    "dnsRecords": {
+      "type": "string",
+      "metadata": {
+        "description": "The records to create in your DNS."
+      },
+      "value": "[format('{0} A {1}  and  {2} AAAA {3}', parameters('edgeHostname'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-ipv4', parameters('name'))), '2023-11-01').ipAddress, parameters('edgeHostname'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-ipv6', parameters('name'))), '2023-11-01').ipAddress)]"
+    },
+    "portalUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "The operator portal, from the admin address, once DNS resolves (allow ten minutes for the install)."
+      },
+      "value": "[format('https://{0}/portal', parameters('edgeHostname'))]"
+    },
+    "apiUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Where applications call the API with their credential."
+      },
+      "value": "[format('https://{0}/v1', parameters('edgeHostname'))]"
+    },
+    "ssh": {
+      "type": "string",
+      "metadata": {
+        "description": "SSH in, then read the generated portal password with: sudo grep PORTAL_PASSWORD /opt/custom-domain/deploy/.env"
+      },
+      "value": "[format('ssh {0}@{1}', parameters('adminUsername'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-ipv4', parameters('name'))), '2023-11-01').ipAddress)]"
+    }
+  }
+}

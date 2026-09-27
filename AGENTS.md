@@ -61,7 +61,7 @@ TEST_DATABASE_URL=postgresql+psycopg://test:test@localhost:55432/test uv run pyt
 | `app/cli.py` | The `custom-domain` command |
 | `app/db/migrations/versions/` | Alembic migrations, numbered `0001`, `0002`, ... |
 | `sdk/custom_domain/` | The Python SDK: client, assertion verifier, ASGI middleware, webhook verifier |
-| `deploy/` | Production Compose file, installer (`install.sh`), cloud-init, local Compose |
+| `deploy/` | Production Compose file, installer (`install.sh`), cloud-init, local Compose, and the AWS, Azure and Google Cloud templates |
 | `tests/` | One file per area; `conftest.py` has the database fixtures |
 | `docs/` | Contracts and runbooks; `docs/openapi.json` is generated |
 
@@ -139,8 +139,12 @@ uv run pytest tests/test_openapi.py tests/test_v1_api.py
   `db downgrade`, then `db upgrade`.
 - The api container applies migrations when it starts.
 
-**A change to `deploy/`:** keep `tests/test_deploy_files.py` and
-`tests/test_install_script.py` passing. The installer is also the upgrade
+**A change to `deploy/`:** keep `tests/test_deploy_files.py`,
+`tests/test_install_script.py` and `tests/test_cloud_templates.py` passing.
+The cloud templates (`deploy/aws`, `deploy/azure`, `deploy/gcp`) all write
+the same installer settings as `deploy/cloud-init.yaml`; change them
+together. Edit `main.bicep`, never `azuredeploy.json`, and rebuild the JSON.
+Lint the AWS template with `uvx cfn-lint deploy/aws/custom-domain.yaml`. The installer is also the upgrade
 path (`custom-domain upgrade <version>`). It must never overwrite a Compose
 file the operator changed; it stops and writes `compose.production.yml.new`
 instead.
@@ -170,8 +174,11 @@ One bare version number (no `v` prefix) releases the image and the SDK
 together:
 
 1. On a branch, set `version` in `pyproject.toml` and `sdk/pyproject.toml`,
-   set `CUSTOM_DOMAIN_VERSION` in `deploy/cloud-init.yaml`, run `uv lock`,
-   and open a PR.
+   and the default version of every cloud template (`deploy/cloud-init.yaml`,
+   `deploy/aws/custom-domain.yaml`, `deploy/azure/main.bicep` then rebuild
+   `azuredeploy.json`, `deploy/gcp/deploy.sh`). Run `uv lock` and open a PR.
+   `tests/test_cloud_templates.py` fails until every template names the
+   release.
 2. After it merges, tag the merge commit (`git tag -a X.Y.Z <sha>`), push
    the tag, then run `gh release create X.Y.Z --verify-tag`.
 3. The workflows publish `ghcr.io/sireto/custom-domain:X.Y.Z` and
