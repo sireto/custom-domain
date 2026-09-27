@@ -15,12 +15,23 @@ from fastapi.responses import JSONResponse
 
 from app.hostname import InvalidHostname
 from app.services.errors import (
+    ApplicationAlreadyExists,
+    ApplicationNotEmpty,
+    ApplicationNotFound,
     ApplicationSuspended,
+    ConfirmationMismatch,
+    CredentialInUse,
+    CredentialNotFound,
     DomainNotFound,
     HostnameAlreadyClaimed,
+    InvalidApplication,
     InvalidCredential,
+    InvalidOrigin,
     InvalidReference,
     InvalidStatusTransition,
+    OriginConflict,
+    OriginInUse,
+    OriginNotVerified,
     RateLimited,
     ServiceError,
 )
@@ -63,6 +74,18 @@ SERVICE_ERROR_STATUS: list[tuple[type[ServiceError], int]] = [
     (WebhookNotFound, 404),
     (DeliveryNotFound, 404),
     (InvalidWebhook, 422),
+    # Operator API (applications, origins, credentials).
+    (ApplicationNotFound, 404),
+    (ApplicationAlreadyExists, 409),
+    (ApplicationNotEmpty, 409),
+    (InvalidApplication, 422),
+    (ConfirmationMismatch, 422),
+    (CredentialNotFound, 404),
+    (CredentialInUse, 409),
+    (InvalidOrigin, 422),
+    (OriginConflict, 409),
+    (OriginNotVerified, 409),
+    (OriginInUse, 409),
 ]
 
 

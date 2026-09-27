@@ -268,15 +268,39 @@ def portal_routes(settings: EdgeSettings, hosts: list[str]) -> list[dict[str, An
 
 def portal_routes_for(hosts: list[str], ranges: list[str], upstream: str) -> list[dict[str, Any]]:
     """``portal_routes`` from its parts; the gateway builds the expected pair this way."""
+    return allowlisted_routes_for("portal", PORTAL_PATHS, hosts, ranges, upstream)
+
+
+OPERATOR_PATHS = ["/operator", "/operator/*"]
+
+
+def operator_routes(settings: EdgeSettings, hosts: list[str]) -> list[dict[str, Any]]:
+    """The operator API on the edge's own names, for ``OPERATOR_ALLOWED_IPS`` only.
+
+    The same pair as the portal: allowed addresses are proxied to the API,
+    which checks the forwarded address and the operator token again; anyone
+    else gets 403 on those paths. Empty when no address is allowed.
+    """
+    return operator_routes_for(hosts, settings.operator_ranges(), settings.assert_upstream)
+
+
+def operator_routes_for(hosts: list[str], ranges: list[str], upstream: str) -> list[dict[str, Any]]:
+    return allowlisted_routes_for("operator", OPERATOR_PATHS, hosts, ranges, upstream)
+
+
+def allowlisted_routes_for(
+    name: str, paths: list[str], hosts: list[str], ranges: list[str], upstream: str
+) -> list[dict[str, Any]]:
+    """An allowed route proxying ``paths`` to the API, and a 403 for everyone else."""
     if not ranges or not hosts:
         return []
     return [
         {
-            "@id": "portal",
+            "@id": name,
             "match": [
                 {
                     "host": list(hosts),
-                    "path": list(PORTAL_PATHS),
+                    "path": list(paths),
                     "remote_ip": {"ranges": list(ranges)},
                 }
             ],
@@ -290,8 +314,8 @@ def portal_routes_for(hosts: list[str], ranges: list[str], upstream: str) -> lis
             "terminal": True,
         },
         {
-            "@id": "portal-denied",
-            "match": [{"host": list(hosts), "path": list(PORTAL_PATHS)}],
+            "@id": f"{name}-denied",
+            "match": [{"host": list(hosts), "path": list(paths)}],
             "handle": [{"handler": "static_response", "status_code": 403}],
             "terminal": True,
         },
@@ -381,6 +405,7 @@ def build_apps(session: Session, settings: EdgeSettings) -> dict[str, Any]:
     groups = serveable_route_groups(session)
     hosts = portal_hosts(session, settings)
     routes = portal_routes(settings, hosts) if settings.portal_allowed_ips else []
+    routes.extend(operator_routes(settings, hosts))
     routes.extend(api_route(settings, hosts))
     routes.extend(_route(g, settings) for g in groups)
     apps: dict[str, Any] = {"http": http_app(settings, routes)}

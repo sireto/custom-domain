@@ -57,6 +57,7 @@ TEST_DATABASE_URL=postgresql+psycopg://test:test@localhost:55432/test uv run pyt
 | `app/v1/` | The v1 API (`router.py`), its schemas and examples, the webhook API, and `internal.py` (edge-only endpoints: TLS ask, assert, origins) |
 | `app/edge/` | Caddy configuration (`config.py`), the validating gateway (`gateway.py`), the reconciler, the assertion signer, the HTTPS probe |
 | `app/dns/`, `app/webhooks/` | The DNS checks worker and the webhook delivery worker |
+| `app/operator/` | The operator API (`/operator/v1`): applications, origins and credentials over HTTP, behind `OPERATOR_API_TOKEN` |
 | `app/portal/` | Operator portal: `views.py` (routes), `presenters.py` (what every status means, in words), `auth.py`, Jinja templates |
 | `app/cli.py` | The `custom-domain` command |
 | `app/db/migrations/versions/` | Alembic migrations, numbered `0001`, `0002`, ... |
@@ -112,9 +113,11 @@ still pass.
 ## What a change must include
 
 **A new or changed operator action:** the service function with a
-`ServiceError` for each refusal, the CLI command, the portal route and
-template, the row in the pages table of [docs/portal.md](docs/portal.md),
-and tests for the service, the CLI and the portal.
+`ServiceError` for each refusal (mapped to a status in `app/v1/errors.py`),
+the CLI command, the portal route and template, the operator API endpoint
+(`app/operator/api.py`) when a program would need it, the rows in
+[docs/portal.md](docs/portal.md) and [docs/operator-api.md](docs/operator-api.md),
+and tests for each. Then regenerate `docs/openapi.json`.
 
 **A new status, check or error code:** the enum or error class, its
 plain-language entry in `app/portal/presenters.py`, the documentation in

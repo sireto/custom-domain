@@ -239,7 +239,11 @@ no copy of the setting.
 
 `custom-domain doctor` reports where the API is served. With
 `PUBLIC_API=false` it listens on `127.0.0.1:9000` of the host only; put an
-authenticated reverse proxy in front if applications must reach it. Existing
+authenticated reverse proxy in front if applications must reach it. Forward
+only `/v1` there: the API trusts its private peers, so a proxy that forwards
+every path would also put `/portal` and the operator API (`/operator`) on the
+internet with only their password or token in the way, and without the
+allowlists and throttling the edge gives them. Existing
 installations keep their setting on upgrade: add `PUBLIC_API=true` to
 `deploy/.env` (or run `PUBLIC_API=true custom-domain upgrade <version>`) and
 restart the api and worker to turn it on.

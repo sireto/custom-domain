@@ -38,6 +38,7 @@ from app.webhooks.worker import WebhookWorker
 
 logger = logging.getLogger(__name__)
 access_logger = logging.getLogger("app.v1.access")
+operator_logger = logging.getLogger("app.operator.audit")
 
 API_DESCRIPTION = """
 Custom domains for multi-tenant SaaS. Applications register customer hostnames
@@ -153,6 +154,14 @@ def create_app() -> FastAPI:
     app.include_router(v1_router)
     app.include_router(internal_router)
     app.include_router(webhooks_router)
+    import os
+
+    from app.operator.api import operator_token_from_env
+    from app.operator.api import router as operator_router
+
+    app.state.operator_token = operator_token_from_env(os.environ)
+    app.state.operator_auth_limiter = FailedAuthLimiter.from_env()
+    app.include_router(operator_router)
     app.webhooks.include_router(webhooks)
     from app.portal.views import install as install_portal
 
@@ -173,21 +182,43 @@ def create_app() -> FastAPI:
     async def v1_access_log(request, call_next):
         # One line per v1 call with the real client address: behind the edge
         # the connecting peer is always the edge, which says nothing about who
-        # used a credential. The query string is left out.
-        response = await call_next(request)
-        if request.url.path.startswith("/v1/") or request.url.path == "/v1":
-            from app.clients import client_address
+        # used a credential. The query string is left out. A call that crashes
+        # is still recorded, as 500, before the exception goes on: an operator
+        # mutation may have been attempted.
+        try:
+            response = await call_next(request)
+        except Exception:
+            _log_call(request, 500)
+            raise
+        _log_call(request, response.status_code)
+        return response
 
+    def _log_call(request, status_code: int) -> None:
+        from app.clients import client_address
+
+        path = request.url.path
+        if path.startswith("/operator/") or path == "/operator":
+            # The operator token can do everything, so every call is recorded,
+            # refused ones included: what was touched, and from where. Never
+            # the token, a request body or a returned secret.
+            operator_logger.info(
+                "%s %s %s target=%s client=%s",
+                request.method,
+                path,
+                status_code,
+                getattr(request.state, "operator_target", "-"),
+                client_address(request) or "-",
+            )
+        elif path.startswith("/v1/") or path == "/v1":
             access_logger.info(
                 "%s %s %s application=%s credential=%s client=%s",
                 request.method,
-                request.url.path,
-                response.status_code,
+                path,
+                status_code,
                 getattr(request.state, "application_slug", "-"),
                 getattr(request.state, "credential_id", "-"),
                 client_address(request) or "-",
             )
-        return response
 
     trusted_hosts = _csv("TRUSTED_HOSTS", "")
     if trusted_hosts:

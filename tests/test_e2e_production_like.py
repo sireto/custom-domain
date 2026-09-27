@@ -195,6 +195,7 @@ def test_two_applications_serve_the_right_workspaces_over_https(
     monkeypatch.setenv("ORIGIN_ALLOW_PRIVATE", "true")  # the origins listen on loopback
     monkeypatch.setenv("PORTAL_PASSWORD", "operator-password-for-e2e")
     monkeypatch.setenv("PORTAL_ALLOWED_IPS", "127.0.0.2")  # the operator's address, not 127.0.0.1
+    monkeypatch.setenv("OPERATOR_API_TOKEN", "operator-token-for-e2e-0123456789abcdef")
     api = create_app()
 
     def override():
@@ -262,6 +263,8 @@ def test_two_applications_serve_the_right_workspaces_over_https(
         ask_trusted_hosts=("127.0.0.1", "::1"),
         portal_allowed_ips=("127.0.0.2",),
         public_api=True,
+        operator_allowed_ips=("127.0.0.2",),  # e.g. a control plane's address
+        operator_api_enabled=True,
         probe_address=f"127.0.0.1:{https_port}",
         probe_ca_file=str(ca_file),
         reconcile_enabled=True,
@@ -404,6 +407,35 @@ def test_two_applications_serve_the_right_workspaces_over_https(
             "one.other-customer.example", https_port, "/v1/domains", str(ca_file), headers=auth
         )
         assert "alpha.customer.example" not in body
+
+        # --- the operator API through the edge, for OPERATOR_ALLOWED_IPS only ---
+        operator = {"Authorization": "Bearer operator-token-for-e2e-0123456789abcdef"}
+        status, body = https_get(
+            "bc.edge.localtest.me",
+            https_port,
+            "/operator/v1/applications",
+            str(ca_file),
+            source="127.0.0.2",
+            headers=operator,
+        )
+        assert status == 200 and '"slug":"bettercollected"' in body.replace(" ", "")
+        status, _ = https_get(  # anyone else is refused by the edge itself
+            "bc.edge.localtest.me",
+            https_port,
+            "/operator/v1/applications",
+            str(ca_file),
+            headers=operator,
+        )
+        assert status == 403
+        status, body = https_get(  # customer hostnames do not expose it
+            "one.other-customer.example",
+            https_port,
+            "/operator/v1/applications",
+            str(ca_file),
+            source="127.0.0.2",
+            headers=operator,
+        )
+        assert "bettercollected" not in body
 
         # --- wrong host: no certificate is issued for an unknown name ---
         assert rejected("nobody.customer.example", https_port, str(ca_file))

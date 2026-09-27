@@ -16,6 +16,8 @@ DEFAULT_ADMIN_URL = "http://localhost:2019"
 DEFAULT_HTTPS_PORT = 443
 DEFAULT_RECONCILE_INTERVAL = 30.0
 DEFAULT_ASK_URL = "http://localhost:9000/internal/tls/ask"
+# Below this the operator API stays off, and so do its edge routes.
+MIN_OPERATOR_TOKEN_LENGTH = 32
 DEFAULT_PROBE_TIMEOUT = 15.0
 HEALTH_PATH = "/.well-known/custom-domain-edge-health"
 WORKSPACE_PATH = "/.well-known/custom-domain-workspace"
@@ -108,6 +110,13 @@ class EdgeSettings:
     # Client addresses or networks allowed to reach the operator portal through
     # the edge (https://<cname target>/portal). Empty: the portal is not exposed.
     portal_allowed_ips: tuple[str, ...] = ()
+    # Client addresses or networks allowed to reach the operator API through
+    # the edge (https://<edge name>/operator/v1, e.g. a control plane). Empty:
+    # the operator API is reachable only on the API's own port.
+    operator_allowed_ips: tuple[str, ...] = ()
+    # Whether the operator API is enabled at all (OPERATOR_API_TOKEN is set).
+    # The api and worker read the same .env, so routes and gateway facts agree.
+    operator_api_enabled: bool = False
     # The edge's own DNS name (what applications' CNAME targets usually are). It
     # gets a certificate, answers the health path and serves the portal even
     # before the first application exists, and is the default CNAME target.
@@ -159,6 +168,9 @@ class EdgeSettings:
             assertion_keys=_key_pairs(env.get("EDGE_ASSERTION_KEYS", "")),
             assertion_ttl=int(env.get("EDGE_ASSERTION_TTL", "60")),
             portal_allowed_ips=_csv(env, "PORTAL_ALLOWED_IPS"),
+            operator_allowed_ips=_csv(env, "OPERATOR_ALLOWED_IPS"),
+            operator_api_enabled=len(env.get("OPERATOR_API_TOKEN", "").strip())
+            >= MIN_OPERATOR_TOKEN_LENGTH,
             edge_hostname=_edge_hostname(env.get("EDGE_HOSTNAME", "")),
             public_api=_flag(env, "PUBLIC_API", False),
         )
@@ -202,17 +214,19 @@ class EdgeSettings:
             raise EdgeConfigurationError("EDGE_ASSERTION_TTL must be between 5 and 600 seconds")
         import ipaddress
 
-        for entry in self.portal_allowed_ips:
-            try:
-                network = ipaddress.ip_network(entry, strict=False)
-            except ValueError as exc:
-                raise EdgeConfigurationError(
-                    f"PORTAL_ALLOWED_IPS entry {entry!r} is not an address or CIDR network"
-                ) from exc
-            if network.num_addresses > 1 and network.prefixlen == 0:
-                raise EdgeConfigurationError(
-                    "PORTAL_ALLOWED_IPS must not contain the whole address space"
-                )
+        for name, entries in (
+            ("PORTAL_ALLOWED_IPS", self.portal_allowed_ips),
+            ("OPERATOR_ALLOWED_IPS", self.operator_allowed_ips),
+        ):
+            for entry in entries:
+                try:
+                    network = ipaddress.ip_network(entry, strict=False)
+                except ValueError as exc:
+                    raise EdgeConfigurationError(
+                        f"{name} entry {entry!r} is not an address or CIDR network"
+                    ) from exc
+                if network.num_addresses > 1 and network.prefixlen == 0:
+                    raise EdgeConfigurationError(f"{name} must not contain the whole address space")
 
     def portal_allows(self, address: str | None) -> bool:
         """Whether a client address may use the portal.
@@ -220,29 +234,20 @@ class EdgeSettings:
         Private and loopback addresses always may (the SSH tunnel, the Docker
         network); public addresses only when listed in ``PORTAL_ALLOWED_IPS``.
         """
-        import ipaddress
+        return _allowed(address, self.portal_allowed_ips)
 
-        if not address:
-            return False
-        try:
-            client = ipaddress.ip_address(address)
-        except ValueError:
-            return False
-        if not client.is_global:
-            return True
-        for entry in self.portal_allowed_ips:
-            try:
-                if client in ipaddress.ip_network(entry, strict=False):
-                    return True
-            except ValueError:
-                continue
-        return False
+    def operator_allows(self, address: str | None) -> bool:
+        """Whether a client address may use the operator API: as for the portal,
+        with ``OPERATOR_ALLOWED_IPS``."""
+        return _allowed(address, self.operator_allowed_ips)
 
     def portal_ranges(self) -> list[str]:
         """The allowlist as CIDR strings, the form Caddy's remote_ip matcher takes."""
-        import ipaddress
+        return _ranges(self.portal_allowed_ips)
 
-        return [str(ipaddress.ip_network(e, strict=False)) for e in self.portal_allowed_ips]
+    def operator_ranges(self) -> list[str]:
+        """The operator allowlist, empty while the operator API is disabled."""
+        return _ranges(self.operator_allowed_ips) if self.operator_api_enabled else []
 
     def trusts(self, address: str | None) -> bool:
         """Whether a client address is on the trusted list (exact address or CIDR)."""
@@ -318,3 +323,30 @@ def redact(config: dict[str, Any]) -> dict[str, Any]:
             if storage.get(key):
                 storage[key] = "***"
     return masked
+
+
+def _allowed(address: str | None, entries: tuple[str, ...]) -> bool:
+    """Private and loopback addresses always; public ones only when listed."""
+    import ipaddress
+
+    if not address:
+        return False
+    try:
+        client = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    if not client.is_global:
+        return True
+    for entry in entries:
+        try:
+            if client in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _ranges(entries: tuple[str, ...]) -> list[str]:
+    import ipaddress
+
+    return [str(ipaddress.ip_network(e, strict=False)) for e in entries]
