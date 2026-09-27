@@ -247,6 +247,10 @@ def test_azure_template_validates_what_reaches_the_nsg_and_the_installer():
         expression = variables[name]
         assert expression.startswith("[if(variables("), name  # only one branch is evaluated
         assert f"parameters('{parameter}')" in expression and "bool('" + message in expression
+    # The IPv6 network may only contain hex digits and colons (checked per character).
+    chars = json.dumps(variables["copy"]) if "copy" in variables else json.dumps(variables)
+    assert "0123456789abcdefABCDEF:" in chars and "adminIpv6CharsValid" in chars
+    assert "adminIpv6CharsValid" in variables["adminIpv6Valid"]
     install_env = json.dumps(variables["installEnv"])
     assert "variables('release')" in install_env and "variables('portalAllowed')" in install_env
     assert "parameters('version')" not in install_env

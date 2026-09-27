@@ -63,7 +63,10 @@ var adminNetwork = adminCidrValid ? adminCidr : string(bool('adminCidr must be a
 
 var adminIpv6Parts = split(adminCidrIpv6, '/')
 var adminIpv6Prefix = length(adminIpv6Parts) == 2 ? adminIpv6Parts[1] : '0'
-var adminIpv6Valid = empty(adminCidrIpv6) || (length(adminIpv6Parts) == 2 && contains(adminIpv6Parts[0], ':') && int(adminIpv6Prefix) >= 16 && int(adminIpv6Prefix) <= 128 && string(int(adminIpv6Prefix)) == adminIpv6Prefix)
+var adminIpv6Address = length(adminIpv6Parts) == 2 ? adminIpv6Parts[0] : ''
+// Hex digits and colons only: the value is written into a file sourced as root.
+var adminIpv6CharsValid = [for i in range(0, length(adminIpv6Address)): contains('0123456789abcdefABCDEF:', substring(adminIpv6Address, i, 1))]
+var adminIpv6Valid = empty(adminCidrIpv6) || (length(adminIpv6Parts) == 2 && contains(adminIpv6Address, ':') && !contains(adminIpv6CharsValid, false) && int(adminIpv6Prefix) >= 16 && int(adminIpv6Prefix) <= 128 && string(int(adminIpv6Prefix)) == adminIpv6Prefix)
 var adminNetworkIpv6 = adminIpv6Valid ? adminCidrIpv6 : string(bool('adminCidrIpv6 must be empty or an IPv6 network with a prefix of /16 to /128, for example 2001:db8:1234::/64'))
 
 var versionParts = split(version, '.')
