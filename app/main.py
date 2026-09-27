@@ -38,6 +38,7 @@ from app.webhooks.worker import WebhookWorker
 
 logger = logging.getLogger(__name__)
 access_logger = logging.getLogger("app.v1.access")
+operator_logger = logging.getLogger("app.operator.audit")
 
 API_DESCRIPTION = """
 Custom domains for multi-tenant SaaS. Applications register customer hostnames
@@ -183,7 +184,22 @@ def create_app() -> FastAPI:
         # the connecting peer is always the edge, which says nothing about who
         # used a credential. The query string is left out.
         response = await call_next(request)
-        if request.url.path.startswith("/v1/") or request.url.path == "/v1":
+        path = request.url.path
+        if path.startswith("/operator/") or path == "/operator":
+            from app.clients import client_address
+
+            # The operator token can do everything, so every call is recorded,
+            # refused ones included: what was touched, and from where. Never
+            # the token, a request body or a returned secret.
+            operator_logger.info(
+                "%s %s %s target=%s client=%s",
+                request.method,
+                path,
+                response.status_code,
+                getattr(request.state, "operator_target", "-"),
+                client_address(request) or "-",
+            )
+        elif path.startswith("/v1/") or path == "/v1":
             from app.clients import client_address
 
             access_logger.info(

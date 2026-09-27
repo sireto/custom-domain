@@ -37,6 +37,15 @@ by changing the value and restarting.
 
 Failed tokens are throttled per client like v1 (`V1_AUTH_FAILURES_PER_MINUTE`).
 
+**If you run your own reverse proxy in front of port 9000** (the
+`PUBLIC_API=false` setup in [deployment.md](deployment.md#the-v1-api-through-the-edge)),
+do not forward `/operator` through it, or restrict it there to your own
+addresses. To the API every request from the proxy comes from the proxy's
+private address, which is always admitted and never throttled, so
+`OPERATOR_ALLOWED_IPS` and the throttling do not apply and the token would be
+the only barrier. Serve `/operator` through the edge instead, where the
+allowlist is enforced on the real client.
+
 ## Endpoints
 
 All paths are under `/operator/v1`; errors use the v1 envelope

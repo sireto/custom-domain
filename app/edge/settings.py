@@ -16,6 +16,8 @@ DEFAULT_ADMIN_URL = "http://localhost:2019"
 DEFAULT_HTTPS_PORT = 443
 DEFAULT_RECONCILE_INTERVAL = 30.0
 DEFAULT_ASK_URL = "http://localhost:9000/internal/tls/ask"
+# Below this the operator API stays off, and so do its edge routes.
+MIN_OPERATOR_TOKEN_LENGTH = 32
 DEFAULT_PROBE_TIMEOUT = 15.0
 HEALTH_PATH = "/.well-known/custom-domain-edge-health"
 WORKSPACE_PATH = "/.well-known/custom-domain-workspace"
@@ -167,7 +169,8 @@ class EdgeSettings:
             assertion_ttl=int(env.get("EDGE_ASSERTION_TTL", "60")),
             portal_allowed_ips=_csv(env, "PORTAL_ALLOWED_IPS"),
             operator_allowed_ips=_csv(env, "OPERATOR_ALLOWED_IPS"),
-            operator_api_enabled=bool(env.get("OPERATOR_API_TOKEN", "").strip()),
+            operator_api_enabled=len(env.get("OPERATOR_API_TOKEN", "").strip())
+            >= MIN_OPERATOR_TOKEN_LENGTH,
             edge_hostname=_edge_hostname(env.get("EDGE_HOSTNAME", "")),
             public_api=_flag(env, "PUBLIC_API", False),
         )

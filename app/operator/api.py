@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.clients import client_address
 from app.db.session import get_session
+from app.edge.settings import MIN_OPERATOR_TOKEN_LENGTH as MIN_TOKEN_LENGTH
 from app.models import ApplicationStatus
 from app.models.types import utcnow
 from app.operator import schemas
@@ -46,7 +47,6 @@ from app.v1.throttle import limited_client
 
 logger = logging.getLogger(__name__)
 
-MIN_TOKEN_LENGTH = 32
 
 bearer = HTTPBearer(
     auto_error=False,
@@ -152,6 +152,7 @@ def create_application(
                 "cname_target is required when EDGE_HOSTNAME is not set",
                 details={"field": "cname_target"},
             )
+    request.state.operator_target = f"application:{body.slug}"
     application = app_service.create_application(
         db, slug=body.slug, name=body.name, cname_target=target
     )
@@ -217,11 +218,14 @@ def list_origins(slug: str, db: DbSession) -> list[schemas.OriginResource]:
 @router.post(
     "/applications/{slug}/origins", status_code=status.HTTP_201_CREATED, dependencies=[Operator]
 )
-def register_origin(slug: str, body: schemas.OriginCreate, db: DbSession) -> schemas.OriginResource:
+def register_origin(
+    request: Request, slug: str, body: schemas.OriginCreate, db: DbSession
+) -> schemas.OriginResource:
     origin = app_service.register_origin(
         db, _application(db, slug), host=body.host, scheme=body.scheme, port=body.port
     )
     db.commit()
+    request.state.operator_target = f"origin:{origin.id}"
     return schemas.OriginResource.of(origin)
 
 
@@ -289,13 +293,14 @@ def list_credentials(slug: str, db: DbSession) -> list[schemas.CredentialResourc
     "/applications/{slug}/credentials", status_code=status.HTTP_201_CREATED, dependencies=[Operator]
 )
 def issue_credential(
-    slug: str, body: schemas.CredentialCreate, db: DbSession
+    request: Request, slug: str, body: schemas.CredentialCreate, db: DbSession
 ) -> schemas.NewCredential:
     expires_at = utcnow() + timedelta(days=body.expires_in_days) if body.expires_in_days else None
     credential, secret = app_service.issue_credential(
         db, _application(db, slug), label=body.label, expires_at=expires_at
     )
     db.commit()
+    request.state.operator_target = f"credential:{credential.id}"  # the id, never the secret
     return schemas.NewCredential(
         **schemas.CredentialResource.of(credential).model_dump(), secret=secret
     )
@@ -307,6 +312,7 @@ def issue_credential(
     dependencies=[Operator],
 )
 def rotate_credential(
+    request: Request,
     slug: str,
     credential_id: uuid.UUID,
     db: DbSession,
@@ -317,6 +323,9 @@ def rotate_credential(
         db, _application(db, slug), credential_id, grace=grace
     )
     db.commit()
+    request.state.operator_target = (
+        f"credential:{credential.id}"  # the new one; the path names the old
+    )
     return schemas.NewCredential(
         **schemas.CredentialResource.of(credential).model_dump(), secret=secret
     )

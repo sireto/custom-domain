@@ -213,3 +213,42 @@ def test_the_gateway_accepts_only_the_reconcilers_operator_routes(session, make_
     no_token = SETTINGS.__class__(**{**enabled.__dict__, "operator_api_enabled": False})
     ids = [r["@id"] for r in build_apps(session, no_token)["http"]["servers"]["edge"]["routes"]]
     assert "operator" not in ids and no_token.operator_ranges() == []
+
+
+def test_every_operator_call_is_audited_without_secrets(operator, caplog):
+    import logging
+
+    from app.observability import install_log_redaction
+
+    install_log_redaction()  # as in production
+    base = "/operator/v1/applications"
+    with caplog.at_level(logging.INFO, logger="app.operator.audit"):
+        operator.post(base, json={"slug": "acme", "name": "Acme"}, headers=AUTH)
+        issued = operator.post(f"{base}/acme/credentials", json={"label": "backend"}, headers=AUTH)
+        secret, credential_id = issued.json()["secret"], issued.json()["id"]
+        operator.get(base, headers={"Authorization": "Bearer wrong-token"})
+        operator.delete(f"{base}/acme", params={"confirm": "acme"}, headers=AUTH)
+    lines = [r.getMessage() for r in caplog.records if r.name == "app.operator.audit"]
+    assert lines == [
+        f"POST {base} 201 target=application:acme client=10.0.0.5",
+        f"POST {base}/acme/credentials 201 target=credential:{credential_id} client=10.0.0.5",
+        f"GET {base} 401 target=- client=10.0.0.5",  # refused attempts are recorded too
+        f"DELETE {base}/acme 200 target=- client=10.0.0.5",  # the path names the slug
+    ], lines
+    for line in lines:
+        assert TOKEN not in line and secret not in line and "***" not in line, line
+
+
+def test_a_short_token_turns_the_edge_routes_off_too(monkeypatch):
+    from app.edge.settings import EdgeSettings
+
+    env = {
+        "ENABLE_LEGACY_API": "false",
+        "OPERATOR_ALLOWED_IPS": "93.184.216.34",
+        "OPERATOR_API_TOKEN": "too-short",
+        "EDGE_ASSERTION_KEYS": "1:test-assertion-key-0123456789abcdef0123",
+    }
+    short = EdgeSettings.from_env(env)
+    assert not short.operator_api_enabled and short.operator_ranges() == []
+    full = EdgeSettings.from_env({**env, "OPERATOR_API_TOKEN": TOKEN})
+    assert full.operator_api_enabled and full.operator_ranges() == ["93.184.216.34/32"]
