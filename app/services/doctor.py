@@ -255,6 +255,17 @@ def _settings_findings(settings: EdgeSettings, dns_settings: DnsSettings) -> lis
         findings.append(
             Finding("https", "warn", "EDGE_TLS_ISSUER=internal: certificates from a private CA")
         )
+    elif settings.acme_email and reserved_email_domain(settings.acme_email):
+        findings.append(
+            Finding(
+                "https",
+                "fail",
+                f"ACME_EMAIL {settings.acme_email} uses a reserved domain, which Let's Encrypt "
+                "refuses (invalidContact): no certificate can be issued until ACME_EMAIL is a "
+                "real address. Set it in .env for the api, worker and edge alike, and restart "
+                "all three",
+            )
+        )
     else:
         account = (
             f", ACME account {settings.acme_email}"
@@ -263,6 +274,22 @@ def _settings_findings(settings: EdgeSettings, dns_settings: DnsSettings) -> lis
         )
         findings.append(Finding("https", "ok", f"public certificates{account}"))
     return findings
+
+
+# Domains Let's Encrypt refuses as contacts (RFC 2606 and RFC 6761 names).
+RESERVED_EMAIL_DOMAINS = ("example.com", "example.net", "example.org")
+RESERVED_EMAIL_TLDS = ("example", "test", "invalid", "localhost", "local")
+
+
+def reserved_email_domain(email: str) -> bool:
+    domain = email.rsplit("@", 1)[-1].strip().lower().rstrip(".")
+    if "@" not in email or not domain:
+        return True
+    if domain in RESERVED_EMAIL_DOMAINS or any(
+        domain.endswith("." + d) for d in RESERVED_EMAIL_DOMAINS
+    ):
+        return True
+    return domain.rsplit(".", 1)[-1] in RESERVED_EMAIL_TLDS
 
 
 def _edge_findings(settings: EdgeSettings, http_get: HttpGet) -> list[Finding]:

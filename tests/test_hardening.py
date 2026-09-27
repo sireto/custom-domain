@@ -593,3 +593,27 @@ def test_service_logs_reach_stderr_in_a_fresh_process(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "INFO app.v1.access: GET /v1/domains 200 client=8.8.8.8" in result.stderr
     assert "HTTP Request" not in result.stderr  # client libraries stay at WARNING
+
+
+def test_doctor_fails_an_acme_email_lets_encrypt_refuses():
+    """A reserved contact domain made issuance impossible while the doctor said OK."""
+    from app.dns.settings import DnsSettings
+    from app.services.doctor import _settings_findings, reserved_email_domain
+
+    for bad in ("ops@example.net", "a@EXAMPLE.com", "x@mail.example.org", "a@b.test", "nobody"):
+        assert reserved_email_domain(bad), bad
+    for good in ("ops@sireto.com", "a@example-corp.io", "x@mail.examples.net"):
+        assert not reserved_email_domain(good), good
+    public = SETTINGS.__class__(
+        **{
+            **SETTINGS.__dict__,
+            "tls_issuer": "acme",
+            "disable_https": False,
+            "acme_email": "ops@example.net",
+        }
+    )
+    (https,) = [f for f in _settings_findings(public, DnsSettings()) if f.check == "https"]
+    assert https.status == "fail" and "invalidContact" in https.detail
+    fine = SETTINGS.__class__(**{**public.__dict__, "acme_email": "ops@sireto.com"})
+    (https,) = [f for f in _settings_findings(fine, DnsSettings()) if f.check == "https"]
+    assert https.status == "ok"
