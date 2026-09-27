@@ -10,7 +10,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: The image tag you run (for example 0.5.0), or the commit.
+      description: The image tag you run (for example 0.6.0), or the commit.
     validations:
       required: true
   - type: dropdown
