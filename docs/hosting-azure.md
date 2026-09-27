@@ -17,7 +17,13 @@ Choose a subscription, a new resource group and a region, then fill in:
   `edge.example.net`. You create its DNS records in step 2.
 - **Acme email**: where Let's Encrypt sends certificate notices.
 - **Admin cidr**: your public IPv4 address as a `/32` (search "what is my
-  IP"). It may open the portal and connect with SSH.
+  IP"), or a network of `/8` to `/32`. It may open the portal and connect
+  with SSH. Anything else, including the whole internet, stops the
+  deployment with a message naming the parameter.
+- **Admin cidr ipv6**: optional, but add it if your connection has IPv6 (for
+  example `2001:db8:1234::/64`). Your browser prefers the edge's IPv6 address
+  once the `AAAA` record exists, and the portal admits only listed
+  addresses.
 - **Admin ssh public key**: your SSH public key (`ssh-ed25519 ...`); password
   login is disabled.
 - **Vm size**: `Standard_B2s` is enough to start.

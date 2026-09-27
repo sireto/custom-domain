@@ -11,7 +11,8 @@
 #   ADMIN_CIDR=203.0.113.9/32 bash deploy/gcp/deploy.sh
 #
 # Missing values are asked for. Re-running it is safe: every resource is
-# created only when it does not exist yet. It creates, all named after NAME:
+# created only when it does not exist yet, and the SSH firewall rules follow
+# the admin networks given. It creates, all named after NAME:
 # a VPC network with a dual-stack subnet, static external IPv4 and IPv6
 # addresses (what customers' CNAMEs resolve to), firewall rules (80 and 443
 # from anywhere, SSH from ADMIN_CIDR and Google's IAP range) and the VM.
@@ -20,6 +21,8 @@
 #   EDGE_HOSTNAME           the edge's own DNS name, for example edge.example.net
 #   ACME_EMAIL              contact for Let's Encrypt
 #   ADMIN_CIDR              IPv4 address or network you administer from, e.g. 203.0.113.9/32
+#   ADMIN_CIDR_IPV6         optional IPv6 network you administer from, e.g. 2001:db8:1234::/64
+#                           (add it when your connection has IPv6: browsers prefer it)
 #   CUSTOM_DOMAIN_VERSION   release to install (default below)
 #   PROJECT                 Google Cloud project (default: gcloud's configured project)
 #   REGION                  default: gcloud's compute/region, else us-central1
@@ -60,8 +63,15 @@ ask ADMIN_CIDR "Your IPv4 address or network for the portal and SSH (for example
 [[ "${ACME_EMAIL}" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] \
     || die "ACME_EMAIL is not an email address: ${ACME_EMAIL}"
 # Not the whole internet: the portal allowlist refuses 0.0.0.0/0.
-[[ "${ADMIN_CIDR}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(/([1-9]|[12][0-9]|3[0-2]))?$ ]] \
-    || die "ADMIN_CIDR must be an IPv4 address or a /1 to /32 network: ${ADMIN_CIDR}"
+octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+[[ "${ADMIN_CIDR}" =~ ^(${octet}\.){3}${octet}(/([89]|[12][0-9]|3[0-2]))?$ ]] \
+    || die "ADMIN_CIDR must be an IPv4 address or a /8 to /32 network: ${ADMIN_CIDR}"
+ADMIN_CIDR_IPV6="${ADMIN_CIDR_IPV6:-}"
+if [ -n "${ADMIN_CIDR_IPV6}" ]; then
+    [[ "${ADMIN_CIDR_IPV6}" =~ ^[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4}){2,7}/(1[6-9]|[2-9][0-9]|1[01][0-9]|12[0-8])$ ]] \
+        || die "ADMIN_CIDR_IPV6 must be an IPv6 network with a prefix of /16 to /128: ${ADMIN_CIDR_IPV6}"
+fi
+PORTAL_ALLOWED="${ADMIN_CIDR}${ADMIN_CIDR_IPV6:+,${ADMIN_CIDR_IPV6}}"
 [[ "${VERSION}" =~ ^([0-9]+\.[0-9]+\.[0-9]+|latest)$ ]] \
     || die "CUSTOM_DOMAIN_VERSION must be a release such as 0.6.0, or latest"
 
@@ -97,16 +107,26 @@ IPV4="$(gc compute addresses describe "${NAME}-ipv4" --region "${REGION}" --form
 IPV6="$(gc compute addresses describe "${NAME}-ipv6" --region "${REGION}" --format='value(address)')"
 
 rule() {
-    local rule_name="$1"; shift
+    # rule NAME ALLOW SOURCES: create it, or bring its sources up to date.
+    local rule_name="$1" allow="$2" sources="$3"
     if ! gc compute firewall-rules describe "${rule_name}" >/dev/null 2>&1; then
         log "Creating firewall rule ${rule_name}"
         gc compute firewall-rules create "${rule_name}" --network "${NAME}" \
-            --direction INGRESS --target-tags "${NAME}" "$@"
+            --direction INGRESS --target-tags "${NAME}" --allow "${allow}" --source-ranges "${sources}"
+    else
+        gc compute firewall-rules update "${rule_name}" --source-ranges "${sources}"
     fi
 }
-rule "${NAME}-web" --allow tcp:80,tcp:443,udp:443 --source-ranges 0.0.0.0/0
-rule "${NAME}-web-ipv6" --allow tcp:80,tcp:443,udp:443 --source-ranges ::/0
-rule "${NAME}-ssh" --allow tcp:22 --source-ranges "${ADMIN_CIDR},${IAP_RANGE}"
+rule "${NAME}-web" tcp:80,tcp:443,udp:443 0.0.0.0/0
+rule "${NAME}-web-ipv6" tcp:80,tcp:443,udp:443 ::/0
+rule "${NAME}-ssh" tcp:22 "${ADMIN_CIDR},${IAP_RANGE}"
+# Firewall rules take one address family each.
+if [ -n "${ADMIN_CIDR_IPV6}" ]; then
+    rule "${NAME}-ssh-ipv6" tcp:22 "${ADMIN_CIDR_IPV6}"
+elif gc compute firewall-rules describe "${NAME}-ssh-ipv6" >/dev/null 2>&1; then
+    log "Removing firewall rule ${NAME}-ssh-ipv6 (no ADMIN_CIDR_IPV6 given)"
+    gc compute firewall-rules delete "${NAME}-ssh-ipv6"
+fi
 
 if ! gc compute instances describe "${NAME}" --zone "${ZONE}" >/dev/null 2>&1; then
     user_data="$(mktemp)"
@@ -123,7 +143,7 @@ write_files:
       ACME_EMAIL=${ACME_EMAIL}
       EDGE_HOSTNAME=${EDGE_HOSTNAME}
       CUSTOM_DOMAIN_VERSION=${VERSION}
-      PORTAL_ALLOWED_IPS=${ADMIN_CIDR}
+      PORTAL_ALLOWED_IPS=${PORTAL_ALLOWED}
       PUBLIC_API=true
       SKIP_FIREWALL=1
 runcmd:
@@ -141,6 +161,12 @@ EOF
         --metadata-from-file user-data="${user_data}"
 else
     log "The VM ${NAME} already exists; nothing to create"
+    cat <<EOF
+The SSH firewall rules now follow ${PORTAL_ALLOWED}. The portal allowlist
+lives on the VM: to change it, set PORTAL_ALLOWED_IPS=${PORTAL_ALLOWED} in
+/opt/custom-domain/deploy/.env there and restart the api and worker
+(docker compose -f compose.production.yml up -d api worker).
+EOF
 fi
 
 ssh_cmd="gcloud compute ssh ${NAME} --project ${PROJECT} --zone ${ZONE} --tunnel-through-iap"
@@ -152,13 +178,13 @@ Custom Domain is installing on ${NAME} (about ten minutes; the log is
 1. DNS: create these records for ${EDGE_HOSTNAME} in your DNS:
      A     ${IPV4}
      AAAA  ${IPV6}
-2. The portal (from ${ADMIN_CIDR}), once DNS resolves:
+2. The portal (from ${PORTAL_ALLOWED}), once DNS resolves:
      https://${EDGE_HOSTNAME}/portal
    Password:
      ${ssh_cmd} --command 'sudo grep PORTAL_PASSWORD /opt/custom-domain/deploy/.env'
 3. Applications call the API at https://${EDGE_HOSTNAME}/v1 with their credential.
 4. Check everything:
-     ${ssh_cmd} --command 'custom-domain doctor'
+     ${ssh_cmd} --command 'sudo custom-domain doctor'
 
 Upgrade later on the VM with: custom-domain upgrade <version>
 EOF

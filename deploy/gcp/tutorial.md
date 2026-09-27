@@ -35,7 +35,10 @@ ADMIN_CIDR=203.0.113.9/32 \
 bash deploy/gcp/deploy.sh
 ```
 
-To pick the region, add `REGION=europe-west1` (or any other) in front. The
+If your connection has IPv6, also add `ADMIN_CIDR_IPV6=2001:db8:1234::/64`
+(your own network): browsers prefer IPv6, and the portal admits only listed
+addresses. To pick the region, add `REGION=europe-west1` (or any other) in
+front. The
 script prints the addresses to put in DNS when it finishes. Running it again
 is safe; it only creates what is missing.
 
@@ -58,6 +61,6 @@ an API key, and the first customer hostname. Applications call the API at
 
 ## Done
 
-Check the deployment at any time with the `custom-domain doctor` line the
+Check the deployment at any time with the `sudo custom-domain doctor` line the
 script printed. Upgrade later on the VM with `custom-domain upgrade
 <version>`. The full guide is `docs/hosting-gcp.md`.

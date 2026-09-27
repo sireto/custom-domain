@@ -10,8 +10,14 @@ param edgeHostname string
 @description('Where Let\'s Encrypt sends certificate notices.')
 param acmeEmail string
 
-@description('The IPv4 address or network you administer from, for example 203.0.113.9/32. It may open the portal at https://<edge hostname>/portal and connect with SSH.')
+@description('The IPv4 address or network you administer from, for example 203.0.113.9/32 (a prefix of /8 to /32). It may open the portal at https://<edge hostname>/portal and connect with SSH.')
+@minLength(9)
+@maxLength(18)
 param adminCidr string
+
+@description('Optional. Your IPv6 network, for example 2001:db8:1234::/64 (a prefix of /16 to /128). Add it if your connection has IPv6: your browser then prefers the edge\'s IPv6 address, and the portal only admits listed addresses.')
+@maxLength(43)
+param adminCidrIpv6 string = ''
 
 @description('Your SSH public key (ssh-ed25519 or ssh-rsa ...), for the admin user.')
 param adminSshPublicKey string
@@ -29,7 +35,8 @@ param adminUsername string = 'azureuser'
 ])
 param vmSize string = 'Standard_B2s'
 
-@description('The Custom Domain release to install (image, installer and SDK share one version number).')
+@description('The Custom Domain release to install, such as 0.6.0, or latest (image, installer and SDK share one version number).')
+@maxLength(20)
 param version string = '0.5.0'
 
 @description('Name prefix for the resources.')
@@ -37,11 +44,41 @@ param name string = 'custom-domain'
 
 param location string = resourceGroup().location
 
+// --- input validation ------------------------------------------------------------
+// ARM has no regular expressions, so the admin networks and the version are
+// checked with expressions. They are written into the NSG and into the file
+// the installer sources as root, so an invalid value stops the deployment:
+// bool() of the message fails with that message, and if() evaluates only the
+// branch it takes.
+
+var adminParts = split(adminCidr, '/')
+var adminOctets = split(adminParts[0], '.')
+var adminShapeValid = length(adminParts) == 2 && length(adminOctets) == 4
+// Placeholders keep a malformed value on the path to the readable message.
+var adminPrefix = adminShapeValid ? adminParts[1] : '0'
+var adminOctetValues = adminShapeValid ? adminOctets : [ '0', '0', '0', '0' ]
+var adminOctetsValid = [for octet in adminOctetValues: int(octet) >= 0 && int(octet) <= 255 && string(int(octet)) == octet]
+var adminCidrValid = adminShapeValid && !contains(adminOctetsValid, false) && int(adminPrefix) >= 8 && int(adminPrefix) <= 32 && string(int(adminPrefix)) == adminPrefix
+var adminNetwork = adminCidrValid ? adminCidr : string(bool('adminCidr must be an IPv4 address with a prefix of /8 to /32, for example 203.0.113.9/32'))
+
+var adminIpv6Parts = split(adminCidrIpv6, '/')
+var adminIpv6Prefix = length(adminIpv6Parts) == 2 ? adminIpv6Parts[1] : '0'
+var adminIpv6Valid = empty(adminCidrIpv6) || (length(adminIpv6Parts) == 2 && contains(adminIpv6Parts[0], ':') && int(adminIpv6Prefix) >= 16 && int(adminIpv6Prefix) <= 128 && string(int(adminIpv6Prefix)) == adminIpv6Prefix)
+var adminNetworkIpv6 = adminIpv6Valid ? adminCidrIpv6 : string(bool('adminCidrIpv6 must be empty or an IPv6 network with a prefix of /16 to /128, for example 2001:db8:1234::/64'))
+
+var versionParts = split(version, '.')
+var versionNumbers = length(versionParts) == 3 ? versionParts : [ '-1' ]
+var versionNumbersValid = [for part in versionNumbers: int(part) >= 0 && string(int(part)) == part]
+var versionValid = version == 'latest' || (length(versionParts) == 3 && !contains(versionNumbersValid, false))
+var release = versionValid ? version : string(bool('version must be a release such as 0.6.0, or latest'))
+
+var portalAllowed = empty(adminNetworkIpv6) ? adminNetwork : '${adminNetwork},${adminNetworkIpv6}'
+
 var installEnv = join([
   'ACME_EMAIL=${acmeEmail}'
   'EDGE_HOSTNAME=${edgeHostname}'
-  'CUSTOM_DOMAIN_VERSION=${version}'
-  'PORTAL_ALLOWED_IPS=${adminCidr}'
+  'CUSTOM_DOMAIN_VERSION=${release}'
+  'PORTAL_ALLOWED_IPS=${portalAllowed}'
   'PUBLIC_API=true'
   'SKIP_FIREWALL=1'
 ], '\n')
@@ -84,7 +121,7 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
   name: '${name}-nsg'
   location: location
   properties: {
-    securityRules: [
+    securityRules: concat([
       {
         name: 'http-https'
         properties: {
@@ -118,13 +155,27 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
           direction: 'Inbound'
           access: 'Allow'
           protocol: 'Tcp'
-          sourceAddressPrefix: adminCidr
+          sourceAddressPrefix: adminNetwork
           sourcePortRange: '*'
           destinationAddressPrefix: '*'
           destinationPortRange: '22'
         }
       }
-    ]
+    ], empty(adminNetworkIpv6) ? [] : [
+      {
+        name: 'ssh-admin-ipv6'
+        properties: {
+          priority: 130
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourceAddressPrefix: adminNetworkIpv6
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRange: '22'
+        }
+      }
+    ])
   }
 }
 

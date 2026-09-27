@@ -19,11 +19,17 @@ EDGE_HOSTNAME=edge.example.net ACME_EMAIL=ops@example.net ADMIN_CIDR=203.0.113.9
   bash deploy/gcp/deploy.sh
 ```
 
-`ADMIN_CIDR` is your public IPv4 address (search "what is my IP"); it may
-open the portal and connect with SSH. Add `REGION=europe-west1` (or another
+`ADMIN_CIDR` is your public IPv4 address (search "what is my IP"), or a
+network of `/8` to `/32`; it may open the portal and connect with SSH. If
+your connection has IPv6, also set `ADMIN_CIDR_IPV6` (for example
+`2001:db8:1234::/64`): your browser prefers the edge's IPv6 address once the
+`AAAA` record exists, and the portal admits only listed addresses. Add `REGION=europe-west1` (or another
 region) and `MACHINE_TYPE=e2-medium` to change the defaults
 (`us-central1`, or gcloud's configured region, and `e2-small`). The script is
-safe to re-run; it creates only what is missing.
+safe to re-run; it creates only what is missing and brings the SSH firewall
+rules in line with the admin networks given. The portal allowlist lives in
+`/opt/custom-domain/deploy/.env` on the VM; the script prints how to change
+it there.
 
 What it creates, all named `custom-domain`: a VPC network with a dual-stack
 subnet, static external IPv4 and IPv6 addresses, firewall rules (TCP 80 and
@@ -48,7 +54,7 @@ gcloud compute ssh custom-domain --zone <zone> --tunnel-through-iap \
   --command 'sudo grep PORTAL_PASSWORD /opt/custom-domain/deploy/.env'
 ```
 
-The same with `--command 'custom-domain doctor'` checks everything. The
+The same with `--command 'sudo custom-domain doctor'` checks everything. The
 portal walks you through the first application; applications call the API
 at `https://edge.example.net/v1`.
 

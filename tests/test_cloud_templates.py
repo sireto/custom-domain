@@ -88,12 +88,83 @@ def aws():
     return yaml.load(AWS.read_text(), Loader=CfnLoader)  # noqa: S506 (a SafeLoader subclass)
 
 
+def _aws_user_data(aws, admin_ipv6: str = "") -> str:
+    template, variables = aws["Resources"]["Instance"]["Properties"]["UserData"]["Fn::Base64"][
+        "Fn::Sub"
+    ]
+    assert set(variables) == {"AdminIpv6"}  # ",<network>" when given, else ""
+    values = {**SAMPLE, "AdminIpv6": f",{admin_ipv6}" if admin_ipv6 else ""}
+    return re.sub(r"\$\{(\w+)\}", lambda m: values[m.group(1)], template)
+
+
 def test_aws_template_installs_the_release_with_the_expected_settings(aws):
     params = aws["Parameters"]
     assert params["Version"]["Default"] == VERSION
-    user_data = aws["Resources"]["Instance"]["Properties"]["UserData"]["Fn::Base64"]["Fn::Sub"]
-    rendered = re.sub(r"\$\{(\w+)\}", lambda m: SAMPLE[m.group(1)], user_data)
-    check_cloud_init(rendered)
+    check_cloud_init(_aws_user_data(aws))
+    with_ipv6 = yaml.safe_load(_aws_user_data(aws, "2001:db8:1234::/64"))["write_files"][0]
+    assert "PORTAL_ALLOWED_IPS=203.0.113.9/32,2001:db8:1234::/64" in with_ipv6["content"]
+
+
+def test_aws_image_is_resolved_once_at_creation(aws):
+    """A stack update must never re-resolve the image and so replace the instance."""
+    resources = aws["Resources"]
+    instance = resources["Instance"]
+    assert instance["Properties"]["ImageId"] == {"Fn::GetAtt": "UbuntuImage.ImageId"}
+    assert instance["UpdateReplacePolicy"] == "Retain"
+    assert aws["Parameters"]["UbuntuAmiParameter"]["Type"] == "String"  # not an SSM type
+    code = resources["ImageResolverFunction"]["Properties"]["Code"]["ZipFile"]
+
+    import sys
+    import types
+
+    calls, responses = [], []
+
+    class FakeSsm:
+        def get_parameter(self, Name):  # noqa: N803 (the boto3 signature)
+            calls.append(Name)
+            if Name == "/missing":
+                raise KeyError(Name)
+            return {"Parameter": {"Value": "ami-0123456789abcdef0"}}
+
+    fake_boto3 = types.SimpleNamespace(client=lambda service: FakeSsm())
+    namespace: dict = {}
+    real = sys.modules.get("boto3")
+    sys.modules["boto3"] = fake_boto3  # the Lambda runtime provides boto3
+    try:
+        exec(compile(code, "index.py", "exec"), namespace)  # noqa: S102 (the template's own code)
+    finally:
+        if real is None:
+            del sys.modules["boto3"]
+        else:
+            sys.modules["boto3"] = real
+    namespace["urllib"].request.urlopen = lambda request, timeout: responses.append(
+        json.loads(request.data)
+    )
+
+    def event(kind, parameter="/aws/service/canonical/x", physical=None):
+        body = {
+            "RequestType": kind,
+            "ResourceProperties": {"Parameter": parameter},
+            "StackId": "stack",
+            "RequestId": "req",
+            "LogicalResourceId": "UbuntuImage",
+            "ResponseURL": "https://example.invalid/response",
+        }
+        if physical:
+            body["PhysicalResourceId"] = physical
+        return body
+
+    namespace["handler"](event("Create"), None)
+    namespace["handler"](event("Update", physical="ami-0123456789abcdef0"), None)
+    namespace["handler"](event("Delete", physical="ami-0123456789abcdef0"), None)
+    namespace["handler"](event("Create", parameter="/missing"), None)
+    assert calls == ["/aws/service/canonical/x", "/missing"]  # read on Create only
+    created, updated, deleted, failed = responses
+    assert created["Status"] == "SUCCESS" and created["Data"]["ImageId"] == "ami-0123456789abcdef0"
+    assert updated["Status"] == "SUCCESS" and updated["Data"]["ImageId"] == "ami-0123456789abcdef0"
+    assert updated["PhysicalResourceId"] == "ami-0123456789abcdef0"  # unchanged: no replacement
+    assert deleted["Status"] == "SUCCESS"
+    assert failed["Status"] == "FAILED" and "KeyError" in failed["Reason"]
 
 
 def test_aws_template_network_and_access(aws):
@@ -102,15 +173,18 @@ def test_aws_template_network_and_access(aws):
     public = {
         (r["IpProtocol"], r["FromPort"], r.get("CidrIp") or r.get("CidrIpv6"))
         for r in ingress
-        if r["FromPort"] != 22
+        if "FromPort" in r and r["FromPort"] != 22
     }
     assert public == {
         (proto, port, cidr)
         for proto, port in (("tcp", 80), ("tcp", 443), ("udp", 443))
         for cidr in ("0.0.0.0/0", "::/0")
     }
-    (ssh,) = [r for r in ingress if r["FromPort"] == 22]
-    assert ssh["CidrIp"] == {"Ref": "AdminCidr"}  # SSH only from the admin address
+    ssh = [r for r in ingress if isinstance(r, dict) and r.get("FromPort") == 22]
+    assert ssh[0]["CidrIp"] == {"Ref": "AdminCidr"}  # SSH only from the admin address
+    (optional,) = [r for r in ingress if "Fn::If" in r]
+    assert optional["Fn::If"][0] == "HasAdminIpv6"
+    assert optional["Fn::If"][1]["CidrIpv6"] == {"Ref": "AdminCidrIpv6"}
     instance = resources["Instance"]["Properties"]
     assert instance["MetadataOptions"]["HttpTokens"] == "required"  # IMDSv2
     assert instance["BlockDeviceMappings"][0]["Ebs"]["Encrypted"] is True
@@ -118,8 +192,15 @@ def test_aws_template_network_and_access(aws):
     assert resources["ElasticIp"]["Type"] == "AWS::EC2::EIP"
     assert resources["NetworkInterface"]["Properties"]["Ipv6AddressCount"] == 1
     admin = re.compile(aws["Parameters"]["AdminCidr"]["AllowedPattern"])
-    assert admin.match("203.0.113.9/32") and admin.match("198.51.100.0/24")
-    assert not admin.match("0.0.0.0/0") and not admin.match("203.0.113.9")
+    for good in ("203.0.113.9/32", "198.51.100.0/24", "10.0.0.0/8", "255.255.255.255/32"):
+        assert admin.match(good), good
+    for bad in ("0.0.0.0/0", "203.0.113.9", "999.1.1.1/32", "203.0.113.9/1", "203.0.113.9/7"):
+        assert not admin.match(bad), bad
+    admin6 = re.compile(aws["Parameters"]["AdminCidrIpv6"]["AllowedPattern"])
+    for good in ("", "2001:db8:1234::/64", "2001:db8::1/128", "2001:db8::/16"):
+        assert admin6.match(good), good
+    for bad in ("::/0", "2001:db8::/8", "203.0.113.9/32", "2001:db8::"):
+        assert not admin6.match(bad), bad
 
 
 # --- Azure ----------------------------------------------------------------------------
@@ -154,16 +235,42 @@ def test_azure_json_is_compiled_from_the_bicep():
     )
 
 
+def test_azure_template_validates_what_reaches_the_nsg_and_the_installer():
+    """ARM has no patterns: invalid values must fail through the checked variables."""
+    arm = json.loads(AZURE_JSON.read_text())
+    variables = arm["variables"]
+    for name, parameter, message in (
+        ("adminNetwork", "adminCidr", "adminCidr must be an IPv4 address with a prefix of /8"),
+        ("adminNetworkIpv6", "adminCidrIpv6", "adminCidrIpv6 must be empty or an IPv6 network"),
+        ("release", "version", "version must be a release such as"),
+    ):
+        expression = variables[name]
+        assert expression.startswith("[if(variables("), name  # only one branch is evaluated
+        assert f"parameters('{parameter}')" in expression and "bool('" + message in expression
+    install_env = json.dumps(variables["installEnv"])
+    assert "variables('release')" in install_env and "variables('portalAllowed')" in install_env
+    assert "parameters('version')" not in install_env
+    assert "parameters('adminCidr')" not in install_env
+
+
 def test_azure_template_network_and_access():
     arm = json.loads(AZURE_JSON.read_text())
     resources = {r["type"]: r for r in arm["resources"]}
+    # The rules are one expression (the IPv6 SSH rule only when given); read the
+    # fixed ones from the Bicep source, the compiled form is checked below.
+    bicep = AZURE_BICEP.read_text()
     rules = {
-        r["name"]: r["properties"]
-        for r in resources["Microsoft.Network/networkSecurityGroups"]["properties"]["securityRules"]
+        m.group(1): m.group(2)
+        for m in re.finditer(r"name: '([\w-]+)'\n\s+properties: \{(.*?)\n\s+\}", bicep, re.S)
     }
-    assert rules["http-https"]["destinationPortRanges"] == ["80", "443"]
-    assert rules["http3"]["protocol"] == "Udp" and rules["http3"]["destinationPortRange"] == "443"
-    assert rules["ssh-admin"]["sourceAddressPrefix"] == "[parameters('adminCidr')]"
+    assert "destinationPortRanges: [ '80', '443' ]" in rules["http-https"]
+    assert "protocol: 'Udp'" in rules["http3"] and "destinationPortRange: '443'" in rules["http3"]
+    assert "sourceAddressPrefix: adminNetwork\n" in rules["ssh-admin"]
+    assert "sourceAddressPrefix: adminNetworkIpv6\n" in rules["ssh-admin-ipv6"]
+    # SSH comes only from the validated admin networks, never the raw parameter.
+    assert "[parameters('adminCidr')]" not in AZURE_JSON.read_text().split('"resources"')[1]
+    nsg = json.dumps(resources["Microsoft.Network/networkSecurityGroups"]["properties"])
+    assert "variables('adminNetwork')" in nsg and "variables('adminNetworkIpv6')" in nsg
     vm = resources["Microsoft.Compute/virtualMachines"]["properties"]
     assert vm["osProfile"]["linuxConfiguration"]["disablePasswordAuthentication"] is True
     ips = [r for r in arm["resources"] if r["type"] == "Microsoft.Network/publicIPAddresses"]
@@ -244,6 +351,8 @@ def test_gcp_script_creates_the_stack_and_installs_the_release(tmp_path):
     assert "--allow tcp:80,tcp:443,udp:443 --source-ranges 0.0.0.0/0" in calls
     assert "--allow tcp:80,tcp:443,udp:443 --source-ranges ::/0" in calls
     assert "--allow tcp:22 --source-ranges 203.0.113.9/32,35.235.240.0/20" in calls
+    assert "custom-domain-ssh-ipv6" not in calls.replace("describe custom-domain-ssh-ipv6", "")
+    assert "sudo custom-domain doctor" in result.stdout
     instance = [line for line in calls.splitlines() if "instances create" in line][0]
     assert "--no-service-account --no-scopes" in instance and "--shielded-secure-boot" in instance
     assert "address=34.1.2.3,external-ipv6-address=2600:1900::7" in instance
@@ -257,11 +366,38 @@ def test_gcp_script_creates_the_stack_and_installs_the_release(tmp_path):
     assert " create " not in (tmp_path / "calls.log").read_text()
     assert "already exists" in again.stdout
 
+    # A new admin network on a re-run updates the SSH rule and says how to
+    # update the portal allowlist on the VM.
+    (tmp_path / "calls.log").unlink()
+    moved = run_gcp(tmp_path, ADMIN_CIDR="198.51.100.0/24")
+    assert moved.returncode == 0, moved.stderr
+    calls = (tmp_path / "calls.log").read_text()
+    assert (
+        "firewall-rules update custom-domain-ssh --source-ranges 198.51.100.0/24,35.235.240.0/20"
+        in calls
+    )
+    assert "PORTAL_ALLOWED_IPS=198.51.100.0/24" in moved.stdout
+
+
+def test_gcp_script_admits_an_ipv6_admin_network(tmp_path):
+    result = run_gcp(tmp_path, ADMIN_CIDR_IPV6="2001:db8:1234::/64")
+    assert result.returncode == 0, result.stderr
+    content = yaml.safe_load((tmp_path / "user-data").read_text())["write_files"][0]["content"]
+    assert "PORTAL_ALLOWED_IPS=203.0.113.9/32,2001:db8:1234::/64" in content
+    calls = (tmp_path / "calls.log").read_text()
+    # Firewall rules take one address family each.
+    assert "create custom-domain-ssh-ipv6" in calls
+    assert "--allow tcp:22 --source-ranges 2001:db8:1234::/64" in calls
+
 
 @pytest.mark.parametrize(
     "env, message",
     [
         ({"ADMIN_CIDR": "0.0.0.0/0"}, "ADMIN_CIDR"),
+        ({"ADMIN_CIDR": "999.1.1.1/32"}, "ADMIN_CIDR"),
+        ({"ADMIN_CIDR": "203.0.113.9/1"}, "ADMIN_CIDR"),
+        ({"ADMIN_CIDR_IPV6": "::/0"}, "ADMIN_CIDR_IPV6"),
+        ({"ADMIN_CIDR_IPV6": "2001:db8::"}, "ADMIN_CIDR_IPV6"),
         ({"EDGE_HOSTNAME": "not a name"}, "EDGE_HOSTNAME"),
         ({"ACME_EMAIL": "nobody"}, "ACME_EMAIL"),
         ({"CUSTOM_DOMAIN_VERSION": "main"}, "CUSTOM_DOMAIN_VERSION"),
