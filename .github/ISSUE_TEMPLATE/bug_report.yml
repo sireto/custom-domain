@@ -1,0 +1,45 @@
+name: Bug report
+description: Something does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems must not be reported here; see SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The image tag you run (for example 0.5.0), or the commit.
+    validations:
+      required: true
+  - type: dropdown
+    id: layout
+    attributes:
+      label: Deployment
+      options:
+        - Production layout (deploy/compose.production.yml or the installer)
+        - Single container (docker-compose.yml)
+        - Local (deploy/compose.local.yml)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: custom-domain doctor output
+      description: Run `custom-domain doctor` on the server. Remove anything private.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: From the api, worker or edge container. Remove secrets and customer hostnames if needed.
+      render: text

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/sireto/custom-domain/security/advisories/new
+    about: Please report security problems privately, not as an issue.
+  - name: Hosted version and support
+    url: https://sireto.io
+    about: Sireto runs Custom Domain for you, with support.
