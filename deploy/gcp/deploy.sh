@@ -31,7 +31,7 @@
 #   NAME                    resource name prefix, default: custom-domain
 set -euo pipefail
 
-VERSION="${CUSTOM_DOMAIN_VERSION:-0.5.0}"
+VERSION="${CUSTOM_DOMAIN_VERSION:-0.6.0}"
 NAME="${NAME:-custom-domain}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-small}"
 IAP_RANGE="35.235.240.0/20"   # Google's range for `gcloud compute ssh --tunnel-through-iap`
