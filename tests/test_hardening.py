@@ -465,7 +465,7 @@ def test_v1_access_log_names_the_real_client_behind_the_edge(
         assert other.get("/v1/domains", headers={"X-Forwarded-For": "8.8.8.8"}).status_code == 401
     lines = [r.getMessage() for r in caplog.records if r.name == "app.v1.access"]
     # The exact credential id survives redaction, so the line says which key it was
-    # (`custom-domain credential revoke --id <id>` takes it).
+    # (`custom-domain credential revoke --application <slug> --id <id>` takes both).
     expected = f"GET /v1/domains 200 application=acme credential={credential.id} client=8.8.8.8"
     assert expected in lines, lines
     assert "GET /v1/domains 401 application=- credential=- client=10.1.2.3" in lines, lines
