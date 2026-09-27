@@ -62,6 +62,11 @@ ask ADMIN_CIDR "Your IPv4 address or network for the portal and SSH (for example
     || die "EDGE_HOSTNAME is not a DNS name: ${EDGE_HOSTNAME}"
 [[ "${ACME_EMAIL}" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] \
     || die "ACME_EMAIL is not an email address: ${ACME_EMAIL}"
+# Let's Encrypt refuses reserved contact domains, and no certificate would ever be issued.
+acme_domain="$(printf '%s' "${ACME_EMAIL##*@}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${acme_domain}" =~ (^|\.)example\.(com|net|org)$ || "${acme_domain}" =~ \.(example|test|invalid|localhost|local)$ ]]; then
+    die "ACME_EMAIL must be a real address; Let's Encrypt refuses ${acme_domain}"
+fi
 # Not the whole internet: the portal allowlist refuses 0.0.0.0/0.
 octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
 [[ "${ADMIN_CIDR}" =~ ^(${octet}\.){3}${octet}(/([89]|[12][0-9]|3[0-2]))?$ ]] \

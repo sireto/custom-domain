@@ -33,9 +33,11 @@ Parameters:
     ConstraintDescription: a DNS name such as edge.example.net
   AcmeEmail:
     Type: String
-    Description: Where Let's Encrypt sends certificate notices.
-    AllowedPattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
-    ConstraintDescription: an email address
+    Description: >-
+      Where Let's Encrypt sends certificate notices. A real address: Let's
+      Encrypt refuses reserved domains such as example.com.
+    AllowedPattern: "^(?!.*@([^@]*\\.)?example\\.(com|net|org)$)(?!.*\\.(example|test|invalid|localhost|local)$)[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+    ConstraintDescription: a real email address (Let's Encrypt refuses example.com, example.net, example.org and .test, .example, .invalid, .localhost, .local)
   AdminCidr:
     Type: String
     Description: >-

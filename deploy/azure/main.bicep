@@ -7,7 +7,7 @@
 @description('The edge\'s own DNS name, for example edge.example.net. After deployment, point it at the addresses in the outputs (A and AAAA records).')
 param edgeHostname string
 
-@description('Where Let\'s Encrypt sends certificate notices.')
+@description('Where Let\'s Encrypt sends certificate notices. A real address: Let\'s Encrypt refuses reserved domains such as example.com.')
 param acmeEmail string
 
 @description('The IPv4 address or network you administer from, for example 203.0.113.9/32 (a prefix of /8 to /32). It may open the portal at https://<edge hostname>/portal and connect with SSH.')
@@ -71,6 +71,13 @@ var adminIpv6CharsValid = [for i in range(0, length(adminIpv6Address)): contains
 var adminIpv6Valid = empty(adminCidrIpv6) || (length(adminIpv6Parts) == 2 && contains(adminIpv6Address, ':') && !contains(adminIpv6CharsValid, false) && int(adminIpv6Prefix) >= 16 && int(adminIpv6Prefix) <= 128 && string(int(adminIpv6Prefix)) == adminIpv6Prefix)
 var adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128 = adminIpv6Valid ? adminCidrIpv6 : string(bool('adminCidrIpv6 must be empty or an IPv6 network with a prefix of /16 to /128, for example 2001:db8:1234::/64'))
 
+var acmeEmailDomain = toLower(last(split(acmeEmail, '@')))
+var acmeEmailTld = last(split(acmeEmailDomain, '.'))
+// Let's Encrypt refuses reserved contact domains (invalidContact), and no
+// certificate could ever be issued.
+var acmeEmailValid = contains(acmeEmail, '@') && contains(acmeEmailDomain, '.') && !contains([ 'example.com', 'example.net', 'example.org' ], acmeEmailDomain) && !endsWith(acmeEmailDomain, '.example.com') && !endsWith(acmeEmailDomain, '.example.net') && !endsWith(acmeEmailDomain, '.example.org') && !contains([ 'example', 'test', 'invalid', 'localhost', 'local' ], acmeEmailTld)
+var acmeEmail_must_be_a_real_address_not_example_com = acmeEmailValid ? acmeEmail : string(bool('acmeEmail must be a real address; Let\'s Encrypt refuses reserved domains such as example.com'))
+
 var versionParts = split(version, '.')
 var versionNumbers = length(versionParts) == 3 ? versionParts : [ '-1' ]
 var versionNumbersValid = [for part in versionNumbers: int(part) >= 0 && string(int(part)) == part]
@@ -80,7 +87,7 @@ var version_must_be_a_release_like_0_6_0_or_latest = versionValid ? version : st
 var portalAllowed = empty(adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128) ? adminCidr_must_be_an_IPv4_network_8_to_32 : '${adminCidr_must_be_an_IPv4_network_8_to_32},${adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128}'
 
 var installEnv = join([
-  'ACME_EMAIL=${acmeEmail}'
+  'ACME_EMAIL=${acmeEmail_must_be_a_real_address_not_example_com}'
   'EDGE_HOSTNAME=${edgeHostname}'
   'CUSTOM_DOMAIN_VERSION=${version_must_be_a_release_like_0_6_0_or_latest}'
   'PORTAL_ALLOWED_IPS=${portalAllowed}'

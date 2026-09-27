@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.47.16.16243",
-      "templateHash": "311142593612263003"
+      "templateHash": "6614726689769298149"
     }
   },
   "parameters": {
@@ -18,7 +18,7 @@
     "acmeEmail": {
       "type": "string",
       "metadata": {
-        "description": "Where Let's Encrypt sends certificate notices."
+        "description": "Where Let's Encrypt sends certificate notices. A real address: Let's Encrypt refuses reserved domains such as example.com."
       }
     },
     "adminCidr": {
@@ -114,12 +114,16 @@
     "adminIpv6Address": "[if(equals(length(variables('adminIpv6Parts')), 2), variables('adminIpv6Parts')[0], '')]",
     "adminIpv6Valid": "[or(empty(parameters('adminCidrIpv6')), and(and(and(and(and(equals(length(variables('adminIpv6Parts')), 2), contains(variables('adminIpv6Address'), ':')), not(contains(variables('adminIpv6CharsValid'), false()))), greaterOrEquals(int(variables('adminIpv6Prefix')), 16)), lessOrEquals(int(variables('adminIpv6Prefix')), 128)), equals(string(int(variables('adminIpv6Prefix'))), variables('adminIpv6Prefix'))))]",
     "adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128": "[if(variables('adminIpv6Valid'), parameters('adminCidrIpv6'), string(bool('adminCidrIpv6 must be empty or an IPv6 network with a prefix of /16 to /128, for example 2001:db8:1234::/64')))]",
+    "acmeEmailDomain": "[toLower(last(split(parameters('acmeEmail'), '@')))]",
+    "acmeEmailTld": "[last(split(variables('acmeEmailDomain'), '.'))]",
+    "acmeEmailValid": "[and(and(and(and(and(and(contains(parameters('acmeEmail'), '@'), contains(variables('acmeEmailDomain'), '.')), not(contains(createArray('example.com', 'example.net', 'example.org'), variables('acmeEmailDomain')))), not(endsWith(variables('acmeEmailDomain'), '.example.com'))), not(endsWith(variables('acmeEmailDomain'), '.example.net'))), not(endsWith(variables('acmeEmailDomain'), '.example.org'))), not(contains(createArray('example', 'test', 'invalid', 'localhost', 'local'), variables('acmeEmailTld'))))]",
+    "acmeEmail_must_be_a_real_address_not_example_com": "[if(variables('acmeEmailValid'), parameters('acmeEmail'), string(bool('acmeEmail must be a real address; Let''s Encrypt refuses reserved domains such as example.com')))]",
     "versionParts": "[split(parameters('version'), '.')]",
     "versionNumbers": "[if(equals(length(variables('versionParts')), 3), variables('versionParts'), createArray('-1'))]",
     "versionValid": "[or(equals(parameters('version'), 'latest'), and(equals(length(variables('versionParts')), 3), not(contains(variables('versionNumbersValid'), false()))))]",
     "version_must_be_a_release_like_0_6_0_or_latest": "[if(variables('versionValid'), parameters('version'), string(bool('version must be a release such as 0.6.0, or latest')))]",
     "portalAllowed": "[if(empty(variables('adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128')), variables('adminCidr_must_be_an_IPv4_network_8_to_32'), format('{0},{1}', variables('adminCidr_must_be_an_IPv4_network_8_to_32'), variables('adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128')))]",
-    "installEnv": "[join(createArray(format('ACME_EMAIL={0}', parameters('acmeEmail')), format('EDGE_HOSTNAME={0}', parameters('edgeHostname')), format('CUSTOM_DOMAIN_VERSION={0}', variables('version_must_be_a_release_like_0_6_0_or_latest')), format('PORTAL_ALLOWED_IPS={0}', variables('portalAllowed')), 'PUBLIC_API=true', 'SKIP_FIREWALL=1'), '\n')]",
+    "installEnv": "[join(createArray(format('ACME_EMAIL={0}', variables('acmeEmail_must_be_a_real_address_not_example_com')), format('EDGE_HOSTNAME={0}', parameters('edgeHostname')), format('CUSTOM_DOMAIN_VERSION={0}', variables('version_must_be_a_release_like_0_6_0_or_latest')), format('PORTAL_ALLOWED_IPS={0}', variables('portalAllowed')), 'PUBLIC_API=true', 'SKIP_FIREWALL=1'), '\n')]",
     "cloudInit": "[format('#cloud-config\npackage_update: true\npackages: [ca-certificates, curl]\nwrite_files:\n  - path: /etc/custom-domain-install.env\n    permissions: \"0600\"\n    encoding: b64\n    content: {0}\nruncmd:\n  - [sh, -c, \". /etc/custom-domain-install.env; ref=\\\"$CUSTOM_DOMAIN_VERSION\\\"; [ \\\"$ref\\\" = latest ] && ref=main; curl -fsSL \\\"https://raw.githubusercontent.com/sireto/custom-domain/$ref/deploy/install.sh\\\" -o /root/custom-domain-install.sh\"]\n  - [sh, -c, \"bash /root/custom-domain-install.sh >/var/log/custom-domain-install.log 2>&1\"]\n', base64(format('{0}\n', variables('installEnv'))))]"
   },
   "resources": [

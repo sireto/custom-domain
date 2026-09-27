@@ -27,12 +27,12 @@ VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["versi
 
 SAMPLE = {
     "EdgeHostname": "edge.example.net",
-    "AcmeEmail": "ops@example.net",
+    "AcmeEmail": "ops@sireto.com",
     "AdminCidr": "203.0.113.9/32",
     "Version": VERSION,
 }
 EXPECTED_ENV = {
-    "ACME_EMAIL": "ops@example.net",
+    "ACME_EMAIL": "ops@sireto.com",
     "EDGE_HOSTNAME": "edge.example.net",
     "CUSTOM_DOMAIN_VERSION": VERSION,
     "PORTAL_ALLOWED_IPS": "203.0.113.9/32",
@@ -206,6 +206,11 @@ def test_aws_template_network_and_access(aws):
     # The addresses customers' DNS points at belong to the stack, not the instance.
     assert resources["ElasticIp"]["Type"] == "AWS::EC2::EIP"
     assert resources["NetworkInterface"]["Properties"]["Ipv6AddressCount"] == 1
+    email = re.compile(aws["Parameters"]["AcmeEmail"]["AllowedPattern"])
+    for good in ("ops@sireto.com", "a@example-corp.io", "x@mail.examples.net"):
+        assert email.match(good), good
+    for bad in ("ops@example.net", "a@example.com", "x@mail.example.org", "a@b.test", "nobody"):
+        assert not email.match(bad), bad  # Let's Encrypt refuses reserved contact domains
     admin = re.compile(aws["Parameters"]["AdminCidr"]["AllowedPattern"])
     for good in ("203.0.113.9/32", "198.51.100.0/24", "10.0.0.0/8", "255.255.255.255/32"):
         assert admin.match(good), good
@@ -265,6 +270,11 @@ def test_azure_template_validates_what_reaches_the_nsg_and_the_installer():
             "adminCidrIpv6_must_be_empty_or_an_IPv6_network_16_to_128",
             "adminCidrIpv6",
             "adminCidrIpv6 must be empty or an IPv6 network",
+        ),
+        (
+            "acmeEmail_must_be_a_real_address_not_example_com",
+            "acmeEmail",
+            "acmeEmail must be a real address",
         ),
         (
             "version_must_be_a_release_like_0_6_0_or_latest",
@@ -437,6 +447,8 @@ def test_gcp_script_admits_an_ipv6_admin_network(tmp_path):
         ({"ADMIN_CIDR_IPV6": "2001:db8::"}, "ADMIN_CIDR_IPV6"),
         ({"EDGE_HOSTNAME": "not a name"}, "EDGE_HOSTNAME"),
         ({"ACME_EMAIL": "nobody"}, "ACME_EMAIL"),
+        ({"ACME_EMAIL": "ops@example.net"}, "Let's Encrypt refuses"),
+        ({"ACME_EMAIL": "ops@mail.test"}, "Let's Encrypt refuses"),
         ({"CUSTOM_DOMAIN_VERSION": "main"}, "CUSTOM_DOMAIN_VERSION"),
         ({"ADMIN_CIDR": ""}, "ADMIN_CIDR is required"),
     ],
