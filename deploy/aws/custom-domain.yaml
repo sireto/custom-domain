@@ -221,8 +221,6 @@ Resources:
           - Effect: Allow
             Principal: { Service: lambda.amazonaws.com }
             Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
       Policies:
         - PolicyName: read-ubuntu-image-parameter
           PolicyDocument:
@@ -231,6 +229,21 @@ Resources:
               - Effect: Allow
                 Action: ssm:GetParameter
                 Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}::parameter${UbuntuAmiParameter}"
+              # Writing to its own log group only; without logs:CreateLogGroup,
+              # late log lines cannot recreate the group after the stack is deleted.
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-image-resolver:*"
+
+  # Owned by the stack, so deleting the stack removes it (Lambda would
+  # otherwise create a log group of its own that outlives the stack).
+  ImageResolverLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-image-resolver"
+      RetentionInDays: 14
 
   ImageResolverFunction:
     Type: AWS::Lambda::Function
@@ -240,6 +253,8 @@ Resources:
       Handler: index.handler
       Timeout: 30
       Role: !GetAtt ImageResolverRole.Arn
+      LoggingConfig:
+        LogGroup: !Ref ImageResolverLogGroup
       Code:
         ZipFile: |
           import json

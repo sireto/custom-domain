@@ -112,6 +112,21 @@ def test_aws_image_is_resolved_once_at_creation(aws):
     assert instance["Properties"]["ImageId"] == {"Fn::GetAtt": "UbuntuImage.ImageId"}
     assert instance["UpdateReplacePolicy"] == "Retain"
     assert aws["Parameters"]["UbuntuAmiParameter"]["Type"] == "String"  # not an SSM type
+    # Its logs go to a log group the stack owns, removed with the stack.
+    logs = resources["ImageResolverLogGroup"]
+    assert logs["DeletionPolicy"] == "Delete" and logs["Properties"]["RetentionInDays"] == 14
+    function = resources["ImageResolverFunction"]["Properties"]
+    assert function["LoggingConfig"]["LogGroup"] == {"Ref": "ImageResolverLogGroup"}
+    role = resources["ImageResolverRole"]["Properties"]
+    assert "ManagedPolicyArns" not in role  # no logs:CreateLogGroup to recreate it
+    actions = {
+        a
+        for statement in role["Policies"][0]["PolicyDocument"]["Statement"]
+        for a in (
+            statement["Action"] if isinstance(statement["Action"], list) else [statement["Action"]]
+        )
+    }
+    assert actions == {"ssm:GetParameter", "logs:CreateLogStream", "logs:PutLogEvents"}
     code = resources["ImageResolverFunction"]["Properties"]["Code"]["ZipFile"]
 
     import sys
