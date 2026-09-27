@@ -31,6 +31,12 @@ router = APIRouter(
         },
         403: {"model": ErrorResponse, "description": "The application is suspended."},
         422: {"model": ErrorResponse, "description": "The request is not valid."},
+        429: {
+            "model": ErrorResponse,
+            "description": "Too many requests with an invalid credential from this client "
+            "address (`V1_AUTH_FAILURES_PER_MINUTE`); retry after `Retry-After` seconds.",
+            "headers": {"Retry-After": {"schema": {"type": "integer"}}},
+        },
     },
 )
 

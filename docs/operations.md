@@ -289,13 +289,16 @@ unacceptable.
   application credential, and the internal endpoints, the portal (which has
   its own allowlist) and metrics are not routed ([deployment.md](deployment.md#the-v1-api-through-the-edge)).
   Requests without a valid credential cost a hash and a database lookup, so
-  each client address (IPv6 per /64) may fail authentication at most
-  `V1_AUTH_FAILURES_PER_MINUTE` times a minute (default 30, `0` disables);
-  after that the API answers `429` with `Retry-After`, before any lookup,
-  until the minute has passed. The count is per API process and keyed on
-  the real client behind the edge. Credentials are 32 random bytes, so
-  guessing is not the risk; load is. A legitimate backend sharing an
-  address with a misbehaving client is refused too for that minute. The
+  each client may fail authentication at most `V1_AUTH_FAILURES_PER_MINUTE`
+  times a minute (default 30, `0` disables); after that the API answers
+  `429` with `Retry-After`, before any lookup, until the minute has passed.
+  A client is the real address the edge forwards, or a public address
+  connecting directly; IPv6 counts per /64, and a /48 may fail ten times as
+  often. Private and loopback peers are never limited: behind a reverse
+  proxy of your own (`PUBLIC_API=false`) every application arrives from the
+  proxy's address, and one caller with a stale key must not lock the others
+  out. Rate-limit at that proxy instead. The count is per API process.
+  Credentials are 32 random bytes, so guessing is not the risk; load is. The
   `app.v1.access` log has one line per v1 call with the real client
   address, the application and the key prefix (never the key); block
   persistent abusers in the cloud firewall.

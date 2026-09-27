@@ -6,13 +6,12 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.clients import client_address
 from app.db.session import get_session
 from app.models import Application
 from app.services.applications import authenticate_credential
 from app.services.errors import InvalidCredential, RateLimited
 from app.v1.errors import unauthorized
-from app.v1.throttle import client_key
+from app.v1.throttle import limited_client
 
 bearer_scheme = HTTPBearer(
     auto_error=False,
@@ -33,9 +32,9 @@ def current_application(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> Application:
     limiter = getattr(request.app.state, "v1_auth_limiter", None)
-    key = client_key(client_address(request))
-    if limiter is not None:
-        wait = limiter.retry_after(key)
+    client = limited_client(request) if limiter is not None and limiter.enabled else None
+    if client is not None:
+        wait = limiter.retry_after(client)
         if wait:
             # Refused before any hashing or database work (app/v1/throttle.py).
             raise RateLimited(
@@ -43,14 +42,14 @@ def current_application(
                 retry_after=wait,
             )
     if credentials is None or credentials.scheme.lower() != "bearer":
-        if limiter is not None:
-            limiter.record_failure(key)
+        if client is not None:
+            limiter.record_failure(client)
         raise unauthorized()
     try:
         credential = authenticate_credential(db, credentials.credentials)
     except InvalidCredential as exc:
-        if limiter is not None:
-            limiter.record_failure(key)
+        if client is not None:
+            limiter.record_failure(client)
         raise unauthorized() from exc
     # last_used_at was updated by authenticate_credential; persist it now so a
     # failing request body does not discard it.

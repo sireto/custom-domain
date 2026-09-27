@@ -506,20 +506,63 @@ def test_failed_authentication_is_throttled_per_client_before_any_lookup(
     assert edge.get("/v1/domains", headers={"X-Forwarded-For": "1.1.1.1"}).status_code == 401
 
 
-def test_failed_auth_limiter_groups_ipv6_and_bounds_its_memory():
-    from app.v1.throttle import FailedAuthLimiter, client_key
+def test_failed_auth_is_not_limited_for_a_shared_private_peer(client, session, make_application):
+    """Behind the operator's own proxy every application shares its address."""
+    from app.services.applications import issue_credential
+    from app.v1.throttle import FailedAuthLimiter
 
-    assert client_key("2001:db8:1:2:3:4:5:6") == client_key("2001:db8:1:2:ffff::1")
-    assert client_key("2001:db8:1:2::1") != client_key("2001:db8:1:3::1")
-    assert client_key("8.8.8.8") == "8.8.8.8" and client_key(None) == "unknown"
+    acme = make_application("acme")
+    _, secret = issue_credential(session, acme, label="backend")
+    session.commit()
+    client.app.state.v1_auth_limiter = FailedAuthLimiter(max_failures=3)
+    proxy = TestClient(client.app, client=("10.1.2.3", 1000))  # a private, untrusted peer
+    bad = {"Authorization": "Bearer cd_wrong_wrong_wrong_wrong_wrong_wrong0"}
+    for _ in range(10):  # a worker retrying with a revoked key
+        assert proxy.get("/v1/domains", headers=bad).status_code == 401
+    assert (
+        proxy.get("/v1/domains", headers={"Authorization": f"Bearer {secret}"}).status_code == 200
+    )
+    # A forwarded header from an untrusted peer is ignored, so it cannot be used
+    # to put someone else's address on the limit either.
+    spoof = {**bad, "X-Forwarded-For": "8.8.8.8"}
+    for _ in range(5):
+        assert proxy.get("/v1/domains", headers=spoof).status_code == 401
+    assert client.app.state.v1_auth_limiter.tracked() == 0
+    # A public address connecting directly does identify a client.
+    public = TestClient(client.app, client=("9.9.9.9", 1000))
+    for _ in range(3):
+        public.get("/v1/domains", headers=bad)
+    assert public.get("/v1/domains", headers=bad).status_code == 429
+
+
+def test_failed_auth_limiter_groups_ipv6_and_bounds_its_memory():
+    from app.v1.throttle import PREFIX48_FACTOR, FailedAuthLimiter, buckets
+
+    assert buckets("2001:db8:1:2:3:4:5:6")[0] == buckets("2001:db8:1:2:ffff::1")[0]  # same /64
+    assert buckets("2001:db8:1:2::1")[0] != buckets("2001:db8:1:3::1")[0]
+    assert buckets("2001:db8:1:2::1")[1] == buckets("2001:db8:1:3::1")[1]  # same /48
+    assert buckets("8.8.8.8") == [("8.8.8.8", 1)]
 
     limiter = FailedAuthLimiter(max_failures=2, window=60, max_tracked=100)
-    limiter.record_failure("a", now=0)
-    limiter.record_failure("a", now=1)
-    assert limiter.retry_after("a", now=2) == 59 and limiter.retry_after("b", now=2) == 0
-    assert limiter.retry_after("a", now=61) == 0  # the window has passed
-    for i in range(1000):  # address rotation cannot grow the table without bound
-        limiter.record_failure(f"k{i}", now=100 + i * 0.001)
+    limiter.record_failure("8.8.8.8", now=0)
+    limiter.record_failure("8.8.8.8", now=1)
+    assert limiter.retry_after("8.8.8.8", now=2) == 59
+    assert limiter.retry_after("9.9.9.9", now=2) == 0
+    assert limiter.retry_after("8.8.8.8", now=61) == 0  # the window has passed
+
+    # Rotating through the /64s of one /48 runs into the /48 budget.
+    rotating = FailedAuthLimiter(max_failures=2, window=60)
+    for i in range(2 * PREFIX48_FACTOR):
+        rotating.record_failure(f"2001:db8:1:{i:x}::1", now=0)
+    assert rotating.retry_after("2001:db8:1:ffff::1", now=1) > 0
+    assert rotating.retry_after("2001:db8:2::1", now=1) == 0
+
+    # Address rotation cannot grow the table; the bucket that failed least
+    # recently is evicted first, the active ones stay.
+    for i in range(1000):
+        limiter.record_failure(f"10.0.{i // 256}.{i % 256}", now=100 + i * 0.001)
+    limiter.record_failure("8.8.8.8", now=101.5)
+    limiter.record_failure("8.8.8.8", now=101.6)
     assert limiter.tracked() <= 100
-    assert limiter.retry_after("never-seen", now=200) == 0 and limiter.tracked() <= 100
-    assert FailedAuthLimiter(max_failures=0).retry_after("x") == 0  # 0 disables it
+    assert limiter.retry_after("8.8.8.8", now=102) > 0
+    assert FailedAuthLimiter(max_failures=0).retry_after("8.8.8.8") == 0  # 0 disables it

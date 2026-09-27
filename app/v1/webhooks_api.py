@@ -14,7 +14,17 @@ from app.v1.deps import CurrentApplication, DbSession
 from app.v1.schemas import ErrorResponse, WebhookEventType
 
 router = APIRouter(
-    prefix="/v1/webhooks", tags=["Webhooks"], responses={401: {"model": ErrorResponse}}
+    prefix="/v1/webhooks",
+    tags=["Webhooks"],
+    responses={
+        401: {"model": ErrorResponse},
+        429: {
+            "model": ErrorResponse,
+            "description": "Too many requests with an invalid credential from this client "
+            "address (`V1_AUTH_FAILURES_PER_MINUTE`); retry after `Retry-After` seconds.",
+            "headers": {"Retry-After": {"schema": {"type": "integer"}}},
+        },
+    },
 )
 
 
