@@ -400,6 +400,12 @@ def test_gcp_script_creates_the_stack_and_installs_the_release(tmp_path):
     assert "--allow tcp:22 --source-ranges 203.0.113.9/32,35.235.240.0/20" in calls
     assert "custom-domain-ssh-ipv6" not in calls.replace("describe custom-domain-ssh-ipv6", "")
     assert "sudo custom-domain doctor" in result.stdout
+    # On a new project every compute call fails until the API is enabled, the
+    # zone lookup included (found by the real deployment test).
+    lines = calls.splitlines()
+    enable = next(i for i, line in enumerate(lines) if "services enable compute" in line)
+    first_compute = next(i for i, line in enumerate(lines) if " compute " in f" {line} ")
+    assert enable < first_compute, lines[: enable + 2]
     instance = [line for line in calls.splitlines() if "instances create" in line][0]
     assert "--no-service-account --no-scopes" in instance and "--shielded-secure-boot" in instance
     assert "address=34.1.2.3,external-ipv6-address=2600:1900::7" in instance

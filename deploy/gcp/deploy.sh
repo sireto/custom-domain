@@ -82,12 +82,15 @@ PORTAL_ALLOWED="${ADMIN_CIDR}${ADMIN_CIDR_IPV6:+,${ADMIN_CIDR_IPV6}}"
 
 gc() { gcloud --project "${PROJECT}" --quiet "$@"; }
 
+# Compute Engine must be enabled before anything else, even the zone lookup:
+# on a new project every compute call fails until it is.
+log "Enabling the Compute Engine API in ${PROJECT}"
+gc services enable compute.googleapis.com
 ZONE="${ZONE:-$(gc compute zones list --filter="region:(${REGION})" --format='value(name)' --sort-by=name --limit=1)}"
 [ -n "${ZONE}" ] || die "no zone found in region ${REGION}"
 SUBNET="${NAME}-${REGION}"
 
 log "Project ${PROJECT}, zone ${ZONE}, release ${VERSION}"
-gc services enable compute.googleapis.com
 
 if ! gc compute networks describe "${NAME}" >/dev/null 2>&1; then
     log "Creating network ${NAME}"
