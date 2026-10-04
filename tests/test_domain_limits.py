@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 
 import pytest
@@ -259,6 +260,32 @@ def test_the_cli_sets_the_limit(monkeypatch, tmp_path, capsys):
     assert "invalid_application" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         cli.main(limit)  # --max or --none is required
+
+    # A malformed MAX_DOMAINS is a clear error for commands that register,
+    # not a traceback, and leaves the others working.
+    monkeypatch.setenv("MAX_DOMAINS", "lots")
+    legacy = tmp_path / "caddy.json"
+    from app.caddy import saas_template
+
+    config = saas_template.add_https_domain(
+        "one.customer.example", "app.acme.example:443", template=saas_template.https_template()
+    )
+    legacy.write_text(json.dumps(config))
+    imported = cli.main(
+        [
+            "legacy",
+            "import",
+            "--application",
+            "acme",
+            "--file",
+            str(legacy),
+            "--hostname-as-reference",
+        ]
+    )
+    assert imported == 2
+    err = capsys.readouterr().err
+    assert "invalid_max_domains" in err and "MAX_DOMAINS" in err and "Traceback" not in err
+    assert cli.main([*limit, "--max", "5"]) == 0
 
 
 def test_the_portal_shows_usage_and_edits_the_limit(portal, monkeypatch):

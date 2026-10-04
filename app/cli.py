@@ -23,6 +23,7 @@ from app.services import applications as app_service
 from app.services import domains as domain_service
 from app.services import idempotency
 from app.services.errors import ServiceError
+from app.services.limits import InvalidLimit
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -45,6 +46,11 @@ def main(argv: list[str] | None = None) -> int:
         return args.func(args) or 0
     except ServiceError as exc:
         print(f"error [{exc.code}]: {exc.message}", file=sys.stderr)
+        return 2
+    except InvalidLimit as exc:
+        # A malformed MAX_DOMAINS reaches only the commands that register
+        # domains; the others (doctor among them) keep working.
+        print(f"error [invalid_max_domains]: {exc}", file=sys.stderr)
         return 2
 
 
