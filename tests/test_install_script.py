@@ -304,3 +304,53 @@ def test_upgrade_brings_an_untouched_compose_file_up_to_date(tmp_path):
     assert upgraded.returncode == 0, upgraded.stderr + upgraded.stdout
     installed = (tmp_path / "opt" / "deploy" / "compose.production.yml").read_text()
     assert installed == current and "max-size" in installed
+
+
+TOKEN = "op-token-0123456789abcdef-0123456789abcdef"
+
+
+def test_operator_settings_are_written_and_the_token_never_printed(tmp_path):
+    result = run_install(
+        tmp_path,
+        "0.6.1",
+        OPERATOR_API_TOKEN=TOKEN,
+        OPERATOR_ALLOWED_IPS="198.51.100.7,2001:db8::/48",
+        MAX_DOMAINS="2000",
+    )
+    assert result.returncode == 0, result.stderr
+    env = env_of(tmp_path)
+    assert env["OPERATOR_API_TOKEN"] == TOKEN
+    assert env["OPERATOR_ALLOWED_IPS"] == "198.51.100.7,2001:db8::/48"
+    assert env["MAX_DOMAINS"] == "2000"
+    assert TOKEN not in result.stdout + result.stderr
+
+    # An upgrade keeps them unless given, and replaces them when given.
+    assert run_install(tmp_path, "0.6.1").returncode == 0
+    assert env_of(tmp_path)["MAX_DOMAINS"] == "2000"
+    assert env_of(tmp_path)["OPERATOR_API_TOKEN"] == TOKEN
+    assert run_install(tmp_path, None, MAX_DOMAINS="20000").returncode == 0
+    assert env_of(tmp_path)["MAX_DOMAINS"] == "20000"
+
+
+def test_installs_without_operator_settings_leave_them_out(tmp_path):
+    assert run_install(tmp_path, "0.6.1").returncode == 0
+    env = env_of(tmp_path)
+    assert not {"OPERATOR_API_TOKEN", "OPERATOR_ALLOWED_IPS", "MAX_DOMAINS"} & set(env)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("OPERATOR_API_TOKEN", "too-short"),
+        ("OPERATOR_API_TOKEN", "a" * 31 + "|x"),
+        ("OPERATOR_API_TOKEN", "a" * 32 + " b"),
+        ("OPERATOR_ALLOWED_IPS", "198.51.100.7;rm -rf /"),
+        ("MAX_DOMAINS", "0"),
+        ("MAX_DOMAINS", "lots"),
+    ],
+)
+def test_unusable_operator_settings_stop_before_anything_changes(tmp_path, name, value):
+    result = run_install(tmp_path, "0.6.1", **{name: value})
+    assert result.returncode == 1 and name in result.stderr
+    assert not (tmp_path / "opt").exists()
+    assert value not in result.stdout

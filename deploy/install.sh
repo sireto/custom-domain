@@ -32,6 +32,15 @@
 #   PORTAL_ALLOWED_IPS      addresses or networks that may open the portal through the
 #                           edge (default: the address you are installing from over SSH,
 #                           when there is one; empty means SSH tunnel only)
+#   OPERATOR_API_TOKEN      turns on the operator API (docs/operator-api.md) with this
+#                           bearer token: at least 32 characters of letters, digits and
+#                           . _ ~ + / = -. Unset leaves the operator API off.
+#   OPERATOR_ALLOWED_IPS    addresses or networks that may call the operator API through
+#                           the edge (comma-separated; empty: the host only)
+#   MAX_DOMAINS             at most this many live domains across all applications
+#                           (a whole number of at least 1; unset: no limit)
+#                           These three are written to .env on a new install, and on an
+#                           upgrade only when given, like PUBLIC_API.
 #   SKIP_FIREWALL=1         do not touch ufw (when the provider firewall is used instead)
 #   SKIP_DOCKER_INSTALL=1   Docker is already installed and running
 #   CUSTOM_DOMAIN_ACCEPT_COMPOSE=1
@@ -46,7 +55,7 @@ set -euo pipefail
 CONFIG_FILE="${CUSTOM_DOMAIN_INSTALL_ENV:-/etc/custom-domain-install.env}"
 SETTINGS="CUSTOM_DOMAIN_VERSION CUSTOM_DOMAIN_REF CUSTOM_DOMAIN_DIR CUSTOM_DOMAIN_SOURCE \
 ACME_EMAIL EDGE_HOSTNAME PUBLIC_API PORTAL_ALLOWED_IPS SKIP_FIREWALL SKIP_DOCKER_INSTALL \
-CUSTOM_DOMAIN_ACCEPT_COMPOSE"
+CUSTOM_DOMAIN_ACCEPT_COMPOSE OPERATOR_API_TOKEN OPERATOR_ALLOWED_IPS MAX_DOMAINS"
 if [ -f "${CONFIG_FILE}" ]; then
     # Remember what the caller set explicitly, load the file, then put the
     # explicit values back: the file is the default, never an override.
@@ -89,6 +98,23 @@ UPSTREAM_FILE="${DIR}/deploy/.compose.production.yml.upstream"
 
 log() { printf '\n==> %s\n' "$*"; }
 warn() { printf '\n!!  %s\n' "$*" >&2; }
+
+# Checked before anything is changed. The values are written to .env with
+# sed, so the character sets also keep them from breaking out of it.
+if [ -n "${OPERATOR_API_TOKEN:-}" ]; then
+    if [ "${#OPERATOR_API_TOKEN}" -lt 32 ] || ! printf '%s' "${OPERATOR_API_TOKEN}" | grep -Eq '^[A-Za-z0-9._~+/=-]+$'; then
+        echo "OPERATOR_API_TOKEN must be at least 32 characters of letters, digits and . _ ~ + / = -" >&2
+        exit 1
+    fi
+fi
+if [ -n "${OPERATOR_ALLOWED_IPS:-}" ] && ! printf '%s' "${OPERATOR_ALLOWED_IPS}" | grep -Eq '^[0-9A-Fa-f.:/, ]+$'; then
+    echo "OPERATOR_ALLOWED_IPS must be addresses or networks separated by commas" >&2
+    exit 1
+fi
+if [ -n "${MAX_DOMAINS:-}" ] && ! printf '%s' "${MAX_DOMAINS}" | grep -Eq '^[1-9][0-9]*$'; then
+    echo "MAX_DOMAINS must be a whole number of at least 1" >&2
+    exit 1
+fi
 
 if [ "$(id -u)" -ne 0 ] && [ "${CUSTOM_DOMAIN_SKIP_ROOT_CHECK:-0}" != "1" ]; then
     echo "run as root (sudo)" >&2
@@ -253,6 +279,15 @@ else
         log "Keeping image ${IMAGE} (give CUSTOM_DOMAIN_VERSION to change it)"
     fi
 fi
+# Optional settings for automated installs: written when given, never
+# removed or replaced otherwise. The token is never printed.
+for name in OPERATOR_API_TOKEN OPERATOR_ALLOWED_IPS MAX_DOMAINS; do
+    value="$(eval "printf '%s' \"\${${name}:-}\"")"
+    if [ -n "${value}" ]; then
+        env_set "${name}" "${value}"
+        log "Set ${name} in .env"
+    fi
+done
 edge_hostname="$(env_get EDGE_HOSTNAME)"
 portal_ips="$(env_get PORTAL_ALLOWED_IPS)"
 public_api="$(env_get PUBLIC_API)"
