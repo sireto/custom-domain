@@ -391,19 +391,26 @@ def set_operator_token(request: Request, body: schemas.OperatorTokenSet, db: DbS
     description=(
         "Streams `pg_dump --format=custom` of the deployment's database; restore it with "
         "`pg_restore` (docs/operations.md). It contains claim tokens, credential hashes and "
-        "webhook signing secrets: store it like a secrets file. PostgreSQL only; "
-        "`409 backup_unavailable` otherwise."
+        "webhook signing secrets: store it like a secrets file. Off (404) unless "
+        "`OPERATOR_BACKUP=true`. PostgreSQL only; `409 backup_unavailable` otherwise. "
+        "One at a time: `429` while another runs."
     ),
     response_class=Response,
     responses={200: {"content": {"application/octet-stream": {}}}},
 )
-def backup(request: Request):
+def backup(request: Request, db: DbSession):
     from fastapi.responses import StreamingResponse
 
     from app.db.session import get_database_url
     from app.services import backup as backup_service
 
+    if not backup_service.enabled():
+        # Off by default: the dump holds every webhook signing secret.
+        raise ApiError(404, "not_found", "Not found")
     request.state.operator_target = "backup"
+    # The download can take minutes: give the request's database connection
+    # back to the pool now, not when the response has been sent.
+    db.close()
     chunks = backup_service.stream(get_database_url())
     name = f"custom-domain-{utcnow().strftime('%Y-%m-%dT%H%M%SZ')}.dump"
     return StreamingResponse(

@@ -57,7 +57,9 @@ def test_the_endpoint_streams_the_dump(session_factory, session, monkeypatch, tm
         "printf 'PGDMP'; head -c 200000 /dev/zero\n",
     )
     monkeypatch.setenv("PATH", path)
-    app = make_app(session_factory, monkeypatch, OPERATOR_ALLOWED_IPS="93.184.216.34")
+    app = make_app(
+        session_factory, monkeypatch, OPERATOR_ALLOWED_IPS="93.184.216.34", OPERATOR_BACKUP="true"
+    )
     monkeypatch.setattr("app.db.session.get_database_url", lambda: PG_URL)
     with TestClient(app, client=("10.0.0.5", 1000)) as client:
         assert client.get("/operator/v1/backup").status_code == 401
@@ -78,7 +80,9 @@ def test_a_failing_pg_dump_is_an_error_not_an_empty_file(
 ):
     path = _fake_pg_dump(tmp_path, 'echo "FATAL: password authentication failed" >&2; exit 1\n')
     monkeypatch.setenv("PATH", path)
-    app = make_app(session_factory, monkeypatch, OPERATOR_ALLOWED_IPS="93.184.216.34")
+    app = make_app(
+        session_factory, monkeypatch, OPERATOR_ALLOWED_IPS="93.184.216.34", OPERATOR_BACKUP="true"
+    )
     monkeypatch.setattr("app.db.session.get_database_url", lambda: PG_URL)
     with TestClient(app, client=("10.0.0.5", 1000)) as client:
         response = client.get("/operator/v1/backup", headers=AUTH)
@@ -88,8 +92,68 @@ def test_a_failing_pg_dump_is_an_error_not_an_empty_file(
 
 
 def test_sqlite_answers_409(session_factory, session, monkeypatch):
-    app = make_app(session_factory, monkeypatch, OPERATOR_ALLOWED_IPS="93.184.216.34")
+    app = make_app(
+        session_factory, monkeypatch, OPERATOR_ALLOWED_IPS="93.184.216.34", OPERATOR_BACKUP="true"
+    )
     monkeypatch.setattr("app.db.session.get_database_url", lambda: "sqlite:///x.db")
     with TestClient(app, client=("10.0.0.5", 1000)) as client:
         response = client.get("/operator/v1/backup", headers=AUTH)
     assert response.status_code == 409 and response.json()["error"]["code"] == "backup_unavailable"
+
+
+def test_it_is_off_unless_asked_for(session_factory, session, monkeypatch, tmp_path):
+    """Off by default: the dump would hand the operator token every signing secret."""
+    monkeypatch.setenv("PATH", _fake_pg_dump(tmp_path, "printf PGDMP\n"))
+    monkeypatch.delenv("OPERATOR_BACKUP", raising=False)
+    app = make_app(session_factory, monkeypatch, OPERATOR_ALLOWED_IPS="93.184.216.34")
+    monkeypatch.setattr("app.db.session.get_database_url", lambda: PG_URL)
+    with TestClient(app, client=("10.0.0.5", 1000)) as client:
+        assert client.get("/operator/v1/backup", headers=AUTH).status_code == 404
+    assert backup.enabled({"OPERATOR_BACKUP": "true"}) and not backup.enabled({})
+
+
+def test_a_burst_on_stderr_does_not_stall_the_dump(monkeypatch, tmp_path):
+    # 300 KB of warnings first: a pipe nobody reads fills at about 64 KB.
+    path = _fake_pg_dump(
+        tmp_path,
+        "head -c 300000 /dev/zero | tr '\\0' w >&2; printf PGDMP; head -c 1000 /dev/zero\n",
+    )
+    monkeypatch.setenv("PATH", path)
+    data = b"".join(backup.stream(PG_URL))
+    assert data.startswith(b"PGDMP") and len(data) == 1005
+
+
+def test_one_backup_at_a_time_and_the_outcome_is_audited(monkeypatch, tmp_path, caplog):
+    import logging
+
+    monkeypatch.setenv("PATH", _fake_pg_dump(tmp_path, "printf PGDMP; head -c 200000 /dev/zero\n"))
+    first = backup.stream(PG_URL)
+    head = next(first)
+    with pytest.raises(backup.RateLimited):
+        backup.stream(PG_URL)
+    with caplog.at_level(logging.INFO, logger="app.operator.audit"):
+        rest = b"".join(first)
+    assert len(head) + len(rest) == 200005
+    assert "backup complete bytes=200005" in caplog.text
+    # The lock is free again.
+    b"".join(backup.stream(PG_URL))
+
+
+def test_a_failure_mid_stream_is_audited(monkeypatch, tmp_path, caplog):
+    import logging
+
+    monkeypatch.setenv("PATH", _fake_pg_dump(tmp_path, "printf PGDMP; echo boom >&2; exit 3\n"))
+    with (
+        caplog.at_level(logging.INFO, logger="app.operator.audit"),
+        pytest.raises(RuntimeError, match="boom"),
+    ):
+        b"".join(backup.stream(PG_URL))
+    assert "backup failed bytes=5" in caplog.text
+    b"".join(_ok(monkeypatch, tmp_path))  # the lock was released
+
+
+def _ok(monkeypatch, tmp_path):
+    other = tmp_path / "ok"
+    other.mkdir()
+    monkeypatch.setenv("PATH", _fake_pg_dump(other, "printf PGDMP\n"))
+    return backup.stream(PG_URL)

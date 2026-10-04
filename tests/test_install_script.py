@@ -354,3 +354,10 @@ def test_unusable_operator_settings_stop_before_anything_changes(tmp_path, name,
     assert result.returncode == 1 and name in result.stderr
     assert not (tmp_path / "opt").exists()
     assert value not in result.stdout
+
+
+def test_operator_backup_is_written_only_when_given(tmp_path):
+    assert run_install(tmp_path, "0.6.1", OPERATOR_BACKUP="true").returncode == 0
+    assert env_of(tmp_path)["OPERATOR_BACKUP"] == "true"
+    refused = run_install(tmp_path, None, OPERATOR_BACKUP="yes please")
+    assert refused.returncode == 1 and "OPERATOR_BACKUP" in refused.stderr

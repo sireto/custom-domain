@@ -164,8 +164,10 @@ pg_dump --format=custom --file=custom-domain-$(date +%F).dump \
 `pg_dump` does not accept; `custom-domain db libpq-url` prints the same
 connection as a libpq URL (`postgresql://...`).
 
-Or, from another machine, over the operator API (PostgreSQL only; the
-image includes `pg_dump` 16 for it):
+Or, from another machine, over the operator API, once `OPERATOR_BACKUP=true`
+is set (PostgreSQL only; the image includes `pg_dump` 16 for it). See
+[operator-api.md](operator-api.md#backups-over-the-api) for why it is off
+by default:
 
 ```
 curl -fsS -H "Authorization: Bearer $OPERATOR_API_TOKEN" \

@@ -37,6 +37,8 @@
 #                           . _ ~ + / = -. Unset leaves the operator API off.
 #   OPERATOR_ALLOWED_IPS    addresses or networks that may call the operator API through
 #                           the edge (comma-separated; empty: the host only)
+#   OPERATOR_BACKUP         true turns on GET /operator/v1/backup (a pg_dump holding every
+#                           webhook signing secret; off unless asked)
 #   MAX_DOMAINS             at most this many live domains across all applications
 #                           (a whole number of at least 1; unset: no limit)
 #                           These three are written to .env on a new install, and on an
@@ -55,7 +57,7 @@ set -euo pipefail
 CONFIG_FILE="${CUSTOM_DOMAIN_INSTALL_ENV:-/etc/custom-domain-install.env}"
 SETTINGS="CUSTOM_DOMAIN_VERSION CUSTOM_DOMAIN_REF CUSTOM_DOMAIN_DIR CUSTOM_DOMAIN_SOURCE \
 ACME_EMAIL EDGE_HOSTNAME PUBLIC_API PORTAL_ALLOWED_IPS SKIP_FIREWALL SKIP_DOCKER_INSTALL \
-CUSTOM_DOMAIN_ACCEPT_COMPOSE OPERATOR_API_TOKEN OPERATOR_ALLOWED_IPS MAX_DOMAINS"
+CUSTOM_DOMAIN_ACCEPT_COMPOSE OPERATOR_API_TOKEN OPERATOR_ALLOWED_IPS MAX_DOMAINS OPERATOR_BACKUP"
 if [ -f "${CONFIG_FILE}" ]; then
     # Remember what the caller set explicitly, load the file, then put the
     # explicit values back: the file is the default, never an override.
@@ -109,6 +111,10 @@ if [ -n "${OPERATOR_API_TOKEN:-}" ]; then
 fi
 if [ -n "${OPERATOR_ALLOWED_IPS:-}" ] && ! printf '%s' "${OPERATOR_ALLOWED_IPS}" | grep -Eq '^[0-9A-Fa-f.:/, ]+$'; then
     echo "OPERATOR_ALLOWED_IPS must be addresses or networks separated by commas" >&2
+    exit 1
+fi
+if [ -n "${OPERATOR_BACKUP:-}" ] && ! printf '%s' "${OPERATOR_BACKUP}" | grep -Eq '^(true|false)$'; then
+    echo "OPERATOR_BACKUP must be true or false" >&2
     exit 1
 fi
 if [ -n "${MAX_DOMAINS:-}" ] && ! printf '%s' "${MAX_DOMAINS}" | grep -Eq '^[1-9][0-9]*$'; then
@@ -281,7 +287,7 @@ else
 fi
 # Optional settings for automated installs: written when given, never
 # removed or replaced otherwise. The token is never printed.
-for name in OPERATOR_API_TOKEN OPERATOR_ALLOWED_IPS MAX_DOMAINS; do
+for name in OPERATOR_API_TOKEN OPERATOR_ALLOWED_IPS MAX_DOMAINS OPERATOR_BACKUP; do
     value="$(eval "printf '%s' \"\${${name}:-}\"")"
     if [ -n "${value}" ]; then
         env_set "${name}" "${value}"

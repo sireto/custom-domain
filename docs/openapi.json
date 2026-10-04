@@ -3106,7 +3106,7 @@
     },
     "/operator/v1/backup": {
       "get": {
-        "description": "Streams `pg_dump --format=custom` of the deployment's database; restore it with `pg_restore` (docs/operations.md). It contains claim tokens, credential hashes and webhook signing secrets: store it like a secrets file. PostgreSQL only; `409 backup_unavailable` otherwise.",
+        "description": "Streams `pg_dump --format=custom` of the deployment's database; restore it with `pg_restore` (docs/operations.md). It contains claim tokens, credential hashes and webhook signing secrets: store it like a secrets file. Off (404) unless `OPERATOR_BACKUP=true`. PostgreSQL only; `409 backup_unavailable` otherwise. One at a time: `429` while another runs.",
         "operationId": "backup_operator_v1_backup_get",
         "responses": {
           "200": {

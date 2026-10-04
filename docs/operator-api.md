@@ -47,6 +47,20 @@ the current token, replaces it without editing `.env` or restarting.
   is in force. `custom-domain operator reset-token` forgets the rotated
   one, so `OPERATOR_API_TOKEN` works again, if the new token is lost.
 
+## Backups over the API
+
+`GET /operator/v1/backup` is **off unless `OPERATOR_BACKUP=true`** (404 when
+off). The installer accepts the same setting.
+- **Why it's off:** the dump contains every application's webhook signing
+  secret. With them, whoever holds the operator token could forge webhooks
+  to every application's backend, which goes well beyond managing the
+  deployment. Turn it on only where the token holder may see that data, for
+  example a deployment dedicated to one customer.
+- **One at a time:** one backup runs at a time per API instance; another
+  request meanwhile gets `429`.
+- **Audit:** the audit log records how each backup ended and how many bytes
+  it sent.
+
 ## Reaching it
 
 - **On the API's own port** (`127.0.0.1:9000` of the host in the production
@@ -80,7 +94,7 @@ All paths are under `/operator/v1`; errors use the v1 envelope
 | Method and path | Does | Command equivalent |
 |---|---|---|
 | `PUT /token` `{token}` | replace the operator token (see above) | `operator reset-token` undoes it |
-| `GET /backup` | download `pg_dump --format=custom` of the database (PostgreSQL only) | `pg_dump`, see [operations.md](operations.md#backup) |
+| `GET /backup` | download `pg_dump --format=custom` of the database (PostgreSQL only; off unless `OPERATOR_BACKUP=true`, see below) | `pg_dump`, see [operations.md](operations.md#backup) |
 | `GET /applications` | list | `application list` |
 | `POST /applications` `{slug, name, cname_target?}` | create (`cname_target` defaults to `EDGE_HOSTNAME`) | `application create` |
 | `GET /applications/{slug}` | read; includes `max_domains` (the limit, or null) and `live_domains` | |
