@@ -172,8 +172,8 @@ Installations made before 0.4.0 have a host command without `upgrade`
 installer directly once, which rewrites the host command:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/sireto/custom-domain/0.7.0/deploy/install.sh -o /root/custom-domain-install.sh
-CUSTOM_DOMAIN_VERSION=0.7.0 bash /root/custom-domain-install.sh
+curl -fsSL https://raw.githubusercontent.com/sireto/custom-domain/0.8.0/deploy/install.sh -o /root/custom-domain-install.sh
+CUSTOM_DOMAIN_VERSION=0.8.0 bash /root/custom-domain-install.sh
 ```
 
 Such an installation has no recorded Compose checksum, so unless its

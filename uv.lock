@@ -227,7 +227,7 @@ wheels = [
 
 [[package]]
 name = "custom-domain"
-version = "0.7.0"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -280,7 +280,7 @@ dev = [
 
 [[package]]
 name = "custom-domain-sdk"
-version = "0.7.0"
+version = "0.8.0"
 source = { editable = "sdk" }
 dependencies = [
     { name = "httpx" },
