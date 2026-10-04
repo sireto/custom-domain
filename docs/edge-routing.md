@@ -91,6 +91,33 @@ from the webhook secret (#10), so compromise of one does not expose the
 others. Without a configured key the assert endpoint answers `503` and
 nothing is routed.
 
+## Per-application keys
+
+With only `EDGE_ASSERTION_KEYS`, every origin on a deployment verifies with
+the same secret. That is fine when one party runs every application. When
+applications belong to different parties (a shared deployment), each
+application should have its **own key**: otherwise any party holding the
+deployment key could forge assertions naming another application, and send
+them to that application's origin if it is reachable directly.
+
+- **Signing.** The edge signs an application's requests with its newest key
+  whose `active_from` has passed. While it has none, the deployment key
+  signs. A key's id always starts with `app_`, which deployment key ids may
+  not, so origins can hold both kinds in one keyring.
+- **Issuing** (`custom-domain assertion-key issue --application acme`, the
+  operator API or the portal's Origins page) returns the key id, the
+  application id and the secret, once. The key starts signing 24 hours later
+  by default, so the origin can add it to its keyring first; pass
+  `--activate-in-hours 0` for an application whose origin has no key yet.
+- **Rotating** is issuing again. The key signing now keeps signing until the
+  new one's `active_from`; a key still waiting is replaced. An application
+  never has more than two live keys.
+- **Revoking** a key stops it signing at once. The previous key, or the
+  deployment key, takes over, so make sure the origin holds it.
+
+Origins verify exactly as before, with the application's key in their
+keyring under its id (`keys={"app_…": "<secret>"}` in the SDK).
+
 ## Replay and bypass
 
 An assertion is bound to one hostname, application, domain and reference,

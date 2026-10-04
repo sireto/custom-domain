@@ -210,6 +210,9 @@ class EdgeSettings:
                 "EDGE_ASSERTION_KEYS is required when the edge is enabled: routing signs every "
                 "proxied request (docs/edge-routing.md)"
             )
+        if any(key_id.startswith("app_") for key_id, _ in self.assertion_keys):
+            # Reserved for applications' own keys (app/services/assertion_keys.py).
+            raise EdgeConfigurationError("EDGE_ASSERTION_KEYS key ids must not start with app_")
         if not 5 <= self.assertion_ttl <= 600:
             raise EdgeConfigurationError("EDGE_ASSERTION_TTL must be between 5 and 600 seconds")
         import ipaddress

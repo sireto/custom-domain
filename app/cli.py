@@ -179,6 +179,23 @@ def _build_parser() -> argparse.ArgumentParser:
     cred_delete.add_argument("--id", required=True)
     cred_delete.set_defaults(func=_credential_delete)
 
+    akey = sub.add_parser(
+        "assertion-key", help="an application's own key for the edge's signed assertion"
+    ).add_subparsers(dest="assertion_key_command")
+    akey_issue = akey.add_parser(
+        "issue", help="a new key; it starts signing after --activate-in-hours (default 24)"
+    )
+    akey_issue.add_argument("--application", required=True)
+    akey_issue.add_argument("--activate-in-hours", type=float, default=24.0)
+    akey_issue.set_defaults(func=_assertion_key_issue)
+    akey_list = akey.add_parser("list", help="the application's keys, without their secrets")
+    akey_list.add_argument("--application", required=True)
+    akey_list.set_defaults(func=_assertion_key_list)
+    akey_revoke = akey.add_parser("revoke", help="stop signing with a key now")
+    akey_revoke.add_argument("--application", required=True)
+    akey_revoke.add_argument("--key-id", required=True)
+    akey_revoke.set_defaults(func=_assertion_key_revoke)
+
     origin = sub.add_parser("origin", help="manage application origins").add_subparsers(
         dest="origin_command"
     )
@@ -819,6 +836,53 @@ def _origin_delete(args) -> int:
         app_service.delete_origin(session, origin)
         session.commit()
         print(f"deleted origin {url}")
+    return 0
+
+
+def _assertion_key_issue(args) -> int:
+    from app.services import assertion_keys
+
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        key, secret = assertion_keys.issue_key(
+            session, application, activate_in=timedelta(hours=args.activate_in_hours)
+        )
+        session.commit()
+        print(f"application id: {application.id}")
+        print(f"key id:         {key.key_id}")
+        print(f"signs from:     {key.active_from.isoformat(timespec='seconds')}")
+        print("secret (shown once; add it to the origin's keyring before it signs):")
+        print(secret)
+    return 0
+
+
+def _assertion_key_list(args) -> int:
+    from app.services import assertion_keys
+
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        now = utcnow()
+        signing = assertion_keys.signing_key(session, application.id, now=now)
+        keys = assertion_keys.list_keys(session, application)
+        if signing is None:
+            print("signing with the deployment key (EDGE_ASSERTION_KEYS)")
+        for key in keys:
+            state = assertion_keys.key_state(key, signing, now)
+            since = key.active_from.isoformat(timespec="seconds")
+            print(f"{key.key_id}  {state:<9} signs from {since}")
+    return 0
+
+
+def _assertion_key_revoke(args) -> int:
+    from app.services import assertion_keys
+
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        assertion_keys.revoke_key(session, application, args.key_id)
+        session.commit()
+        signing = assertion_keys.signing_key(session, application.id)
+        now_signing = signing.key_id if signing else "the deployment key"
+        print(f"{args.key_id} is revoked; requests are now signed with {now_signing}")
     return 0
 
 

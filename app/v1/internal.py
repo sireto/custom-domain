@@ -35,7 +35,7 @@ from app.edge.config import (
 from app.edge.settings import WORKSPACE_PATH
 from app.hostname import InvalidHostname, canonicalize
 from app.models import Application, ApplicationStatus, OriginStatus, VerifiedOrigin
-from app.services import origin_verification
+from app.services import assertion_keys, origin_verification
 from app.services.domains import find_live_by_hostname, is_serveable
 from app.services.edge_checks import certificate_authorized, is_edge_name
 from app.services.origin_verification import OriginVerificationFailed, allow_private_from_env
@@ -137,7 +137,13 @@ def edge_assert(
         observability.edge_assert_total.labels(decision="denied").inc()
         return Response(status_code=status.HTTP_403_FORBIDDEN)
 
-    key_id, key = settings.active_key()
+    # The application's own key when it has one (app/services/assertion_keys.py),
+    # so applications sharing a deployment can't forge each other's assertions.
+    own = assertion_keys.signing_key(db, domain.application_id)
+    if own is not None:
+        key_id, key = own.key_id, own.secret.encode("utf-8")
+    else:
+        key_id, key = settings.active_key()
     token = sign(
         key_id=key_id,
         key=key,

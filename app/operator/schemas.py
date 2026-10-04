@@ -181,6 +181,39 @@ class NewCredential(CredentialResource):
     secret: str = Field(description="The API key. Shown once; only its hash is stored.")
 
 
+class AssertionKeyCreate(_Strict):
+    activate_in_hours: float = Field(
+        default=24,
+        ge=0,
+        le=720,
+        description="When the key starts signing. Add it to the origin's keyring before then; "
+        "0 signs at once, which suits an application whose origin has no key yet.",
+    )
+
+
+class AssertionKeyResource(BaseModel):
+    key_id: str = Field(description="The id in the assertion: v1.<key id>.<payload>.<mac>.")
+    state: Literal["signing", "next", "previous", "revoked"]
+    active_from: datetime
+    created_at: datetime
+    revoked_at: datetime | None
+
+
+class AssertionKeys(BaseModel):
+    application_id: uuid.UUID = Field(
+        description="The assertion's `app`: the id the origin compares with its own."
+    )
+    signing: str | None = Field(
+        description="The key id signing now, or null while the deployment key signs."
+    )
+    keys: list[AssertionKeyResource]
+
+
+class NewAssertionKey(AssertionKeyResource):
+    application_id: uuid.UUID
+    secret: str = Field(description="The signing secret. Shown once; give it to the origin.")
+
+
 class Finding(BaseModel):
     check: str
     status: Literal["ok", "warn", "fail"]

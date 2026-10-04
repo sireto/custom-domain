@@ -235,6 +235,9 @@ NOTICES = {
     "origin_retired": "Origin retired. It no longer receives traffic.",
     "origin_deleted": "Origin deleted.",
     "credential_revoked": "API key revoked. Requests using it are refused from now on.",
+    "assertion_key_revoked": (
+        "Assertion key revoked. Requests are signed with the previous key, or the deployment key."
+    ),
     "credential_deleted": "API key deleted.",
     "domain_registered": "Hostname registered. Give the customer the two DNS records below.",
     "domain_recheck": "Recheck requested. The worker runs every check within a minute.",
@@ -572,8 +575,12 @@ def _tab_domains(
 
 
 def _tab_origins(request, session, db, application, *, status=200, **extra):
+    from app.models.types import utcnow
+    from app.services import assertion_keys
     from app.services.origin_verification import WELL_KNOWN_PATH
 
+    now = utcnow()
+    signing = assertion_keys.signing_key(db, application.id, now=now)
     return render(
         request,
         "app_origins.html",
@@ -581,6 +588,11 @@ def _tab_origins(request, session, db, application, *, status=200, **extra):
         status=status,
         origins=app_service.list_origins(db, application),
         well_known=WELL_KNOWN_PATH,
+        assertion_keys=[
+            (key, assertion_keys.key_state(key, signing, now))
+            for key in assertion_keys.list_keys(db, application)
+        ],
+        assertion_signing=signing,
         **_app_context(db, application),
         **extra,
     )
@@ -981,6 +993,47 @@ def delete_origin_view(
         app_service.delete_origin(db, _origin(db, application, origin_id))
 
     return _action(request, session, db, slug, csrf, act, tab="origins", ok="origin_deleted")
+
+
+# --- assertion keys ---------------------------------------------------------------
+
+
+@router.post("/applications/{slug}/assertion-keys")
+def issue_assertion_key(
+    request: Request,
+    slug: str,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+    activate_in_hours: str = Form("24"),
+):
+    def act(application):
+        from app.services import assertion_keys
+
+        hours = {"0": 0, "24": 24}.get(activate_in_hours.strip())
+        if hours is None:
+            raise ValueError("Choose when the key starts signing")
+        key, secret = assertion_keys.issue_key(db, application, activate_in=timedelta(hours=hours))
+        return {"assertion_secret": secret, "assertion_key": key}
+
+    return _action(request, session, db, slug, csrf, act, tab="origins", ok="")
+
+
+@router.post("/applications/{slug}/assertion-keys/{key_id}/revoke")
+def revoke_assertion_key(
+    request: Request,
+    slug: str,
+    key_id: str,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+):
+    def act(application):
+        from app.services import assertion_keys
+
+        assertion_keys.revoke_key(db, application, key_id)
+
+    return _action(request, session, db, slug, csrf, act, tab="origins", ok="assertion_key_revoked")
 
 
 # --- credentials --------------------------------------------------------------------
