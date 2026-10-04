@@ -37,7 +37,7 @@ param vmSize string = 'Standard_B2s'
 
 @description('The Custom Domain release to install, such as 0.6.0, or latest (image, installer and SDK share one version number).')
 @maxLength(20)
-param version string = '0.8.0'
+param version string = '0.9.0'
 
 @description('Name prefix for the resources.')
 param name string = 'custom-domain'
