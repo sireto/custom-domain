@@ -93,7 +93,7 @@ attention") with the reason next to them.
 | Application → Origins | the backend traffic goes to; the token to serve and the exact URL while it is unverified; verify, activate, retire, delete | `origin register`, `origin verify --activate`, `origin activate`, `origin retire`, `origin delete` |
 | Application → API keys | issue (shown once), rotate with a 24-hour overlap, revoke, delete revoked or expired keys | `credential issue`, `credential rotate`, `credential revoke`, `credential delete` |
 | Application → Webhooks | endpoints with their events, signing secrets (shown once), rotation, revocation, deletion, and each endpoint's deliveries with replay | the v1 API's webhook endpoints |
-| Application → Settings | name, CNAME target (optionally moving existing hostnames), the domain limit, the readiness check, suspend or resume, delete | `application rename`, `application set-cname-target`, `application set-domain-limit`, `application set-workspace-probe`, `application delete` |
+| Application → Settings | name, CNAME target (optionally moving existing hostnames), the domain limit, request limits, the readiness check, suspend or resume, delete | `application rename`, `application set-cname-target`, `application set-domain-limit`, `application set-rate-limit`, `application set-workspace-probe`, `application delete` |
 | Edge & DNS | every name the edge answers for, why, and what public DNS returns for it; **Verify reachability** connects to each address as a customer would; the routing summary; applying the configuration now | `edge reconcile` |
 | Health checks | the doctor's findings, problems first | `doctor` |
 | Import | the legacy import, with a dry run first | `legacy import` |

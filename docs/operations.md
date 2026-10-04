@@ -107,6 +107,34 @@ application are already serialized by its row lock. While `MAX_DOMAINS` is
 set, every registration also takes the `domain-limit` row of `edge_locks`,
 which serializes registrations across applications.
 
+### Limiting an application's requests
+
+On a deployment shared by several applications, one application's traffic
+can be capped at the edge so it can't crowd out the others:
+
+```
+custom-domain application set-rate-limit --application acme --per-minute 600 --per-second 100
+custom-domain application set-rate-limit --application acme      # no limit
+```
+
+The same settings are in the portal (the application's Settings) and the
+operator API (`rate_limit_per_minute` and `rate_limit_per_second`).
+- **What's counted:** every proxied request to any of the application's
+  hostnames, in one count per window. Over either window, the edge answers
+  `429 Too Many Requests` with `Retry-After`, before the request reaches the
+  assertion endpoint or the origin.
+- **What isn't:** certificate issuance, the DNS checks and the v1 API are
+  never limited by it. For the API, see `V1_REQUESTS_PER_MINUTE`.
+- **How:** the edge runs Caddy with the
+  [caddy-ratelimit](https://github.com/mholt/caddy-ratelimit) module. The
+  reconciler adds the limit as the first handler of the application's route,
+  and the gateway accepts only that exact shape: zones named after the
+  route, keyed by the route itself rather than any request value, with
+  one-minute and one-second windows.
+- **Where it's counted:** in each edge instance's memory, so with several
+  edge instances each counts on its own.
+- **When it applies:** on the next reconcile, within a minute.
+
 ## Reconciliation
 
 Caddy starts from a bootstrap configuration (admin listener on

@@ -93,6 +93,29 @@ def live_domain_count(session: Session, application: Application) -> int:
     return live_domains(session, application)
 
 
+def set_rate_limits(
+    session: Session,
+    application: Application,
+    *,
+    per_minute: int | None,
+    per_second: int | None,
+) -> Application:
+    """Limit the application's proxied requests at the edge; None lifts a window.
+
+    The reconciler applies it on its next run (app/edge/config.py).
+    """
+    from app.edge.config import MAX_RATE
+
+    for name, value in (("per minute", per_minute), ("per second", per_second)):
+        if value is not None and not 1 <= value <= MAX_RATE:
+            raise InvalidApplication(f"Requests {name} must be 1 to {MAX_RATE:,}, or none")
+    application.rate_limit_per_minute = per_minute
+    application.rate_limit_per_second = per_second
+    application.updated_at = utcnow()
+    session.flush()
+    return application
+
+
 def set_domain_limit(
     session: Session, application: Application, max_domains: int | None
 ) -> Application:

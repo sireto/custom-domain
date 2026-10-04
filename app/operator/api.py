@@ -188,6 +188,18 @@ def update_application(
         application.workspace_probe_enabled = body.workspace_probe
     if body.status is not None:
         app_service.set_application_status(db, application, ApplicationStatus(body.status))
+    rate_fields = {"rate_limit_per_minute", "rate_limit_per_second"} & body.model_fields_set
+    if rate_fields:
+        app_service.set_rate_limits(
+            db,
+            application,
+            per_minute=body.rate_limit_per_minute
+            if "rate_limit_per_minute" in rate_fields
+            else application.rate_limit_per_minute,
+            per_second=body.rate_limit_per_second
+            if "rate_limit_per_second" in rate_fields
+            else application.rate_limit_per_second,
+        )
     if "max_domains" in body.model_fields_set:
         app_service.set_domain_limit(db, application, body.max_domains)
     db.commit()

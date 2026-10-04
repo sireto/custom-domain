@@ -38,6 +38,16 @@ class ApplicationUpdate(_Strict):
         default=None, description="Whether readiness requires the origin's workspace check."
     )
     status: Literal["active", "suspended"] | None = None
+    rate_limit_per_minute: int | None = Field(
+        default=None,
+        ge=1,
+        le=1_000_000,
+        description="Proxied requests per minute across the application's hostnames, at the "
+        "edge; null lifts it, omit to leave it unchanged.",
+    )
+    rate_limit_per_second: int | None = Field(
+        default=None, ge=1, le=1_000_000, description="The same, per second."
+    )
     max_domains: int | None = Field(
         default=None,
         ge=1,
@@ -56,6 +66,8 @@ class ApplicationResource(BaseModel):
     workspace_probe: bool
     max_domains: int | None = Field(description="The application's limit; null for none.")
     live_domains: int = Field(description="Registered and not deleted domains.")
+    rate_limit_per_minute: int | None = Field(description="null for no limit")
+    rate_limit_per_second: int | None = Field(description="null for no limit")
     created_at: datetime
 
     @classmethod
@@ -69,6 +81,8 @@ class ApplicationResource(BaseModel):
             workspace_probe=application.workspace_probe_enabled,
             max_domains=application.max_domains,
             live_domains=live_domains,
+            rate_limit_per_minute=application.rate_limit_per_minute,
+            rate_limit_per_second=application.rate_limit_per_second,
             created_at=application.created_at,
         )
 
