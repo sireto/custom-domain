@@ -106,6 +106,9 @@ All paths are under `/operator/v1`; errors use the v1 envelope
 | `POST /applications/{slug}/origins/{id}/verify` `{activate?}` | verify (and by default activate); `422 origin_verification_failed` says why not | `origin verify --activate` |
 | `POST /applications/{slug}/origins/{id}/activate`, `/retire` | route traffic to it, or stop | `origin activate`, `origin retire` |
 | `DELETE /applications/{slug}/origins/{id}` | delete one that carries no traffic | `origin delete` |
+| `GET /applications/{slug}/assertion-keys` | the application id, the key signing now (`null` while the deployment key signs) and its keys, never their secrets | `assertion-key list` |
+| `POST /applications/{slug}/assertion-keys` `{activate_in_hours?}` | issue the application's next assertion key; it signs from `activate_in_hours` (default 24) from now; the response carries `secret` once | `assertion-key issue` |
+| `POST /applications/{slug}/assertion-keys/{key_id}/revoke` | stop signing with it now; the previous key, or the deployment key, takes over | `assertion-key revoke` |
 | `GET /applications/{slug}/credentials` | list (never the keys) | `credential list` |
 | `POST /applications/{slug}/credentials` `{label, expires_in_days?}` | issue; the response carries `secret` once | `credential issue` |
 | `POST /applications/{slug}/credentials/{id}/rotate` `{grace_hours?}` | replace, the old one expiring after the overlap | `credential rotate` |

@@ -47,6 +47,34 @@
 </div>
 
 <div class="card">
+  <div class="card-head"><div><h2>Assertion key</h2><p>The edge signs every request it sends to the origin. The origin verifies that signature with this application's key, and checks the application id <span class="copy-inline">{{ application.id }}</span>. {% if assertion_signing %}This application signs with its own key <code>{{ assertion_signing.key_id }}</code>.{% else %}This application is signed with the deployment's key (<code>EDGE_ASSERTION_KEYS</code>). Give it its own key when other parties' applications share this deployment.{% endif %}</p></div></div>
+  {% if assertion_secret %}
+  <div class="card-body"><div class="secret">
+    <b>Copy the secret of key {{ assertion_key.key_id }} now. It is shown only once.</b>
+    {{ ui.copy(assertion_secret) }}
+    <div class="hint" style="color:var(--fg-2)">Add it to the origin's keyring under the id <code>{{ assertion_key.key_id }}</code>, next to the key it uses now. It starts signing {{ ui.when(assertion_key.active_from) }}.</div>
+  </div></div>
+  {% endif %}
+  {% if assertion_keys %}
+  <div class="table-wrap"><table>
+    <tr><th>Key id</th><th>Status</th><th>Signs from</th><th></th></tr>
+    {% for key, state in assertion_keys %}<tr>
+      <td><code>{{ key.key_id }}</code></td>
+      <td>{{ ui.badge({'signing': {'tone': 'ok', 'label': 'Signing'}, 'next': {'tone': 'progress', 'label': 'Next'}, 'previous': {'tone': 'muted', 'label': 'Replaced'}, 'revoked': {'tone': 'muted', 'label': 'Revoked'}}[state]) }}</td>
+      <td class="small">{{ ui.when(key.active_from) }}</td>
+      <td class="num">{% if state != 'revoked' %}{{ ui.confirm('/portal/applications/' ~ application.slug ~ '/assertion-keys/' ~ key.key_id ~ '/revoke', csrf, 'Revoke', 'Stop signing with this key now. The previous key, or the deployment key, signs instead: make sure the origin holds it.', 'Revoke key') }}{% endif %}</td>
+    </tr>{% endfor %}
+  </table></div>
+  {% endif %}
+  <form method="post" action="/portal/applications/{{ application.slug }}/assertion-keys"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="card-body form-row">
+      <div class="grow"><label for="activate_in_hours">Starts signing</label><select id="activate_in_hours" name="activate_in_hours"><option value="24">In 24 hours, so the origin can add it first</option><option value="0">Now (the origin has no key yet)</option></select></div>
+      <div class="fixed"><button type="submit" class="btn-primary">Issue a key</button></div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
   <div class="card-head"><div><h2>Register an origin</h2><p>The host the edge connects to. It must be reachable from this server and serve your product for any workspace.</p></div></div>
   <form method="post" action="/portal/applications/{{ application.slug }}/origins"><input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="card-body form-row">

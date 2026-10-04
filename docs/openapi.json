@@ -292,6 +292,107 @@
         "title": "ApplicationUpdate",
         "type": "object"
       },
+      "AssertionKeyCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "activate_in_hours": {
+            "default": 24,
+            "description": "When the key starts signing. Add it to the origin's keyring before then; 0 signs at once, which suits an application whose origin has no key yet.",
+            "maximum": 720.0,
+            "minimum": 0.0,
+            "title": "Activate In Hours",
+            "type": "number"
+          }
+        },
+        "title": "AssertionKeyCreate",
+        "type": "object"
+      },
+      "AssertionKeyResource": {
+        "properties": {
+          "active_from": {
+            "format": "date-time",
+            "title": "Active From",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "key_id": {
+            "description": "The id in the assertion: v1.<key id>.<payload>.<mac>.",
+            "title": "Key Id",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "state": {
+            "enum": [
+              "signing",
+              "next",
+              "previous",
+              "revoked"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_id",
+          "state",
+          "active_from",
+          "created_at",
+          "revoked_at"
+        ],
+        "title": "AssertionKeyResource",
+        "type": "object"
+      },
+      "AssertionKeys": {
+        "properties": {
+          "application_id": {
+            "description": "The assertion's `app`: the id the origin compares with its own.",
+            "format": "uuid",
+            "title": "Application Id",
+            "type": "string"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/AssertionKeyResource"
+            },
+            "title": "Keys",
+            "type": "array"
+          },
+          "signing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The key id signing now, or null while the deployment key signs.",
+            "title": "Signing"
+          }
+        },
+        "required": [
+          "application_id",
+          "signing",
+          "keys"
+        ],
+        "title": "AssertionKeys",
+        "type": "object"
+      },
       "CheckResult": {
         "properties": {
           "error_code": {
@@ -976,6 +1077,68 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "NewAssertionKey": {
+        "properties": {
+          "active_from": {
+            "format": "date-time",
+            "title": "Active From",
+            "type": "string"
+          },
+          "application_id": {
+            "format": "uuid",
+            "title": "Application Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "key_id": {
+            "description": "The id in the assertion: v1.<key id>.<payload>.<mac>.",
+            "title": "Key Id",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "secret": {
+            "description": "The signing secret. Shown once; give it to the origin.",
+            "title": "Secret",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "signing",
+              "next",
+              "previous",
+              "revoked"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_id",
+          "state",
+          "active_from",
+          "created_at",
+          "revoked_at",
+          "application_id",
+          "secret"
+        ],
+        "title": "NewAssertionKey",
         "type": "object"
       },
       "NewCredential": {
@@ -2143,6 +2306,294 @@
           }
         ],
         "summary": "Update Application",
+        "tags": [
+          "Operator"
+        ]
+      }
+    },
+    "/operator/v1/applications/{slug}/assertion-keys": {
+      "get": {
+        "description": "The application's own assertion keys (no secrets), and which one signs now.",
+        "operationId": "list_assertion_keys_operator_v1_applications__slug__assertion_keys_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssertionKeys"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or wrong operator token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client address may not use it."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or the operator API is off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many failed tokens from this client."
+          }
+        },
+        "security": [
+          {
+            "OperatorToken": []
+          }
+        ],
+        "summary": "List Assertion Keys",
+        "tags": [
+          "Operator"
+        ]
+      },
+      "post": {
+        "description": "Issue the application's next assertion key; the secret is in this response only.",
+        "operationId": "issue_assertion_key_operator_v1_applications__slug__assertion_keys_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AssertionKeyCreate"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewAssertionKey"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or wrong operator token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client address may not use it."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or the operator API is off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many failed tokens from this client."
+          }
+        },
+        "security": [
+          {
+            "OperatorToken": []
+          }
+        ],
+        "summary": "Issue Assertion Key",
+        "tags": [
+          "Operator"
+        ]
+      }
+    },
+    "/operator/v1/applications/{slug}/assertion-keys/{key_id}/revoke": {
+      "post": {
+        "description": "Stop signing with a key now; the previous key, or the deployment key, takes over.",
+        "operationId": "revoke_assertion_key_operator_v1_applications__slug__assertion_keys__key_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "title": "Key Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssertionKeyResource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or wrong operator token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client address may not use it."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or the operator API is off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many failed tokens from this client."
+          }
+        },
+        "security": [
+          {
+            "OperatorToken": []
+          }
+        ],
+        "summary": "Revoke Assertion Key",
         "tags": [
           "Operator"
         ]

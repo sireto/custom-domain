@@ -33,8 +33,8 @@ from app.models import ApplicationStatus
 from app.models.types import utcnow
 from app.operator import schemas
 from app.services import applications as app_service
+from app.services import assertion_keys, operator_token, traffic
 from app.services import domains as domain_service
-from app.services import operator_token, traffic
 from app.services.errors import RateLimited
 from app.services.origin_verification import (
     OriginVerificationFailed,
@@ -325,6 +325,64 @@ def delete_origin(slug: str, origin_id: uuid.UUID, db: DbSession) -> Response:
 
 
 # --- credentials --------------------------------------------------------------------
+
+
+def _assertion_key(key, signing, now) -> schemas.AssertionKeyResource:
+    return schemas.AssertionKeyResource(
+        key_id=key.key_id,
+        state=assertion_keys.key_state(key, signing, now),
+        active_from=key.active_from,
+        created_at=key.created_at,
+        revoked_at=key.revoked_at,
+    )
+
+
+@router.get("/applications/{slug}/assertion-keys", dependencies=[Operator])
+def list_assertion_keys(slug: str, db: DbSession) -> schemas.AssertionKeys:
+    """The application's own assertion keys (no secrets), and which one signs now."""
+    application = _application(db, slug)
+    now = utcnow()
+    signing = assertion_keys.signing_key(db, application.id, now=now)
+    return schemas.AssertionKeys(
+        application_id=application.id,
+        signing=signing.key_id if signing else None,
+        keys=[_assertion_key(k, signing, now) for k in assertion_keys.list_keys(db, application)],
+    )
+
+
+@router.post(
+    "/applications/{slug}/assertion-keys",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Operator],
+)
+def issue_assertion_key(
+    request: Request, slug: str, db: DbSession, body: schemas.AssertionKeyCreate | None = None
+) -> schemas.NewAssertionKey:
+    """Issue the application's next assertion key; the secret is in this response only."""
+    body = body or schemas.AssertionKeyCreate()
+    application = _application(db, slug)
+    key, secret = assertion_keys.issue_key(
+        db, application, activate_in=timedelta(hours=body.activate_in_hours)
+    )
+    db.commit()
+    request.state.operator_target = f"assertion_key:{key.key_id}"  # the id, never the secret
+    now = utcnow()
+    signing = assertion_keys.signing_key(db, application.id, now=now)
+    return schemas.NewAssertionKey(
+        **_assertion_key(key, signing, now).model_dump(),
+        application_id=application.id,
+        secret=secret,
+    )
+
+
+@router.post("/applications/{slug}/assertion-keys/{key_id}/revoke", dependencies=[Operator])
+def revoke_assertion_key(slug: str, key_id: str, db: DbSession) -> schemas.AssertionKeyResource:
+    """Stop signing with a key now; the previous key, or the deployment key, takes over."""
+    application = _application(db, slug)
+    key = assertion_keys.revoke_key(db, application, key_id)
+    db.commit()
+    now = utcnow()
+    return _assertion_key(key, assertion_keys.signing_key(db, application.id, now=now), now)
 
 
 @router.get("/applications/{slug}/credentials", dependencies=[Operator])

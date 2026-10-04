@@ -149,3 +149,25 @@ class ApiCredential(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         not_revoked = self.revoked_at is None
         not_expired = self.expires_at is None or self.expires_at > now
         return not_revoked and not_expired
+
+
+class AssertionKey(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """An application's own key for the edge's signed assertion (docs/edge-routing.md).
+
+    The edge signs an application's requests with its newest key whose
+    ``active_from`` has passed, and with the deployment's EDGE_ASSERTION_KEYS
+    while it has none. Several applications on one deployment then cannot
+    forge each other's assertions. The secret is stored to sign with, like a
+    webhook signing secret, and shown once when issued.
+    """
+
+    __tablename__ = "assertion_keys"
+
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # The id in the assertion (``v1.<key id>...``); origins look the secret up by it.
+    key_id: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    secret: Mapped[str] = mapped_column(String(128), nullable=False)
+    active_from: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

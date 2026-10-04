@@ -26,6 +26,7 @@ Status: implemented for issue #4. Later issues build on it: #1 (API), #2
 | --- | --- | --- |
 | `applications` | One SaaS product. The tenant boundary. Holds the application-specific CNAME target customers point at. | unique `slug` |
 | `verified_origins` | Where the application's traffic is proxied. Verification and activation are separate steps. | unique `(application_id, scheme, host, port)`; partial unique on `application_id` where `is_active`, so one active origin per application |
+| `assertion_keys` | An application's own keys for the edge's signed assertion. The secret is stored to sign with, like a webhook secret, and shown once at issue time. The newest key whose `active_from` has passed signs; without one, the deployment key does. | unique `key_id` (always `app_…`) |
 | `api_credentials` | Application-scoped secrets. Only the SHA-256 of the random secret is stored; the plaintext is shown once at issue time. `key_prefix` is a non-secret identifier for logs. Revocable and optionally expiring. | unique `key_hash` |
 | `domains` | A customer hostname registered by one application for one opaque workspace `reference`. | partial unique on `hostname` where `deleted_at IS NULL`; FK to application is `RESTRICT` |
 | `ownership_claims` | The TXT token and CNAME target a customer must publish. `verification_method` is `dns_txt` or `legacy_import`. | unique `token`; partial unique on `domain_id` where `status <> 'revoked'`, so one live claim per domain |
