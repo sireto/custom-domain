@@ -134,6 +134,12 @@ operator API (`rate_limit_per_minute` and `rate_limit_per_second`).
 - **Where it's counted:** in each edge instance's memory, so with several
   edge instances each counts on its own.
 - **When it applies:** on the next reconcile, within a minute.
+- **Upgrade the edge first.** The limit needs the module in the edge's
+  Caddy, which images from this release on include. The api, worker and
+  edge share one image and normally upgrade together. If a limit is set
+  while an older edge is still running, Caddy refuses the configuration and
+  every reconcile fails until the edge is upgraded; lifting the limit
+  recovers at once.
 
 ### An application's traffic
 
