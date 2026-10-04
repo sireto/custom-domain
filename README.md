@@ -269,15 +269,6 @@ certificate store across the change.
 
 [https://github.com/sireto/custom-domain](https://github.com/sireto/custom-domain)
 
-## Paid version and support
+## Support
 
-Don't want to host it yourself? We do it for you. The paid version includes:
-
-- Unlimited domains
-- A dedicated IP address
-- 20TB of free traffic
-- Webserver with 2GB RAM, 1vCPU
-- Email support
-
-**Price: $20 / month** <br/>
-**Contact: info@sireto.com**
+Questions, or help with a deployment: info@sireto.com
