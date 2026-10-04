@@ -17,7 +17,6 @@ edge forwards again). Failed tokens are throttled per client like v1.
 
 from __future__ import annotations
 
-import hmac
 import logging
 import uuid
 from datetime import timedelta
@@ -35,6 +34,7 @@ from app.models.types import utcnow
 from app.operator import schemas
 from app.services import applications as app_service
 from app.services import domains as domain_service
+from app.services import operator_token
 from app.services.errors import RateLimited
 from app.services.origin_verification import (
     OriginVerificationFailed,
@@ -85,6 +85,7 @@ def operator_token_from_env(env) -> str | None:
 def require_operator(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+    db: DbSession,
 ) -> None:
     token = getattr(request.app.state, "operator_token", None)
     if token is None:
@@ -107,10 +108,11 @@ def require_operator(
                 retry_after=wait,
             )
     given = credentials.credentials if credentials else ""
+    # A token set through PUT /operator/v1/token replaces the env one.
     if not (
         credentials
         and credentials.scheme.lower() == "bearer"
-        and hmac.compare_digest(given.encode(), token.encode())
+        and operator_token.matches(db, given, token)
     ):
         if client is not None:
             limiter.record_failure(client)
@@ -360,6 +362,26 @@ def delete_credential(slug: str, credential_id: uuid.UUID, db: DbSession) -> Res
 
 
 # --- health --------------------------------------------------------------------------
+
+
+@router.put(
+    "/token",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Operator],
+    summary="Replace the operator token",
+    description=(
+        "Sets a new operator token, effective at once on every API instance. Only its "
+        "SHA-256 is stored, and the previous token (including `OPERATOR_API_TOKEN`) stops "
+        "working. Use it to retire a token that was handed out at install time. "
+        "`custom-domain operator reset-token` on the host makes `OPERATOR_API_TOKEN` "
+        "valid again."
+    ),
+)
+def set_operator_token(request: Request, body: schemas.OperatorTokenSet, db: DbSession) -> Response:
+    request.state.operator_target = "operator-token"
+    operator_token.set_token(db, body.token)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/doctor", dependencies=[Operator])

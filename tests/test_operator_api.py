@@ -273,3 +273,63 @@ def test_a_crashing_operator_call_is_still_audited(session_factory, session, mon
         assert client.get("/operator/v1/applications", headers=AUTH).status_code == 500
     lines = [r.getMessage() for r in caplog.records if r.name == "app.operator.audit"]
     assert lines == ["GET /operator/v1/applications 500 target=- client=10.0.0.5"], lines
+
+
+NEW = "rotated-token-abcdefghijklmnopqrstuvwxyz-0123456789"
+
+
+def test_the_token_can_be_replaced_through_the_api(session_factory, session, monkeypatch, caplog):
+    import logging
+
+    app = make_app(session_factory, monkeypatch, OPERATOR_ALLOWED_IPS="93.184.216.34")
+    base = "/operator/v1"
+    with (
+        TestClient(app, client=("10.0.0.5", 1000)) as client,
+        caplog.at_level(logging.INFO, logger="app.operator.audit"),
+    ):
+        assert client.get(f"{base}/applications", headers=AUTH).status_code == 200
+        bad = client.put(f"{base}/token", json={"token": "short"}, headers=AUTH)
+        assert bad.status_code == 422
+        odd = client.put(f"{base}/token", json={"token": "x" * 31 + " ;rm"}, headers=AUTH)
+        assert odd.status_code == 422 and odd.json()["error"]["code"] == "invalid_operator_token"
+        assert client.put(f"{base}/token", json={"token": NEW}).status_code == 401
+
+        done = client.put(f"{base}/token", json={"token": NEW}, headers=AUTH)
+        assert done.status_code == 204
+        # The install-time token is worthless now; the new one works.
+        assert client.get(f"{base}/applications", headers=AUTH).status_code == 401
+        new_auth = {"Authorization": f"Bearer {NEW}"}
+        assert client.get(f"{base}/applications", headers=new_auth).status_code == 200
+        # Rotating again needs the current token.
+        again = "again-" + NEW
+        assert (
+            client.put(f"{base}/token", json={"token": again}, headers=new_auth).status_code == 204
+        )
+        assert client.get(f"{base}/applications", headers=new_auth).status_code == 401
+    # Neither token is ever logged, and only a hash is stored.
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert NEW not in logged and TOKEN not in logged and "PUT /operator/v1/token 204" in logged
+    from app.models import OperatorToken
+
+    with session_factory() as s:
+        [row] = s.query(OperatorToken).all()
+        assert row.token_hash != again and len(row.token_hash) == 64
+
+
+def test_reset_token_brings_back_the_env_token(session_factory, session, monkeypatch, capsys):
+    from app import cli
+    from app.services import operator_token
+
+    with session_factory() as s:
+        operator_token.set_token(s, NEW)
+        s.commit()
+    monkeypatch.setattr(cli, "get_session_factory", lambda: session_factory)
+    assert cli.main(["operator", "token-status"]) == 0
+    assert "set through the API" in capsys.readouterr().out
+    assert cli.main(["operator", "reset-token"]) == 0
+    assert "OPERATOR_API_TOKEN works again" in capsys.readouterr().out
+    app = make_app(session_factory, monkeypatch, OPERATOR_ALLOWED_IPS="93.184.216.34")
+    with TestClient(app, client=("10.0.0.5", 1000)) as client:
+        assert client.get("/operator/v1/applications", headers=AUTH).status_code == 200
+    assert cli.main(["operator", "reset-token"]) == 0
+    assert "no token was set" in capsys.readouterr().out

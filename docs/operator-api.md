@@ -29,6 +29,24 @@ Callers send it as `Authorization: Bearer <token>`. The token has the same
 power as the `custom-domain` command: keep it in a secret store and rotate it
 by changing the value and restarting.
 
+## Rotating the token
+
+`PUT /operator/v1/token` with `{"token": "<new token>"}`, authenticated with
+the current token, replaces it without editing `.env` or restarting.
+
+- **Every instance at once:** only the new token's SHA-256 is stored, in
+  the database, so every API instance accepts the new token immediately.
+- **The old token stops working,** including `OPERATOR_API_TOKEN`. This
+  retires a token handed out at install time, for example in cloud-init
+  user data, which a cloud's metadata service keeps serving for the
+  server's whole life.
+- **The new token** must be 32 to 256 characters of letters, digits and
+  `. _ ~ + / = -`.
+- **Logging:** neither token is ever logged.
+- **On the host:** `custom-domain operator token-status` says which token
+  is in force. `custom-domain operator reset-token` forgets the rotated
+  one, so `OPERATOR_API_TOKEN` works again, if the new token is lost.
+
 ## Reaching it
 
 - **On the API's own port** (`127.0.0.1:9000` of the host in the production
@@ -61,6 +79,7 @@ All paths are under `/operator/v1`; errors use the v1 envelope
 
 | Method and path | Does | Command equivalent |
 |---|---|---|
+| `PUT /token` `{token}` | replace the operator token (see above) | `operator reset-token` undoes it |
 | `GET /applications` | list | `application list` |
 | `POST /applications` `{slug, name, cname_target?}` | create (`cname_target` defaults to `EDGE_HOSTNAME`) | `application create` |
 | `GET /applications/{slug}` | read; includes `max_domains` (the limit, or null) and `live_domains` | |

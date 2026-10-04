@@ -37,6 +37,7 @@ from app.services.errors import (
     ServiceError,
 )
 from app.services.idempotency import IdempotencyInProgress, IdempotencyKeyReused
+from app.services.operator_token import InvalidOperatorToken
 from app.services.webhooks import DeliveryNotFound, InvalidWebhook, WebhookNotFound
 
 
@@ -81,6 +82,7 @@ SERVICE_ERROR_STATUS: list[tuple[type[ServiceError], int]] = [
     (ApplicationAlreadyExists, 409),
     (ApplicationNotEmpty, 409),
     (InvalidApplication, 422),
+    (InvalidOperatorToken, 422),
     (ConfirmationMismatch, 422),
     (CredentialNotFound, 404),
     (CredentialInUse, 409),
