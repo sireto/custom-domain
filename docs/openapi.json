@@ -153,6 +153,40 @@
         "title": "ApplicationResource",
         "type": "object"
       },
+      "ApplicationTrafficResource": {
+        "properties": {
+          "application": {
+            "title": "Application",
+            "type": "string"
+          },
+          "days": {
+            "description": "Oldest first; today is last and partial.",
+            "items": {
+              "$ref": "#/components/schemas/TrafficDayResource"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "requests": {
+            "description": "Total over the days listed.",
+            "title": "Requests",
+            "type": "integer"
+          },
+          "response_bytes": {
+            "description": "Total over the days listed.",
+            "title": "Response Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "application",
+          "days",
+          "requests",
+          "response_bytes"
+        ],
+        "title": "ApplicationTrafficResource",
+        "type": "object"
+      },
       "ApplicationUpdate": {
         "additionalProperties": false,
         "properties": {
@@ -1184,6 +1218,33 @@
           "requeued"
         ],
         "title": "ReplayResult",
+        "type": "object"
+      },
+      "TrafficDayResource": {
+        "properties": {
+          "date": {
+            "description": "A UTC day.",
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "requests": {
+            "description": "Proxied requests, including ones the edge refused.",
+            "title": "Requests",
+            "type": "integer"
+          },
+          "response_bytes": {
+            "description": "Response body bytes sent to clients.",
+            "title": "Response Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "requests",
+          "response_bytes"
+        ],
+        "title": "TrafficDayResource",
         "type": "object"
       },
       "ValidationError": {
@@ -3153,6 +3214,108 @@
           }
         ],
         "summary": "Verify Origin Endpoint",
+        "tags": [
+          "Operator"
+        ]
+      }
+    },
+    "/operator/v1/applications/{slug}/traffic": {
+      "get": {
+        "description": "The application's proxied requests and response bytes per day, counted at the edge.",
+        "operationId": "application_traffic_operator_v1_applications__slug__traffic_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "description": "UTC days, today included.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "UTC days, today included.",
+              "maximum": 400,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationTrafficResource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or wrong operator token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client address may not use it."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or the operator API is off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many failed tokens from this client."
+          }
+        },
+        "security": [
+          {
+            "OperatorToken": []
+          }
+        ],
+        "summary": "Application Traffic",
         "tags": [
           "Operator"
         ]

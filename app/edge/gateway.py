@@ -7,7 +7,9 @@ exposes exactly:
 * ``GET /config/`` and ``GET /config/apps``: the running ``apps`` subtree
   (never ``admin`` or ``storage``);
 * ``POST /config/apps``: replace the ``apps`` subtree, after validating that
-  the payload has the shape the reconciler produces and nothing else.
+  the payload has the shape the reconciler produces and nothing else;
+* ``GET /metrics``: each edge hostname's request and response byte totals,
+  and nothing else of Caddy's metrics (``app/edge/traffic.py``).
 
 Everything else is 404, including ``/load``. Validation is structural and
 strict: the only handlers allowed are the header strip, the assert
@@ -335,6 +337,21 @@ def create_gateway_app(
     @app.get("/config/apps")
     def get_apps() -> Response:
         return _json(200, running_apps())
+
+    @app.get("/metrics")
+    def get_metrics() -> Response:
+        from app.edge.traffic import parse_totals, render_totals
+
+        try:
+            upstream = client.get("/metrics")
+        except httpx.HTTPError:
+            return _json(502, {"error": "Caddy metrics unavailable"})
+        if upstream.status_code != 200:
+            return _json(502, {"error": "Caddy metrics unavailable"})
+        return Response(
+            content=render_totals(parse_totals(upstream.text)),
+            media_type="text/plain; version=0.0.4",
+        )
 
     @app.post("/config/apps")
     async def set_apps(request: Request) -> Response:

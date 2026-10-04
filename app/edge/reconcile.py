@@ -2,9 +2,11 @@
 
 The reconciler reads the authoritative state, builds the desired
 configuration, and replaces Caddy's configuration only when it differs. It
-never writes to the database, so a failed or rejected update cannot corrupt
-domain state; Caddy keeps its last good configuration and the next run
-retries. It runs at startup, on a timer, and after mutations that change the
+never writes domain state, so a failed or rejected update cannot corrupt it;
+Caddy keeps its last good configuration and the next run retries. The only
+rows it writes are the traffic counts it reads from the edge on every run,
+just before a new configuration restarts Caddy's counters
+(``app/services/traffic.py``). It runs at startup, on a timer, and after mutations that change the
 route set.
 """
 
@@ -26,6 +28,7 @@ from app.edge.config import app_route_count, build_apps, config_digest, hostname
 from app.edge.lock import acquire_reconcile_lock
 from app.edge.settings import EdgeSettings
 from app.models.types import utcnow
+from app.services import traffic
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +106,34 @@ class Reconciler:
             except Exception as exc:
                 session.rollback()
                 return ReconcileResult(now, False, "none", 0, 0, "database_unavailable", str(exc))
+            self._read_traffic(session, now)
             try:
-                return self._apply(desired, now)
+                result = self._apply(desired, now)
+                if result.changed:
+                    self._traffic_step(session, traffic.reset_baselines)
+                return result
             finally:
-                session.commit()  # releases the lock; nothing else to persist
+                session.commit()  # releases the lock and keeps the traffic counts
+
+    def _read_traffic(self, session: Session, now: datetime) -> None:
+        try:
+            totals = self.client.traffic()
+        except CaddyError as exc:
+            logger.warning("could not read edge traffic: %s", exc)
+            return
+        except Exception:  # traffic must never stop the edge from converging
+            logger.exception("could not read edge traffic")
+            return
+        if totals is not None:
+            self._traffic_step(session, lambda s: traffic.record_totals(s, totals, now=now))
+
+    def _traffic_step(self, session: Session, step: Callable[[Session], Any]) -> None:
+        """Run ``step`` in a savepoint; a failure loses only these counts."""
+        try:
+            with session.begin_nested():
+                step(session)
+        except Exception:
+            logger.exception("could not record edge traffic")
 
     def _apply(self, desired: dict[str, Any], now: datetime) -> ReconcileResult:
         digest = config_digest(desired)

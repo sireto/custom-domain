@@ -14,12 +14,14 @@ from app.models.enums import (
 )
 from app.models.idempotency import IdempotencyKey
 from app.models.operator import OperatorToken
+from app.models.traffic import ApplicationTraffic, EdgeTrafficCounter
 from app.models.webhook import WebhookDelivery, WebhookSubscription
 
 __all__ = [
     "ApiCredential",
     "Application",
     "ApplicationStatus",
+    "ApplicationTraffic",
     "CheckStatus",
     "CheckType",
     "ClaimStatus",
@@ -28,6 +30,7 @@ __all__ = [
     "DomainEvent",
     "DomainStatus",
     "EdgeLock",
+    "EdgeTrafficCounter",
     "EventType",
     "IdempotencyKey",
     "OperatorToken",

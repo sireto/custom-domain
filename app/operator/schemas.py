@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date as date_type
 from datetime import datetime
 from typing import Literal
 
@@ -85,6 +86,19 @@ class ApplicationResource(BaseModel):
             rate_limit_per_second=application.rate_limit_per_second,
             created_at=application.created_at,
         )
+
+
+class TrafficDayResource(BaseModel):
+    date: date_type = Field(description="A UTC day.")
+    requests: int = Field(description="Proxied requests, including ones the edge refused.")
+    response_bytes: int = Field(description="Response body bytes sent to clients.")
+
+
+class ApplicationTrafficResource(BaseModel):
+    application: str
+    days: list[TrafficDayResource] = Field(description="Oldest first; today is last and partial.")
+    requests: int = Field(description="Total over the days listed.")
+    response_bytes: int = Field(description="Total over the days listed.")
 
 
 class ApplicationDeleted(BaseModel):

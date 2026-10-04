@@ -71,5 +71,25 @@ class CaddyClient:
         if response.status_code >= 400:
             raise CaddyRejectedConfig(response.status_code, response.text)
 
+    def traffic(self) -> dict[str, tuple[int, int]] | None:
+        """Each hostname's (requests, response bytes) since Caddy last reset them.
+
+        None when the admin endpoint offers no metrics (a gateway older than
+        this release).
+        """
+        from app.edge.traffic import parse_totals
+
+        try:
+            response = self._client.get("/metrics")
+        except httpx.HTTPError as exc:
+            raise CaddyUnavailable(
+                f"Cannot reach Caddy admin API at {self.admin_url}: {exc}"
+            ) from exc
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200:
+            raise CaddyUnavailable(f"Caddy admin API returned {response.status_code} for /metrics")
+        return parse_totals(response.text)
+
     def close(self) -> None:
         self._client.close()

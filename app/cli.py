@@ -131,6 +131,12 @@ def _build_parser() -> argparse.ArgumentParser:
     rates.add_argument("--per-minute", type=int, help="requests per minute; omit for none")
     rates.add_argument("--per-second", type=int, help="requests per second; omit for none")
     rates.set_defaults(func=_application_set_rate_limit)
+    usage = application.add_parser(
+        "traffic", help="an application's proxied requests and response bytes per day"
+    )
+    usage.add_argument("--application", required=True)
+    usage.add_argument("--days", type=int, default=30, help="UTC days, today included")
+    usage.set_defaults(func=_application_traffic)
     remove = application.add_parser(
         "delete",
         help="delete an application and its domains; keys and webhooks are revoked, origins "
@@ -726,6 +732,22 @@ def _application_set_rate_limit(args) -> int:
         ]
         what = " and ".join(parts) if parts else "no limit"
         print(f"{application.slug}: proxied requests limited to {what} (next reconcile)")
+    return 0
+
+
+def _application_traffic(args) -> int:
+    from app.services import traffic
+
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        rows = traffic.application_traffic(session, application, days=args.days)
+    print(f"{'DATE':<12}{'REQUESTS':>14}{'SENT':>12}")
+    for row in rows:
+        sent = traffic.human_bytes(row.response_bytes)
+        print(f"{row.day.isoformat():<12}{row.requests:>14,}{sent:>12}")
+    total = sum(row.requests for row in rows)
+    sent = traffic.human_bytes(sum(row.response_bytes for row in rows))
+    print(f"{'total':<12}{total:>14,}{sent:>12}")
     return 0
 
 

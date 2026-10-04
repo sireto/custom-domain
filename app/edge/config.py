@@ -454,6 +454,10 @@ def build_apps(session: Session, settings: EdgeSettings) -> dict[str, Any]:
 def http_app(settings: EdgeSettings, routes: list[dict[str, Any]]) -> dict[str, Any]:
     """The ``http`` app: the edge server plus the ports Caddy uses for automatic HTTPS."""
     http: dict[str, Any] = {"servers": {SERVER_NAME: _server(settings, routes)}}
+    # Per-hostname request and byte counts, read by the reconciler for each
+    # application's traffic (app/edge/traffic.py). Hostnames Caddy is not
+    # configured for share one "_other" label, so the label set stays bounded.
+    http["metrics"] = {"per_host": True}
     if settings.http_port != 80:
         http["http_port"] = settings.http_port
     if settings.https_port != 443:

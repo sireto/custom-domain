@@ -135,6 +135,38 @@ operator API (`rate_limit_per_minute` and `rate_limit_per_second`).
   edge instances each counts on its own.
 - **When it applies:** on the next reconcile, within a minute.
 
+### An application's traffic
+
+The edge counts each application's proxied requests and the response bytes
+it sent, per UTC day, across all the application's hostnames:
+
+```
+custom-domain application traffic --application acme             # the last 30 days
+custom-domain application traffic --application acme --days 90
+```
+
+The same counts are on the application's Traffic page in the portal and in
+the operator API (`GET /operator/v1/applications/{slug}/traffic?days=30`).
+- **What's counted:** every request to one of the application's hostnames,
+  including the ones the edge refused (`429` over a request limit, `403`
+  without an assertion), and the bytes of each response body.
+- **How:** Caddy counts per hostname (`metrics.per_host` in the edge
+  configuration). The gateway passes on only those totals (`GET /metrics`).
+  The reconciler reads them on every run, about once a minute, and adds the
+  increase to the day of the application that owns each hostname. Hostnames
+  without a live domain are not counted for anyone.
+- **What's lost:** Caddy restarts its counters whenever its configuration
+  changes. The reconciler reads them just before it applies a new
+  configuration, so only the requests in between are lost. After a restart
+  of the edge, the requests since the last reading are not counted.
+- **How long it's kept:** 400 days. Purging an application removes its
+  counts.
+- **One edge per database:** the stored readings are per hostname, so with
+  several edge instances behind one database, each instance's readings would
+  overwrite the others'.
+- **Needs this release on the edge too:** an older gateway has no
+  `GET /metrics`, and nothing is counted until it is upgraded.
+
 ## Reconciliation
 
 Caddy starts from a bootstrap configuration (admin listener on
@@ -302,7 +334,7 @@ The container runs two processes under two system users (see
 | Certificate store `/var/lib/custom-domain/caddy` (file storage) | owner, mode 0700 | no direct file access |
 | `/etc/caddy/bootstrap.json` (storage credentials) | owner, mode 0600 | no direct file access |
 | `CADDY_REDIS_PASSWORD`, `CADDY_REDIS_ENCRYPTION_KEY`, `CADDY_REDIS_USERNAME`, `CADDY_REDIS_TLS_SERVER_CERTS_PEM` | in environment | removed from environment |
-| Caddy admin API `localhost:2019` | serves it | reachable; used for `GET /config/` and `POST /config/apps` |
+| Caddy admin API `localhost:2019` | serves it | reachable; used for `GET /config/`, `GET /metrics` and `POST /config/apps` |
 | Database | no access | full access |
 
 What the separation gives: the API process cannot read key files or the

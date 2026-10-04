@@ -636,12 +636,32 @@ def _tab_settings(request, session, db, application, *, status=200, **extra):
     )
 
 
+def _tab_traffic(request, session, db, application, *, status=200, **extra):
+    from app.services import traffic
+
+    days = traffic.application_traffic(db, application, days=30)
+    return render(
+        request,
+        "app_traffic.html",
+        session,
+        status=status,
+        traffic_days=days,
+        traffic_requests=sum(d.requests for d in days),
+        traffic_sent=traffic.human_bytes(sum(d.response_bytes for d in days)),
+        traffic_peak=max(d.requests for d in days),
+        human_bytes=traffic.human_bytes,
+        **_app_context(db, application),
+        **extra,
+    )
+
+
 TABS = {
     "overview": _tab_overview,
     "domains": _tab_domains,
     "origins": _tab_origins,
     "credentials": _tab_credentials,
     "webhooks": _tab_webhooks,
+    "traffic": _tab_traffic,
     "settings": _tab_settings,
 }
 

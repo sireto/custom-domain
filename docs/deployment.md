@@ -32,7 +32,8 @@ reachable by nothing outside that container. The gateway
 (`custom-domain edge gateway`) listens on `:2019` and is what the reconciler
 talks to (`CADDY_ADMIN_URL=http://edge:2019`). It exposes only
 `GET /config/`, `GET /config/apps` (the `apps` subtree, never `admin` or
-`storage`) and `POST /config/apps`, and it accepts a `POST` only when the
+`storage`), `GET /metrics` (each edge hostname's request and response byte
+totals, and nothing else of Caddy's metrics) and `POST /config/apps`, and it accepts a `POST` only when the
 payload is exactly the reconciler's shape: the health and 404 routes, and
 per application a route whose handlers are the header strip, the assert
 subrequest to the configured upstream, and a `reverse_proxy` that dials an
