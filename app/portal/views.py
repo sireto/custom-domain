@@ -28,7 +28,8 @@ from app.portal import presenters
 from app.portal.auth import LoginLimiter, PortalSettings, Sessions, safe_next
 from app.services import applications as app_service
 from app.services import domains as domain_service
-from app.services.errors import ServiceError
+from app.services import limits
+from app.services.errors import InvalidApplication, ServiceError
 from app.services.origin_verification import (
     OriginVerificationFailed,
     allow_private_from_env,
@@ -217,6 +218,7 @@ NOTICES = {
     "application_deleted": "Application deleted. Its hostnames are no longer served; their "
     "records and history are kept for 90 days, then purged.",
     "renamed": "Name saved.",
+    "domain_limit": "Domain limit saved.",
     "cname_target": "CNAME target saved. New domains get the new target.",
     "cname_target_reissued": "CNAME target saved and the DNS records of existing domains "
     "re-issued. Those domains wait for DNS until their customers publish the new records.",
@@ -465,6 +467,7 @@ def _app_context(db: Session, application) -> dict[str, Any]:
         "app_state": presenters.application_state(application),
         "tab_counts": {"domains": _live(counts)},
         "domain_counts": counts,
+        "limits": limits.usages(db, application),
         "p": presenters,
     }
 
@@ -771,6 +774,24 @@ def set_cname_target(
 
     ok = "cname_target_reissued" if reissue_claims else "cname_target"
     return _action(request, session, db, slug, csrf, act, tab="settings", ok=ok)
+
+
+@router.post("/applications/{slug}/domain-limit")
+def set_domain_limit(
+    request: Request,
+    slug: str,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+    max_domains: str = Form(""),
+):
+    def act(application):
+        raw = max_domains.strip()
+        if raw and not raw.isdigit():
+            raise InvalidApplication("The domain limit must be a whole number, or empty")
+        app_service.set_domain_limit(db, application, int(raw) if raw else None)
+
+    return _action(request, session, db, slug, csrf, act, tab="settings", ok="domain_limit")
 
 
 @router.post("/applications/{slug}/workspace-probe")

@@ -129,12 +129,18 @@ def _application(db: Session, slug: str):
     return app_service.get_application_by_slug(db, slug)
 
 
+def _resource(db: Session, application) -> schemas.ApplicationResource:
+    return schemas.ApplicationResource.of(
+        application, app_service.live_domain_count(db, application)
+    )
+
+
 # --- applications ------------------------------------------------------------------
 
 
 @router.get("/applications", dependencies=[Operator])
 def list_applications(db: DbSession) -> list[schemas.ApplicationResource]:
-    return [schemas.ApplicationResource.of(a) for a in app_service.list_applications(db)]
+    return [_resource(db, a) for a in app_service.list_applications(db)]
 
 
 @router.post("/applications", status_code=status.HTTP_201_CREATED, dependencies=[Operator])
@@ -157,12 +163,12 @@ def create_application(
         db, slug=body.slug, name=body.name, cname_target=target
     )
     db.commit()
-    return schemas.ApplicationResource.of(application)
+    return _resource(db, application)
 
 
 @router.get("/applications/{slug}", dependencies=[Operator])
 def get_application(slug: str, db: DbSession) -> schemas.ApplicationResource:
-    return schemas.ApplicationResource.of(_application(db, slug))
+    return _resource(db, _application(db, slug))
 
 
 @router.patch("/applications/{slug}", dependencies=[Operator])
@@ -180,8 +186,10 @@ def update_application(
         application.workspace_probe_enabled = body.workspace_probe
     if body.status is not None:
         app_service.set_application_status(db, application, ApplicationStatus(body.status))
+    if "max_domains" in body.model_fields_set:
+        app_service.set_domain_limit(db, application, body.max_domains)
     db.commit()
-    return schemas.ApplicationResource.of(application)
+    return _resource(db, application)
 
 
 @router.delete("/applications/{slug}", dependencies=[Operator])

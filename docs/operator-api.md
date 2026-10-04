@@ -56,8 +56,8 @@ All paths are under `/operator/v1`; errors use the v1 envelope
 |---|---|---|
 | `GET /applications` | list | `application list` |
 | `POST /applications` `{slug, name, cname_target?}` | create (`cname_target` defaults to `EDGE_HOSTNAME`) | `application create` |
-| `GET /applications/{slug}` | read | |
-| `PATCH /applications/{slug}` `{name?, cname_target?, reissue_claims?, workspace_probe?, status?}` | change | `application rename`, `set-cname-target`, `set-workspace-probe`, suspend or resume |
+| `GET /applications/{slug}` | read; includes `max_domains` (the limit, or null) and `live_domains` | |
+| `PATCH /applications/{slug}` `{name?, cname_target?, reissue_claims?, workspace_probe?, status?, max_domains?}` | change; `max_domains: null` removes the limit, omitting it leaves it unchanged | `application rename`, `set-cname-target`, `set-workspace-probe`, `set-domain-limit`, suspend or resume |
 | `DELETE /applications/{slug}?confirm={slug}&delete_domains=true` | delete (domains kept 90 days as tombstones) | `application delete` |
 | `GET /applications/{slug}/origins` | list | `origin list` |
 | `POST /applications/{slug}/origins` `{host, scheme?, port?}` | register; returns `verification_token` and `verification_url` | `origin register` |

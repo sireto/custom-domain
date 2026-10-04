@@ -27,7 +27,7 @@ from app.services.domains import (
     record_event,
     transition_status,
 )
-from app.services.errors import HostnameAlreadyClaimed
+from app.services.errors import DomainLimitReached, HostnameAlreadyClaimed
 
 LEGACY_IMPORT_METHOD = "legacy_import"
 MISSING_REFERENCE = "missing_reference"
@@ -135,6 +135,9 @@ def import_legacy_domains(
             domain = claim_domain(
                 session, application, hostname, reference, metadata=metadata, now=now
             )
+        except DomainLimitReached:
+            report.skipped.append((hostname, DomainLimitReached.code))
+            continue
         except HostnameAlreadyClaimed:
             live = find_live_by_hostname(session, hostname)
             if live is not None and live.application_id == application.id:

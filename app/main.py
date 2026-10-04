@@ -69,6 +69,11 @@ def _csv(name: str, default: str) -> list[str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.services.limits import deployment_limit
+
+    # Refuse to start with an unusable MAX_DOMAINS rather than fail every
+    # registration later.
+    deployment_limit()
     settings = EdgeSettings.from_env()
     app.state.edge_settings = settings
     stop = threading.Event()

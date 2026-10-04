@@ -23,6 +23,7 @@ from app.services import applications as app_service
 from app.services import domains as domain_service
 from app.services import idempotency
 from app.services.errors import ServiceError
+from app.services.limits import InvalidLimit
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -45,6 +46,11 @@ def main(argv: list[str] | None = None) -> int:
         return args.func(args) or 0
     except ServiceError as exc:
         print(f"error [{exc.code}]: {exc.message}", file=sys.stderr)
+        return 2
+    except InvalidLimit as exc:
+        # A malformed MAX_DOMAINS reaches only the commands that register
+        # domains; the others (doctor among them) keep working.
+        print(f"error [invalid_max_domains]: {exc}", file=sys.stderr)
         return 2
 
 
@@ -108,6 +114,15 @@ def _build_parser() -> argparse.ArgumentParser:
     rename.add_argument("--application", required=True)
     rename.add_argument("--name", required=True)
     rename.set_defaults(func=_application_rename)
+    limit = application.add_parser(
+        "set-domain-limit",
+        help="cap an application's live domains; existing domains are never affected",
+    )
+    limit.add_argument("--application", required=True)
+    limit_value = limit.add_mutually_exclusive_group(required=True)
+    limit_value.add_argument("--max", type=int, help="at most this many live domains")
+    limit_value.add_argument("--none", action="store_true", help="remove the limit")
+    limit.set_defaults(func=_application_set_domain_limit)
     remove = application.add_parser(
         "delete",
         help="delete an application and its domains; keys and webhooks are revoked, origins "
@@ -675,6 +690,25 @@ def _application_rename(args) -> int:
         app_service.rename_application(session, application, args.name)
         session.commit()
         print(f"renamed {application.slug} to {application.name!r}")
+    return 0
+
+
+def _application_set_domain_limit(args) -> int:
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        app_service.set_domain_limit(session, application, None if args.none else args.max)
+        session.commit()
+        live = app_service.live_domain_count(session, application)
+        if application.max_domains is None:
+            print(f"{application.slug}: no domain limit ({live} live)")
+        else:
+            cap = application.max_domains
+            print(f"{application.slug}: at most {cap} live domains ({live} now)")
+            if live >= application.max_domains:
+                print(
+                    "new registrations are refused until the count drops below the limit; "
+                    "existing domains keep working"
+                )
     return 0
 
 

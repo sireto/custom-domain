@@ -4,8 +4,9 @@ Each check answers one question an operator asks on the first day: can the
 API reach its database and are the migrations applied, is the edge gateway
 reachable, has a reconciler run recently (is the worker container up), can
 the edge reach the certificate authority, do the applications have a
-verified origin, and does traffic for their CNAME target arrive at this
-edge. Network calls are injectable so the checks are testable offline.
+verified origin, does traffic for their CNAME target arrive at this
+edge, and is any domain limit close to being reached. Network calls are
+injectable so the checks are testable offline.
 """
 
 from __future__ import annotations
@@ -144,6 +145,7 @@ def run_doctor(
         findings.extend(_edge_config_findings(session_factory, settings, fetch_json))
     if database_ok:
         findings.extend(_reconciler_findings(session_factory, settings, now))
+        findings.extend(_limit_findings(session_factory))
         findings.extend(
             _application_findings(session_factory, settings, dns_settings, resolve, probe_target)
         )
@@ -283,6 +285,49 @@ def _settings_findings(settings: EdgeSettings, dns_settings: DnsSettings) -> lis
             else " (no ACME_EMAIL set)"
         )
         findings.append(Finding("https", "ok", f"public certificates{account}"))
+    return findings
+
+
+def _limit_findings(session_factory: Callable[[], Session]) -> list[Finding]:
+    """Warn when live domains reach 80% of a limit; nothing when no limit is set."""
+    from app.services import limits
+
+    try:
+        deployment = limits.deployment_limit()
+    except limits.InvalidLimit as exc:
+        return [Finding("domain limits", "fail", f"{exc}; the API refuses to start")]
+    usages: list[tuple[str, int, int]] = []
+    with session_factory() as session:
+        if deployment is not None:
+            usages.append(("deployment", limits.live_domains(session), deployment))
+        for application in session.scalars(
+            select(Application)
+            .where(Application.deleted_at.is_(None), Application.max_domains.is_not(None))
+            .order_by(Application.slug)
+        ):
+            usages.append(
+                (
+                    f"application {application.slug}",
+                    limits.live_domains(session, application),
+                    application.max_domains,
+                )
+            )
+    if not usages:
+        return []
+    near = [u for u in usages if u[1] >= limits.WARN_AT * u[2]]
+    if not near:
+        summary = "; ".join(f"{scope} {live} of {cap}" for scope, live, cap in usages)
+        return [Finding("domain limits", "ok", summary)]
+    findings = []
+    for scope, live, cap in near:
+        if live >= cap:
+            detail = (
+                f"{scope} is at its limit: {live} of {cap} live domains. New registrations "
+                "are refused with domain_limit_reached; existing domains keep working"
+            )
+        else:
+            detail = f"{scope} is at {live} of {cap} live domains ({live * 100 // cap}%)"
+        findings.append(Finding("domain limits", "warn", detail))
     return findings
 
 
