@@ -88,7 +88,9 @@ one still waiting for DNS. Deleted domains (tombstones) do not count.
   application's Settings, and in the operator API as `max_domains`.
 - **Per deployment:** `MAX_DOMAINS=10000` in `deploy/.env` caps all
   applications together. Leave it unset for no limit. The API refuses to
-  start when it is not a whole number of at least 1.
+  start when it is not a whole number of at least 1. The installer
+  also takes `MAX_DOMAINS` as a setting, so an automated install can set it
+  from the start.
 
 At a limit, a new registration is refused with `409 domain_limit_reached`,
 and `details` says which limit (`scope`), the limit and the live count.

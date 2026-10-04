@@ -18,6 +18,13 @@ Set `OPERATOR_API_TOKEN` (at least 32 random characters, for example
 `openssl rand -hex 32`) in `deploy/.env` and restart the api and worker.
 Without it, or with a shorter value, every operator path answers 404.
 
+For an automated install, give `OPERATOR_API_TOKEN` and
+`OPERATOR_ALLOWED_IPS` to the installer, in the environment or in the
+cloud-init's `/etc/custom-domain-install.env`. It writes them to `.env`, and
+on an upgrade replaces them only when they are given again. The installer
+refuses a token shorter than 32 characters or containing characters other
+than letters, digits and `. _ ~ + / = -`, and never prints it.
+
 Callers send it as `Authorization: Bearer <token>`. The token has the same
 power as the `custom-domain` command: keep it in a secret store and rotate it
 by changing the value and restarting.
