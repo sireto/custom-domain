@@ -233,7 +233,7 @@ Every error has the same body:
 | 422 | `empty_hostname`, `wildcard_not_supported`, `ip_literal_not_supported`, `hostname_too_long`, `invalid_label`, `apex_not_supported`, `invalid_hostname` | The hostname cannot be registered. `details.field` is `hostname`. |
 | 422 | `invalid_reference` | The reference is empty or longer than 255 characters. |
 | 422 | `idempotency_key_reused` | The key was used with a different body within the last 24 hours. |
-| 429 | `rate_limited` | Too many manual rechecks for this domain or application, or too many requests with an invalid credential from the client's address (`V1_AUTH_FAILURES_PER_MINUTE`, default 30 a minute). `Retry-After` says how long to wait. |
+| 429 | `rate_limited` | Too many manual rechecks for this domain or application, too many requests with an invalid credential from the client's address (`V1_AUTH_FAILURES_PER_MINUTE`, default 30 a minute), or more requests with this credential than the deployment allows (`V1_REQUESTS_PER_MINUTE`, off by default; counted per credential in any 60 seconds). `Retry-After` says how long to wait. |
 | 403 | `application_suspended` | The application was suspended while the request ran. |
 
 ## Webhooks

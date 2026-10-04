@@ -153,9 +153,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     install_error_handlers(app)
-    from app.v1.throttle import FailedAuthLimiter
+    from app.v1.throttle import CredentialRateLimiter, FailedAuthLimiter
 
     app.state.v1_auth_limiter = FailedAuthLimiter.from_env()
+    app.state.v1_rate_limiter = CredentialRateLimiter.from_env()
     app.include_router(v1_router)
     app.include_router(internal_router)
     app.include_router(webhooks_router)
