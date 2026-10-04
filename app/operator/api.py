@@ -34,7 +34,7 @@ from app.models.types import utcnow
 from app.operator import schemas
 from app.services import applications as app_service
 from app.services import domains as domain_service
-from app.services import operator_token
+from app.services import operator_token, traffic
 from app.services.errors import RateLimited
 from app.services.origin_verification import (
     OriginVerificationFailed,
@@ -204,6 +204,30 @@ def update_application(
         app_service.set_domain_limit(db, application, body.max_domains)
     db.commit()
     return _resource(db, application)
+
+
+@router.get("/applications/{slug}/traffic", dependencies=[Operator])
+def application_traffic(
+    slug: str,
+    db: DbSession,
+    days: Annotated[
+        int, Query(ge=1, le=traffic.TRAFFIC_RETENTION_DAYS, description="UTC days, today included.")
+    ] = 30,
+) -> schemas.ApplicationTrafficResource:
+    """The application's proxied requests and response bytes per day, counted at the edge."""
+    application = _application(db, slug)
+    rows = traffic.application_traffic(db, application, days=days)
+    return schemas.ApplicationTrafficResource(
+        application=application.slug,
+        days=[
+            schemas.TrafficDayResource(
+                date=row.day, requests=row.requests, response_bytes=row.response_bytes
+            )
+            for row in rows
+        ],
+        requests=sum(row.requests for row in rows),
+        response_bytes=sum(row.response_bytes for row in rows),
+    )
 
 
 @router.delete("/applications/{slug}", dependencies=[Operator])

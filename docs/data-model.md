@@ -30,6 +30,8 @@ Status: implemented for issue #4. Later issues build on it: #1 (API), #2
 | `domains` | A customer hostname registered by one application for one opaque workspace `reference`. | partial unique on `hostname` where `deleted_at IS NULL`; FK to application is `RESTRICT` |
 | `ownership_claims` | The TXT token and CNAME target a customer must publish. `verification_method` is `dns_txt` or `legacy_import`. | unique `token`; partial unique on `domain_id` where `status <> 'revoked'`, so one live claim per domain |
 | `domain_checks` | Current state of each of the four checks: `ownership`, `routing`, `certificate`, `origin`. Carries `error_code`, `message`, `details`, `observed_at`, `next_check_at`. | unique `(domain_id, check_type)` |
+| `application_traffic` | An application's proxied requests and response bytes per UTC day, counted at the edge. Kept 400 days; cascades with the application. | primary key `(application_id, day)` |
+| `edge_traffic_counters` | The edge's running totals per hostname at the last reading, so the next reading becomes an increase. | primary key `hostname` |
 | `domain_events` | Append-only history tagged with `application_id`. Feeds the status page and, later, webhook delivery (#10). | indexed by application and by domain |
 
 All tables carry `created_at`; mutable tables also carry `updated_at`. Every

@@ -364,6 +364,9 @@ class FakeCaddy:
         self.running = {**self.running, "apps": apps}
         self.loads.append(apps)
 
+    def traffic(self):
+        return None
+
 
 @pytest.fixture
 def reconciler(session_factory):

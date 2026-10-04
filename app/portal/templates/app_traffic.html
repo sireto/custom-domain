@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Traffic · {{ application.name }}{% endblock %}
+{% block crumbs %}{{ ui.app_crumbs(application, 'Traffic') }}{% endblock %}
+{% block content %}
+{{ ui.app_head(application, app_state, 'Requests the edge proxied for this application\'s hostnames, and the bytes it sent back, per UTC day.') }}
+{{ ui.app_tabs(application, 'traffic', tab_counts) }}
+
+<div class="card">
+  <div class="card-head"><div><h2>Last {{ traffic_days|length }} days</h2><p>{{ '{:,}'.format(traffic_requests) }} requests, {{ traffic_sent }} sent. Requests the edge refused (over a request limit, or without an assertion) are counted too. Today is still counting; the edge reports about once a minute.</p></div></div>
+  <div class="table-wrap"><table>
+    <tr><th>Day</th><th class="num">Requests</th><th class="num">Sent</th><th style="width:40%"></th></tr>
+    {% for row in traffic_days|reverse %}<tr>
+      <td class="small">{{ row.day.isoformat() }}</td>
+      <td class="num">{{ '{:,}'.format(row.requests) }}</td>
+      <td class="num">{{ human_bytes(row.response_bytes) }}</td>
+      <td>{% if traffic_peak %}<div class="meter"><span style="width:{{ (100 * row.requests / traffic_peak)|round(1) }}%"></span></div>{% endif %}</td>
+    </tr>{% endfor %}
+  </table></div>
+</div>
+{% endblock %}
