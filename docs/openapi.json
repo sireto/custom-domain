@@ -965,6 +965,23 @@
         "title": "NewCredential",
         "type": "object"
       },
+      "OperatorTokenSet": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "description": "The new token: 32 to 256 letters, digits and . _ ~ + / = -",
+            "maxLength": 256,
+            "minLength": 32,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "OperatorTokenSet",
+        "type": "object"
+      },
       "OriginCreate": {
         "additionalProperties": false,
         "properties": {
@@ -3159,6 +3176,86 @@
           }
         ],
         "summary": "Doctor",
+        "tags": [
+          "Operator"
+        ]
+      }
+    },
+    "/operator/v1/token": {
+      "put": {
+        "description": "Sets a new operator token, effective at once on every API instance. Only its SHA-256 is stored, and the previous token (including `OPERATOR_API_TOKEN`) stops working. Use it to retire a token that was handed out at install time. `custom-domain operator reset-token` on the host makes `OPERATOR_API_TOKEN` valid again.",
+        "operationId": "set_operator_token_operator_v1_token_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorTokenSet"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or wrong operator token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client address may not use it."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or the operator API is off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many failed tokens from this client."
+          }
+        },
+        "security": [
+          {
+            "OperatorToken": []
+          }
+        ],
+        "summary": "Replace the operator token",
         "tags": [
           "Operator"
         ]

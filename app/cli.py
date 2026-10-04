@@ -208,6 +208,17 @@ def _build_parser() -> argparse.ArgumentParser:
     origin_delete.add_argument("--host")
     origin_delete.set_defaults(func=_origin_delete)
 
+    operator = sub.add_parser("operator", help="the operator API token").add_subparsers(
+        dest="operator_command"
+    )
+    operator.add_parser(
+        "reset-token",
+        help="forget a token set through the API, so OPERATOR_API_TOKEN works again",
+    ).set_defaults(func=_operator_reset_token)
+    operator.add_parser("token-status", help="where the current token comes from").set_defaults(
+        func=_operator_token_status
+    )
+
     legacy = sub.add_parser("legacy", help="import from the volume-based deployment")
     legacy_sub = legacy.add_subparsers(dest="legacy_command")
     imp = legacy_sub.add_parser("import")
@@ -1187,3 +1198,30 @@ def _openapi_export(args) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
+
+
+def _operator_reset_token(args) -> int:
+    from app.services import operator_token
+
+    with get_session_factory()() as session:
+        removed = operator_token.reset(session)
+        session.commit()
+    if removed:
+        print("the token set through the API is forgotten; OPERATOR_API_TOKEN works again")
+    else:
+        print("no token was set through the API; OPERATOR_API_TOKEN is the token")
+    return 0
+
+
+def _operator_token_status(args) -> int:
+    from app.services import operator_token
+
+    with get_session_factory()() as session:
+        row = operator_token.active(session)
+    if row is None:
+        print("OPERATOR_API_TOKEN (from the environment)")
+    else:
+        print(
+            f"set through the API at {row.set_at.isoformat()}; OPERATOR_API_TOKEN is not accepted"
+        )
+    return 0

@@ -159,6 +159,14 @@ class Finding(BaseModel):
     detail: str
 
 
+class OperatorTokenSet(_Strict):
+    token: str = Field(
+        min_length=32,
+        max_length=256,
+        description="The new token: 32 to 256 letters, digits and . _ ~ + / = -",
+    )
+
+
 class DoctorReport(BaseModel):
     ok: int
     warn: int

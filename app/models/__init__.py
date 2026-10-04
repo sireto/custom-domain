@@ -13,6 +13,7 @@ from app.models.enums import (
     OriginStatus,
 )
 from app.models.idempotency import IdempotencyKey
+from app.models.operator import OperatorToken
 from app.models.webhook import WebhookDelivery, WebhookSubscription
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "EdgeLock",
     "EventType",
     "IdempotencyKey",
+    "OperatorToken",
     "OriginStatus",
     "OwnershipClaim",
     "VerifiedOrigin",
