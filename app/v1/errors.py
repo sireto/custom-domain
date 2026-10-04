@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.hostname import InvalidHostname
+from app.services.backup import BackupUnavailable
 from app.services.errors import (
     ApplicationAlreadyExists,
     ApplicationNotEmpty,
@@ -83,6 +84,7 @@ SERVICE_ERROR_STATUS: list[tuple[type[ServiceError], int]] = [
     (ApplicationNotEmpty, 409),
     (InvalidApplication, 422),
     (InvalidOperatorToken, 422),
+    (BackupUnavailable, 409),
     (ConfirmationMismatch, 422),
     (CredentialNotFound, 404),
     (CredentialInUse, 409),

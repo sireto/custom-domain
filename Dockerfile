@@ -11,8 +11,16 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
 # Separate users for Caddy (owns keys) and the API (never reads them); Caddy
 # binds :80/:443 without root through a file capability. See entrypoint.sh.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libcap2-bin \
+# pg_dump for GET /operator/v1/backup. It must match the server (postgres:16
+# in the Compose files), and Debian's own client is older, so it comes from
+# the PostgreSQL project's repository, whose key is pinned by checksum.
+ADD --checksum=sha256:0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76 \
+    https://www.postgresql.org/media/keys/ACCC4CF8.asc /usr/share/keyrings/pgdg.asc
+RUN chmod 0644 /usr/share/keyrings/pgdg.asc \
+    && echo "deb [signed-by=/usr/share/keyrings/pgdg.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+        >/etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libcap2-bin postgresql-client-16 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system caddy \
     && useradd --system --gid caddy --home-dir /var/lib/custom-domain/caddy \
