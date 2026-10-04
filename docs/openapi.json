@@ -100,6 +100,30 @@
             "title": "Name",
             "type": "string"
           },
+          "rate_limit_per_minute": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null for no limit",
+            "title": "Rate Limit Per Minute"
+          },
+          "rate_limit_per_second": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null for no limit",
+            "title": "Rate Limit Per Second"
+          },
           "slug": {
             "title": "Slug",
             "type": "string"
@@ -122,6 +146,8 @@
           "workspace_probe",
           "max_domains",
           "live_domains",
+          "rate_limit_per_minute",
+          "rate_limit_per_second",
           "created_at"
         ],
         "title": "ApplicationResource",
@@ -166,6 +192,34 @@
               }
             ],
             "title": "Name"
+          },
+          "rate_limit_per_minute": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Proxied requests per minute across the application's hostnames, at the edge; null lifts it, omit to leave it unchanged.",
+            "title": "Rate Limit Per Minute"
+          },
+          "rate_limit_per_second": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The same, per second.",
+            "title": "Rate Limit Per Second"
           },
           "reissue_claims": {
             "default": false,

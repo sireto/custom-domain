@@ -204,8 +204,14 @@ def _validate_app_route(
             raise ConfigRejected(f"host {host!r} is not canonical or is duplicated")
         seen_hosts.add(canonical)
     handle = route["handle"]
+    if isinstance(handle, list) and len(handle) == 4:
+        _validate_rate_limit(route["@id"], handle[0])
+        handle = handle[1:]
     if not (isinstance(handle, list) and len(handle) == 3):
-        raise ConfigRejected("application routes must have exactly three handlers")
+        raise ConfigRejected(
+            "application routes must have the three standard handlers, optionally after a "
+            "rate limit"
+        )
     strip, assert_step, proxy = handle
     if strip != {
         "handler": "headers",
@@ -245,6 +251,31 @@ def _validate_app_route(
         raise ConfigRejected(
             "reverse_proxy transport may only enable verified TLS to the origin's own name"
         )
+
+
+def _validate_rate_limit(route_id: str, handler: Any) -> None:
+    """Exactly what ``edge_config.rate_limit_handler`` builds: per application,
+    keyed by the route's own name, one-minute and one-second windows only."""
+    if not isinstance(handler, dict) or set(handler) != {"handler", "rate_limits"}:
+        raise ConfigRejected("a rate limit must have handler and rate_limits only")
+    zones = handler["rate_limits"]
+    if handler["handler"] != "rate_limit" or not isinstance(zones, dict) or not zones:
+        raise ConfigRejected("the first of four handlers must be a rate limit")
+    for name, zone in zones.items():
+        window_name = name.removeprefix(f"{route_id}-")
+        window = edge_config.RATE_WINDOWS.get(window_name)
+        if not name.startswith(f"{route_id}-") or window is None:
+            raise ConfigRejected(f"rate limit zone {name!r} must be {route_id}-minute or -second")
+        count = zone.get("max_events") if isinstance(zone, dict) else None
+        if zone != {"key": route_id, "window": window, "max_events": count} or not (
+            isinstance(count, int)
+            and not isinstance(count, bool)
+            and 1 <= count <= edge_config.MAX_RATE
+        ):
+            raise ConfigRejected(
+                f"rate limit zone {name!r} must count per application ({route_id}) "
+                f"in a {window} window, 1 to {edge_config.MAX_RATE} requests"
+            )
 
 
 OriginsProvider = Callable[[], Mapping[str, str] | EdgeFacts]

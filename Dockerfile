@@ -2,7 +2,10 @@
 # (docs/decisions/0001-certificate-storage.md). Pinned to the Caddy release
 # the module is tested against.
 FROM caddy:2.11.4-builder AS caddy-builder
-RUN xcaddy build --with github.com/pberkel/caddy-storage-redis
+# caddy-ratelimit: per-application request limits (app/edge/config.py). It has
+# no recent tag, so it's pinned to a commit.
+RUN xcaddy build --with github.com/pberkel/caddy-storage-redis \
+    --with github.com/mholt/caddy-ratelimit@5625512f24f6
 
 FROM python:3.12-slim-bookworm
 

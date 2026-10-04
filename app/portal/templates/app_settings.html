@@ -39,6 +39,17 @@
 </div>
 
 <div class="card">
+  <div class="card-head"><div><h2>Request limits</h2><p>Proxied requests the edge lets through for all of this application's hostnames together. Above either limit, visitors get <code>429 Too Many Requests</code> with <code>Retry-After</code>; certificates and DNS checks are not affected. Leave both empty for no limit.</p></div></div>
+  <form method="post" action="{{ base }}/rate-limit"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="card-body form-row">
+      <div class="grow"><label for="per_minute">Per minute</label><input type="number" id="per_minute" name="per_minute" min="1" step="1" inputmode="numeric" value="{{ application.rate_limit_per_minute if application.rate_limit_per_minute is not none else '' }}" placeholder="No limit"></div>
+      <div class="grow"><label for="per_second">Per second</label><input type="number" id="per_second" name="per_second" min="1" step="1" inputmode="numeric" value="{{ application.rate_limit_per_second if application.rate_limit_per_second is not none else '' }}" placeholder="No limit"></div>
+    </div>
+    <div class="card-foot actions" style="justify-content:flex-end"><button type="submit" class="btn-primary">Save limits</button></div>
+  </form>
+</div>
+
+<div class="card">
   <div class="card-head"><div><h2>Readiness</h2><p>Whether a hostname goes live only after your backend confirms it serves the right workspace.</p></div></div>
   <form method="post" action="{{ base }}/workspace-probe"><input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="card-body">

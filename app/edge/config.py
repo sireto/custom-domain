@@ -90,6 +90,8 @@ class RouteGroup:
     origin_host: str  # the origin's name, presented as SNI and Host
     origin_tls: bool
     hostnames: tuple[str, ...]
+    per_minute: int | None = None
+    per_second: int | None = None
 
 
 def serveable_route_groups(session: Session) -> list[RouteGroup]:
@@ -144,6 +146,8 @@ def serveable_route_groups(session: Session) -> list[RouteGroup]:
                 origin_host=origin_host,
                 origin_tls=origin.scheme == "https",
                 hostnames=hostnames,
+                per_minute=application.rate_limit_per_minute,
+                per_second=application.rate_limit_per_second,
             )
         )
     return groups
@@ -215,15 +219,41 @@ def _origin_proxy(group: RouteGroup) -> dict[str, Any]:
     return handler
 
 
+RATE_WINDOWS = {"minute": "1m", "second": "1s"}
+MAX_RATE = 1_000_000
+
+
+def rate_limit_handler(route_id: str, per_minute: int | None, per_second: int | None):
+    """The rate-limit handler for one application's route, or None without limits.
+
+    Both windows count every request to any of the application's hostnames
+    (the key is the route's own name, never a request value), so the limit
+    is per application. Over either, the edge answers 429 with Retry-After
+    before the request reaches the assertion endpoint or the origin.
+    """
+    limits = {"minute": per_minute, "second": per_second}
+    zones = {
+        f"{route_id}-{name}": {"key": route_id, "window": RATE_WINDOWS[name], "max_events": count}
+        for name, count in limits.items()
+        if count
+    }
+    return {"handler": "rate_limit", "rate_limits": zones} if zones else None
+
+
 def _route(group: RouteGroup, settings: EdgeSettings) -> dict[str, Any]:
+    route_id = f"app-{group.application_slug}"
+    handle = [
+        {"handler": "headers", "request": {"delete": list(STRIPPED_REQUEST_HEADERS)}},
+        assertion_subrequest(settings),
+        _origin_proxy(group),
+    ]
+    limiter = rate_limit_handler(route_id, group.per_minute, group.per_second)
+    if limiter is not None:
+        handle.insert(0, limiter)
     return {
-        "@id": f"app-{group.application_slug}",
+        "@id": route_id,
         "match": [{"host": list(group.hostnames)}],
-        "handle": [
-            {"handler": "headers", "request": {"delete": list(STRIPPED_REQUEST_HEADERS)}},
-            assertion_subrequest(settings),
-            _origin_proxy(group),
-        ],
+        "handle": handle,
         "terminal": True,
     }
 

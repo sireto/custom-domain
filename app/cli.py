@@ -123,6 +123,14 @@ def _build_parser() -> argparse.ArgumentParser:
     limit_value.add_argument("--max", type=int, help="at most this many live domains")
     limit_value.add_argument("--none", action="store_true", help="remove the limit")
     limit.set_defaults(func=_application_set_domain_limit)
+    rates = application.add_parser(
+        "set-rate-limit",
+        help="limit an application's proxied requests at the edge (per minute, per second)",
+    )
+    rates.add_argument("--application", required=True)
+    rates.add_argument("--per-minute", type=int, help="requests per minute; omit for none")
+    rates.add_argument("--per-second", type=int, help="requests per second; omit for none")
+    rates.set_defaults(func=_application_set_rate_limit)
     remove = application.add_parser(
         "delete",
         help="delete an application and its domains; keys and webhooks are revoked, origins "
@@ -701,6 +709,23 @@ def _application_rename(args) -> int:
         app_service.rename_application(session, application, args.name)
         session.commit()
         print(f"renamed {application.slug} to {application.name!r}")
+    return 0
+
+
+def _application_set_rate_limit(args) -> int:
+    with get_session_factory()() as session:
+        application = app_service.get_application_by_slug(session, args.application)
+        app_service.set_rate_limits(
+            session, application, per_minute=args.per_minute, per_second=args.per_second
+        )
+        session.commit()
+        parts = [
+            f"{n:,} a {w}"
+            for n, w in ((args.per_minute, "minute"), (args.per_second, "second"))
+            if n
+        ]
+        what = " and ".join(parts) if parts else "no limit"
+        print(f"{application.slug}: proxied requests limited to {what} (next reconcile)")
     return 0
 
 

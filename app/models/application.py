@@ -51,6 +51,10 @@ class Application(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # At most this many live domains (registered and not deleted); None means
     # no limit of its own. The deployment may also have one (MAX_DOMAINS).
     max_domains: Mapped[int | None] = mapped_column(Integer)
+    # Proxied requests per minute and per second across all of the
+    # application's hostnames, enforced at the edge; None means no limit.
+    rate_limit_per_minute: Mapped[int | None] = mapped_column(Integer)
+    rate_limit_per_second: Mapped[int | None] = mapped_column(Integer)
     deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     purge_after: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
 

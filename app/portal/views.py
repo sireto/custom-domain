@@ -219,6 +219,7 @@ NOTICES = {
     "records and history are kept for 90 days, then purged.",
     "renamed": "Name saved.",
     "domain_limit": "Domain limit saved.",
+    "rate_limit": "Request limits saved; the edge applies them within a minute.",
     "cname_target": "CNAME target saved. New domains get the new target.",
     "cname_target_reissued": "CNAME target saved and the DNS records of existing domains "
     "re-issued. Those domains wait for DNS until their customers publish the new records.",
@@ -774,6 +775,27 @@ def set_cname_target(
 
     ok = "cname_target_reissued" if reissue_claims else "cname_target"
     return _action(request, session, db, slug, csrf, act, tab="settings", ok=ok)
+
+
+@router.post("/applications/{slug}/rate-limit")
+def set_rate_limit(
+    request: Request,
+    slug: str,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+    per_minute: str = Form(""),
+    per_second: str = Form(""),
+):
+    def act(application):
+        values = []
+        for raw in (per_minute.strip(), per_second.strip()):
+            if raw and not raw.isdigit():
+                raise InvalidApplication("Request limits must be whole numbers, or empty")
+            values.append(int(raw) if raw else None)
+        app_service.set_rate_limits(db, application, per_minute=values[0], per_second=values[1])
+
+    return _action(request, session, db, slug, csrf, act, tab="settings", ok="rate_limit")
 
 
 @router.post("/applications/{slug}/domain-limit")
