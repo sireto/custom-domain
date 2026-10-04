@@ -485,3 +485,44 @@ def test_internal_tls_ask_follows_certificate_authorization(client, session, ten
     )
     assert client.get(ask, params={"domain": "forms.customer.example"}).status_code == 403
     assert "/internal/tls/ask" not in client.get("/v1/openapi.json").json()["paths"]
+
+
+def test_requests_per_credential_can_be_limited(make_client, tenant, monkeypatch):
+    monkeypatch.setenv("V1_REQUESTS_PER_MINUTE", "3")
+    _, acme = tenant("acme")
+    _, globex = tenant("globex")
+    with make_client() as client:
+        for _ in range(3):
+            assert client.get("/v1/domains", headers=acme).status_code == 200
+        limited = client.get("/v1/domains", headers=acme)
+        assert limited.status_code == 429
+        assert 1 <= int(limited.headers["retry-after"]) <= 60
+        error = _error(limited)
+        assert error["code"] == "rate_limited" and "3 requests a minute" in error["message"]
+        # Another application's credential has its own budget.
+        assert client.get("/v1/domains", headers=globex).status_code == 200
+
+
+def test_no_request_limit_unless_set(make_client, tenant, monkeypatch):
+    monkeypatch.delenv("V1_REQUESTS_PER_MINUTE", raising=False)
+    _, acme = tenant("acme")
+    with make_client() as client:
+        for _ in range(40):
+            assert client.get("/v1/domains", headers=acme).status_code == 200
+
+
+def test_the_request_limit_window_slides():
+    from app.v1.throttle import CredentialRateLimiter
+
+    limiter = CredentialRateLimiter(per_minute=2)
+    assert limiter.take("c", now=0) == 0 and limiter.take("c", now=10) == 0
+    assert limiter.take("c", now=20) == 41  # the first request leaves the window at 60
+    assert limiter.take("c", now=61) == 0
+    with pytest.raises(ValueError, match="V1_REQUESTS_PER_MINUTE"):
+        import os
+
+        os.environ["V1_REQUESTS_PER_MINUTE"] = "lots"
+        try:
+            CredentialRateLimiter.from_env()
+        finally:
+            del os.environ["V1_REQUESTS_PER_MINUTE"]

@@ -54,6 +54,14 @@ def current_application(
     # last_used_at was updated by authenticate_credential; persist it now so a
     # failing request body does not discard it.
     db.commit()
+    rate = getattr(request.app.state, "v1_rate_limiter", None)
+    if rate is not None and rate.enabled:
+        wait = rate.take(str(credential.id))
+        if wait:
+            raise RateLimited(
+                f"More than {rate.per_minute} requests a minute with this credential; retry later",
+                retry_after=wait,
+            )
     # For the access log (app.main): which credential made the call, by id.
     # Not the key prefix: it starts with cd_ and the log redactor masks it.
     request.state.credential_id = str(credential.id)

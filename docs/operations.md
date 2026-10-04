@@ -338,6 +338,12 @@ unacceptable.
   proxy of your own (`PUBLIC_API=false`) every application arrives from the
   proxy's address, and one caller with a stale key must not lock the others
   out. Rate-limit at that proxy instead. The count is per API process.
+- **Requests per credential.** On a deployment shared by several
+  applications, `V1_REQUESTS_PER_MINUTE` caps each credential's v1 requests
+  in any 60 seconds, so one application can't overload the API for the
+  others. Over the cap, it answers `429 rate_limited` with `Retry-After`.
+  It's off by default, counted per credential rather than per address, and
+  per API process.
   Credentials are 32 random bytes, so guessing is not the risk; load is. The
   `app.v1.access` log has one line per v1 call with the real client
   address, the application and the credential's id (never the key); revoke

@@ -117,3 +117,48 @@ class FailedAuthLimiter:
     def tracked(self) -> int:
         with self._lock:
             return len(self._failures)
+
+
+class CredentialRateLimiter:
+    """At most ``per_minute`` v1 requests per credential in any 60 seconds.
+
+    Off unless ``V1_REQUESTS_PER_MINUTE`` is set, for deployments that serve
+    several applications and must keep one from overloading the API. Counted
+    per credential (one application's keys never spend another's budget), in
+    the API process's memory: with several API processes each keeps its own
+    count. Each credential keeps at most ``per_minute`` timestamps, and there
+    are no more credentials than the database holds.
+    """
+
+    def __init__(self, per_minute: int = 0, window: float = WINDOW) -> None:
+        self.per_minute = per_minute
+        self.window = window
+        self._seen: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    @classmethod
+    def from_env(cls) -> CredentialRateLimiter:
+        raw = os.environ.get("V1_REQUESTS_PER_MINUTE", "").strip()
+        if not raw:
+            return cls()
+        if not raw.isdigit():
+            raise ValueError(f"V1_REQUESTS_PER_MINUTE must be a whole number, not {raw!r}")
+        return cls(per_minute=int(raw))
+
+    @property
+    def enabled(self) -> bool:
+        return self.per_minute > 0
+
+    def take(self, credential_id: str, now: float | None = None) -> int:
+        """Count one request; return 0 if it may go ahead, else seconds to wait."""
+        if not self.enabled:
+            return 0
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            stamps = [t for t in self._seen.get(credential_id, ()) if now - t < self.window]
+            if len(stamps) >= self.per_minute:
+                self._seen[credential_id] = stamps
+                return int(stamps[0] + self.window - now) + 1
+            stamps.append(now)
+            self._seen[credential_id] = stamps
+            return 0
