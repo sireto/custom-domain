@@ -3104,6 +3104,79 @@
         ]
       }
     },
+    "/operator/v1/backup": {
+      "get": {
+        "description": "Streams `pg_dump --format=custom` of the deployment's database; restore it with `pg_restore` (docs/operations.md). It contains claim tokens, credential hashes and webhook signing secrets: store it like a secrets file. PostgreSQL only; `409 backup_unavailable` otherwise.",
+        "operationId": "backup_operator_v1_backup_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or wrong operator token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client address may not use it."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or the operator API is off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many failed tokens from this client."
+          }
+        },
+        "security": [
+          {
+            "OperatorToken": []
+          }
+        ],
+        "summary": "Download a database backup",
+        "tags": [
+          "Operator"
+        ]
+      }
+    },
     "/operator/v1/doctor": {
       "get": {
         "description": "The same checks as `custom-domain doctor`, for monitoring a deployment.",

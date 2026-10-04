@@ -384,6 +384,38 @@ def set_operator_token(request: Request, body: schemas.OperatorTokenSet, db: DbS
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get(
+    "/backup",
+    dependencies=[Operator],
+    summary="Download a database backup",
+    description=(
+        "Streams `pg_dump --format=custom` of the deployment's database; restore it with "
+        "`pg_restore` (docs/operations.md). It contains claim tokens, credential hashes and "
+        "webhook signing secrets: store it like a secrets file. PostgreSQL only; "
+        "`409 backup_unavailable` otherwise."
+    ),
+    response_class=Response,
+    responses={200: {"content": {"application/octet-stream": {}}}},
+)
+def backup(request: Request):
+    from fastapi.responses import StreamingResponse
+
+    from app.db.session import get_database_url
+    from app.services import backup as backup_service
+
+    request.state.operator_target = "backup"
+    chunks = backup_service.stream(get_database_url())
+    name = f"custom-domain-{utcnow().strftime('%Y-%m-%dT%H%M%SZ')}.dump"
+    return StreamingResponse(
+        chunks,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{name}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @router.get("/doctor", dependencies=[Operator])
 def doctor(request: Request) -> schemas.DoctorReport:
     """The same checks as `custom-domain doctor`, for monitoring a deployment."""

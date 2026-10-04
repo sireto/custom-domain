@@ -80,6 +80,7 @@ All paths are under `/operator/v1`; errors use the v1 envelope
 | Method and path | Does | Command equivalent |
 |---|---|---|
 | `PUT /token` `{token}` | replace the operator token (see above) | `operator reset-token` undoes it |
+| `GET /backup` | download `pg_dump --format=custom` of the database (PostgreSQL only) | `pg_dump`, see [operations.md](operations.md#backup) |
 | `GET /applications` | list | `application list` |
 | `POST /applications` `{slug, name, cname_target?}` | create (`cname_target` defaults to `EDGE_HOSTNAME`) | `application create` |
 | `GET /applications/{slug}` | read; includes `max_domains` (the limit, or null) and `live_domains` | |

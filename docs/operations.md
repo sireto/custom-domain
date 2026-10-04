@@ -164,6 +164,14 @@ pg_dump --format=custom --file=custom-domain-$(date +%F).dump \
 `pg_dump` does not accept; `custom-domain db libpq-url` prints the same
 connection as a libpq URL (`postgresql://...`).
 
+Or, from another machine, over the operator API (PostgreSQL only; the
+image includes `pg_dump` 16 for it):
+
+```
+curl -fsS -H "Authorization: Bearer $OPERATOR_API_TOKEN" \
+  https://edge.example.net/operator/v1/backup -o custom-domain-$(date +%F).dump
+```
+
 Nightly at minimum, plus before every migration (`custom-domain db upgrade`).
 The dump contains claim tokens and credential hashes: encrypt it at rest and
 restrict access like a secrets file.
