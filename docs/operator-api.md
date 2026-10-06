@@ -117,6 +117,18 @@ All paths are under `/operator/v1`; errors use the v1 envelope
 | `DELETE /applications/{slug}/credentials/{id}` | delete a revoked or expired one | `credential delete` |
 | `GET /doctor` | the doctor's findings, for monitoring | `doctor` |
 
+### Not found
+
+Anything that doesn't exist under the application in the path, including
+another application's origin, key or credential, is a `404`, never a `403`:
+
+| Code | When |
+|---|---|
+| `application_not_found` | No application with that slug. |
+| `origin_not_found` | No such origin in this application. Before 0.10.0 this was `422 invalid_origin`; clients matching that code for a missing origin should match `404 origin_not_found` instead. |
+| `credential_not_found` | No such credential in this application. |
+| `assertion_key_not_found` | No such assertion key in this application. |
+
 ## Provisioning a tenant
 
 ```

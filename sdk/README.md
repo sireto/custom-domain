@@ -122,7 +122,8 @@ except AssertionInvalid as exc:
 Origins should only be reachable from the edge (network rules), or treat any
 request without a valid assertion as a direct call and refuse it.
 
-**Origin behind a CDN or a shared proxy.** When the origin is registered in
+**Origin behind a CDN or a shared proxy** (SDK 0.10.0 and later; earlier
+versions raise `TypeError` for `host_header`). When the origin is registered in
 `origin` host-header mode, the edge sends the origin's own name as `Host`
 and the customer's hostname as `X-Forwarded-Host`. Pass the same mode to
 the SDK, so the assertion is checked against `X-Forwarded-Host`:
