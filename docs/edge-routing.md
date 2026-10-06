@@ -28,9 +28,11 @@ proof (#5) and readiness (#6, #7).
    assertion. This lookup happens per request, so a deletion or suspension
    stops traffic immediately, before the reconciler's next tick.
 5. Proxy: the request goes to the application's active origin with the
-   assertion header, `Host` set to the customer-facing hostname,
-   `X-Forwarded-Host` the same, `X-Forwarded-Proto` the scheme the client
-   used and Caddy's `X-Forwarded-For`. For HTTPS origins the upstream TLS
+   assertion header, `Host` set to the customer-facing hostname (or, in the
+   origin's `origin` host-header mode, the origin's own name; see below),
+   `X-Forwarded-Host` the customer-facing hostname, replacing any value the
+   client sent, `X-Forwarded-Proto` the scheme the client used and Caddy's
+   `X-Forwarded-For`. For HTTPS origins the upstream TLS
    handshake uses the origin's own name as SNI and verifies its certificate.
 
 ## The assertion
@@ -90,6 +92,38 @@ from the API. The signing key is separate from application credentials and
 from the webhook secret (#10), so compromise of one does not expose the
 others. Without a configured key the assert endpoint answers `503` and
 nothing is routed.
+
+## Origins behind a CDN or a shared proxy
+
+By default the edge sends the customer's hostname as `Host`. An origin
+behind something that routes by `Host` refuses that: a CDN or WAF proxy
+(Cloudflare's orange cloud answers `403` for a host not on its account), or
+a shared reverse proxy (nginx, Traefik, an ingress) with no route for
+arbitrary customer hostnames. The domain then fails the origin check with
+`workspace_probe_failed`, although DNS and the certificate pass.
+
+Such an origin is registered in **`origin` host-header mode**
+(`custom-domain origin register --host-header origin`, `"host_header":
+"origin"` in the operator API, or the portal's Origins page; existing
+origins switch with `origin set-host-header`):
+
+| Mode | `Host` sent | Customer hostname in |
+|---|---|---|
+| `customer` (default) | `forms.customer.example` | `Host` (and `X-Forwarded-Host`) |
+| `origin` | the origin's name, such as `app.saas.example` (with its port unless it's the default) | `X-Forwarded-Host` |
+
+- **TLS** to the origin is unchanged: SNI is the origin's name, verified
+  against its certificate, in both modes.
+- **`X-Forwarded-Host`** is always set by the edge, replacing whatever the
+  visitor sent, so it can't be used to make the origin build URLs for
+  another host.
+- **The assertion is the same.** Its `host` is the customer's hostname; in
+  `origin` mode, origins compare it with `X-Forwarded-Host`, not `Host`.
+  The SDK does this with `host_header="origin"`. Proxies between the edge
+  and the application must pass `X-Forwarded-Host` through unchanged.
+- **The checks follow the mode.** The workspace probe goes through the edge,
+  so a domain goes live under the same conditions it is served under. The
+  origin verification already addresses the origin by its own name.
 
 ## Per-application keys
 

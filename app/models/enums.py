@@ -13,6 +13,16 @@ class OriginStatus(StrEnum):
     RETIRED = "retired"
 
 
+class OriginHostHeader(StrEnum):
+    """The ``Host`` the edge sends to the origin (docs/edge-routing.md)."""
+
+    # The customer's hostname, as the visitor asked for it.
+    CUSTOMER = "customer"
+    # The origin's own name, for origins behind a CDN or a host-routed proxy;
+    # the customer's hostname then travels in X-Forwarded-Host.
+    ORIGIN = "origin"
+
+
 class DomainStatus(StrEnum):
     PENDING_DNS = "pending_dns"
     PROVISIONING = "provisioning"

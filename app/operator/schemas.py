@@ -110,6 +110,18 @@ class OriginCreate(_Strict):
     host: str = Field(max_length=253, examples=["app.acme.example"])
     scheme: Literal["https", "http"] = "https"
     port: int | None = Field(default=None, ge=1, le=65535)
+    host_header: Literal["customer", "origin"] = Field(
+        default="customer",
+        description="The Host the edge sends: `customer` (the customer's hostname) or `origin` "
+        "(the origin's own name, for an origin behind a CDN or a host-routed proxy; the "
+        "customer's hostname is then in X-Forwarded-Host).",
+    )
+
+
+class OriginUpdate(_Strict):
+    host_header: Literal["customer", "origin"] = Field(
+        description="The Host the edge sends to this origin; see OriginCreate."
+    )
 
 
 class OriginVerify(_Strict):
@@ -125,6 +137,7 @@ class OriginResource(BaseModel):
         description="Serve this as the plain-text body of verification_url, then verify."
     )
     verification_url: str
+    host_header: Literal["customer", "origin"]
     verified_at: datetime | None
     last_error_code: str | None
     last_error_message: str | None
@@ -140,6 +153,7 @@ class OriginResource(BaseModel):
             active=origin.is_active,
             verification_token=origin.verification_token,
             verification_url=f"{origin.url}{WELL_KNOWN_PATH}",
+            host_header=origin.host_header.value,
             verified_at=origin.verified_at,
             last_error_code=origin.last_error_code,
             last_error_message=origin.last_error_message,

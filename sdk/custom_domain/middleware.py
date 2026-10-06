@@ -26,17 +26,35 @@ WORKSPACE_PATH = "/.well-known/custom-domain-workspace"
 ORIGIN_VERIFICATION_PATH = "/.well-known/custom-domain-origin-verification"
 
 
+HOST_HEADER_MODES = ("customer", "origin")
+
+
 class WorkspaceResolver:
+    """Verify the edge's assertion for a request.
+
+    ``host_header`` matches the origin's setting at the edge. With
+    ``"customer"`` (the default) the request's ``Host`` is the customer's
+    hostname. With ``"origin"`` (an origin behind a CDN or a host-routed proxy)
+    ``Host`` is the origin's own name and the edge puts the customer's hostname
+    in ``X-Forwarded-Host``, which is then what the assertion is checked
+    against. Proxies between the edge and the application must pass
+    ``X-Forwarded-Host`` through unchanged.
+    """
+
     def __init__(
         self,
         keys: Mapping[str, str | bytes],
         application_id: str,
         *,
         skew: int = 30,
+        host_header: str = "customer",
     ) -> None:
+        if host_header not in HOST_HEADER_MODES:
+            raise ValueError("host_header must be 'customer' or 'origin'")
         self.keys = dict(keys)
         self.application_id = application_id
         self.skew = skew
+        self.host_header = host_header
 
     def resolve(
         self, headers: Mapping[str, str] | Iterable[tuple[str, str]], host: str | None
@@ -46,6 +64,13 @@ class WorkspaceResolver:
             k.lower(): v for k, v in (headers.items() if isinstance(headers, Mapping) else headers)
         }
         token = lookup.get(HEADER.lower())
+        if self.host_header == "origin":
+            # The first value is the edge's: it replaces whatever the visitor sent.
+            host = (lookup.get("x-forwarded-host") or "").split(",", 1)[0].strip() or None
+            if host is None and token:
+                raise AssertionInvalid(
+                    "wrong_hostname", "No X-Forwarded-Host: is the origin in 'origin' mode?"
+                )
         hostname = host.split(":", 1)[0] if host else None
         return verify_assertion(
             token,
@@ -71,6 +96,7 @@ class CustomDomainMiddleware:
         workspace_lookup: Callable[[str], Any],
         on_missing: str = "reject",
         state_key: str = "custom_domain",
+        host_header: str = "customer",
     ) -> None:
         """``workspace_lookup(reference)`` must return a truthy value only when the
         application actually serves that workspace; it may be sync or async. The
@@ -81,7 +107,7 @@ class CustomDomainMiddleware:
         if not callable(workspace_lookup):
             raise ValueError("workspace_lookup must be a callable taking the workspace reference")
         self.app = app
-        self.resolver = WorkspaceResolver(keys, application_id)
+        self.resolver = WorkspaceResolver(keys, application_id, host_header=host_header)
         self.workspace_lookup = workspace_lookup
         self.on_missing = on_missing
         self.state_key = state_key

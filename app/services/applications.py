@@ -22,6 +22,7 @@ from app.models import (
     ApiCredential,
     Application,
     ApplicationStatus,
+    OriginHostHeader,
     OriginStatus,
     VerifiedOrigin,
 )
@@ -38,6 +39,7 @@ from app.services.errors import (
     InvalidOrigin,
     OriginConflict,
     OriginInUse,
+    OriginNotFound,
     OriginNotVerified,
 )
 
@@ -459,7 +461,8 @@ def get_origin(
         raise InvalidOrigin("Give an origin id or host")
     origin = session.scalar(query.order_by(VerifiedOrigin.created_at.desc()))
     if origin is None:
-        raise InvalidOrigin("No such origin for this application")
+        # Another application's origin is not found, never forbidden.
+        raise OriginNotFound("No such origin for this application")
     return origin
 
 
@@ -483,8 +486,10 @@ def register_origin(
     host: str,
     scheme: str = "https",
     port: int | None = None,
+    host_header: str = "customer",
 ) -> VerifiedOrigin:
     scheme = (scheme or "").lower()
+    mode = _host_header(host_header)
     if scheme not in DEFAULT_PORTS:
         raise InvalidOrigin("Scheme must be https or http")
     try:
@@ -500,6 +505,7 @@ def register_origin(
         scheme=scheme,
         host=host,
         port=port,
+        host_header=mode,
         status=OriginStatus.PENDING,
         verification_token=secrets.token_urlsafe(24),
     )
@@ -509,6 +515,28 @@ def register_origin(
             session.flush()
     except IntegrityError as exc:
         raise OriginConflict(f"Origin {scheme}://{host}:{port} is already registered") from exc
+    return origin
+
+
+def _host_header(value: str) -> OriginHostHeader:
+    try:
+        return OriginHostHeader((value or "").strip().lower())
+    except ValueError as exc:
+        raise InvalidOrigin("Host header mode must be customer or origin") from exc
+
+
+def set_origin_host_header(
+    session: Session, origin: VerifiedOrigin, host_header: str
+) -> VerifiedOrigin:
+    """Which Host the edge sends this origin; takes effect at the next reconcile.
+
+    ``customer``: the customer's hostname. ``origin``: the origin's own name,
+    for an origin behind a CDN or a host-routed proxy, with the customer's
+    hostname in X-Forwarded-Host.
+    """
+    origin.host_header = _host_header(host_header)
+    origin.updated_at = utcnow()
+    session.flush()
     return origin
 
 

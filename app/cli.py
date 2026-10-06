@@ -204,6 +204,13 @@ def _build_parser() -> argparse.ArgumentParser:
     register.add_argument("--host", required=True)
     register.add_argument("--scheme", default="https")
     register.add_argument("--port", type=int)
+    register.add_argument(
+        "--host-header",
+        choices=("customer", "origin"),
+        default="customer",
+        help="the Host the edge sends: the customer's hostname (default), or the origin's own "
+        "name for an origin behind a CDN or a host-routed proxy",
+    )
     register.set_defaults(func=_origin_register)
     origin_list = origin.add_parser("list")
     origin_list.add_argument("--application", required=True)
@@ -233,6 +240,14 @@ def _build_parser() -> argparse.ArgumentParser:
     retire.add_argument("--id")
     retire.add_argument("--host")
     retire.set_defaults(func=_origin_retire)
+    host_mode = origin.add_parser(
+        "set-host-header", help="which Host the edge sends this origin (next reconcile)"
+    )
+    host_mode.add_argument("--application", required=True)
+    host_mode.add_argument("--id")
+    host_mode.add_argument("--host")
+    host_mode.add_argument("--mode", required=True, choices=("customer", "origin"))
+    host_mode.set_defaults(func=_origin_set_host_header)
     origin_delete = origin.add_parser("delete", help="remove an origin that carries no traffic")
     origin_delete.add_argument("--application", required=True)
     origin_delete.add_argument("--id")
@@ -829,6 +844,20 @@ def _origin_retire(args) -> int:
     return 0
 
 
+def _origin_set_host_header(args) -> int:
+    with get_session_factory()() as session:
+        origin = _selected_origin(session, args)
+        app_service.set_origin_host_header(session, origin, args.mode)
+        session.commit()
+        sent = (
+            "the origin's own name (customer hostname in X-Forwarded-Host)"
+            if args.mode == "origin"
+            else "the customer's hostname"
+        )
+        print(f"{origin.url}: the edge sends Host = {sent} from the next reconcile")
+    return 0
+
+
 def _origin_delete(args) -> int:
     with get_session_factory()() as session:
         origin = _selected_origin(session, args)
@@ -1007,10 +1036,20 @@ def _origin_register(args) -> int:
     with get_session_factory()() as session:
         application = app_service.get_application_by_slug(session, args.application)
         origin = app_service.register_origin(
-            session, application, host=args.host, scheme=args.scheme, port=args.port
+            session,
+            application,
+            host=args.host,
+            scheme=args.scheme,
+            port=args.port,
+            host_header=args.host_header,
         )
         session.commit()
         print(f"registered origin {origin.url} ({origin.id}), status {origin.status.value}")
+        if origin.host_header.value == "origin":
+            print(
+                "the edge sends Host: the origin's name; "
+                "the customer's hostname is in X-Forwarded-Host"
+            )
         print(f"verification token: {origin.verification_token}")
         print(
             "next: serve that token as the plain-text body of "

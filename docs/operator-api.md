@@ -102,7 +102,8 @@ All paths are under `/operator/v1`; errors use the v1 envelope
 | `GET /applications/{slug}/traffic?days=30` | proxied requests and response bytes per UTC day, oldest first, today last; `days` is 1 to 400 | `application traffic` |
 | `DELETE /applications/{slug}?confirm={slug}&delete_domains=true` | delete (domains kept 90 days as tombstones) | `application delete` |
 | `GET /applications/{slug}/origins` | list | `origin list` |
-| `POST /applications/{slug}/origins` `{host, scheme?, port?}` | register; returns `verification_token` and `verification_url` | `origin register` |
+| `POST /applications/{slug}/origins` `{host, scheme?, port?, host_header?}` | register; returns `verification_token` and `verification_url`. `host_header` is `customer` (default) or `origin` ([edge-routing.md](edge-routing.md#origins-behind-a-cdn-or-a-shared-proxy)) | `origin register` |
+| `PATCH /applications/{slug}/origins/{id}` `{host_header}` | change which `Host` the edge sends this origin; applied at the next reconcile | `origin set-host-header` |
 | `POST /applications/{slug}/origins/{id}/verify` `{activate?}` | verify (and by default activate); `422 origin_verification_failed` says why not | `origin verify --activate` |
 | `POST /applications/{slug}/origins/{id}/activate`, `/retire` | route traffic to it, or stop | `origin activate`, `origin retire` |
 | `DELETE /applications/{slug}/origins/{id}` | delete one that carries no traffic | `origin delete` |
