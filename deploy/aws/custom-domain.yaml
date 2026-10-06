@@ -68,7 +68,7 @@ Parameters:
       Session Manager (Systems Manager), which this stack enables.
   Version:
     Type: String
-    Default: "0.9.0"
+    Default: "0.10.0"
     AllowedPattern: "^(\\d+\\.\\d+\\.\\d+|latest)$"
     Description: The release to install (image, installer and SDK share one version number).
   UbuntuAmiParameter:
