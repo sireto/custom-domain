@@ -92,6 +92,9 @@ class RouteGroup:
     hostnames: tuple[str, ...]
     per_minute: int | None = None
     per_second: int | None = None
+    # "origin": send the origin's own name as Host (OriginHostHeader).
+    host_header: str = "customer"
+    origin_port: int = 443
 
 
 def serveable_route_groups(session: Session) -> list[RouteGroup]:
@@ -148,6 +151,8 @@ def serveable_route_groups(session: Session) -> list[RouteGroup]:
                 hostnames=hostnames,
                 per_minute=application.rate_limit_per_minute,
                 per_second=application.rate_limit_per_second,
+                host_header=origin.host_header.value,
+                origin_port=origin.port,
             )
         )
     return groups
@@ -198,15 +203,27 @@ def assertion_subrequest(settings: EdgeSettings) -> dict[str, Any]:
     }
 
 
+def origin_host_value(host: str, port: int, tls: bool) -> str:
+    """The Host an origin is addressed by: its name, with the port unless it's the default."""
+    return host if port == (443 if tls else 80) else f"{host}:{port}"
+
+
 def _origin_proxy(group: RouteGroup) -> dict[str, Any]:
+    # The origin sees the customer-facing host, or (behind a CDN or a
+    # host-routed proxy) its own name. X-Forwarded-Host always carries the
+    # customer's hostname, replacing whatever the visitor sent.
+    host = (
+        origin_host_value(group.origin_host, group.origin_port, group.origin_tls)
+        if group.host_header == "origin"
+        else "{http.request.host}"
+    )
     handler: dict[str, Any] = {
         "handler": "reverse_proxy",
         "upstreams": [{"dial": group.origin}],
-        # The origin sees the customer-facing host; X-Forwarded-* say how it arrived.
         "headers": {
             "request": {
                 "set": {
-                    "Host": ["{http.request.host}"],
+                    "Host": [host],
                     "X-Forwarded-Host": ["{http.request.host}"],
                     "X-Forwarded-Proto": ["{http.request.scheme}"],
                 }

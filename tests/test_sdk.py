@@ -481,3 +481,38 @@ def test_sdk_runtime_version_matches_the_distribution():
     declared = tomllib.loads(Path("sdk/pyproject.toml").read_text())["project"]["version"]
     assert custom_domain.__version__ == declared
     assert f"custom-domain-sdk/{declared}" == USER_AGENT
+
+
+def test_resolver_in_origin_host_header_mode():
+    token = service_sign(
+        key_id="1",
+        key=KEYS["1"].encode(),
+        application_id="app-1",
+        domain_id="dom-1",
+        reference="ws_42",
+        hostname="forms.customer.example",
+        request_id="r1",
+    )
+    origin = WorkspaceResolver(KEYS, "app-1", host_header="origin")
+    # Host is the origin's own name; the customer's hostname is in X-Forwarded-Host.
+    headers = {ASSERTION_HEADER: token, "X-Forwarded-Host": "forms.customer.example"}
+    assert origin.resolve(headers, "app.saas.example").reference == "ws_42"
+    # A proxy appending to X-Forwarded-Host: the edge's value comes first.
+    appended = {ASSERTION_HEADER: token, "X-Forwarded-Host": "forms.customer.example, proxy"}
+    assert origin.resolve(appended, "app.saas.example").reference == "ws_42"
+    for bad in (
+        {ASSERTION_HEADER: token},
+        {ASSERTION_HEADER: token, "X-Forwarded-Host": "x.example"},
+    ):
+        with pytest.raises(AssertionInvalid) as info:
+            origin.resolve(bad, "app.saas.example")
+        assert info.value.code == "wrong_hostname"
+    # No assertion: still "missing", so on_missing="passthrough" keeps working.
+    with pytest.raises(AssertionInvalid) as info:
+        origin.resolve({}, "app.saas.example")
+    assert info.value.code == "missing"
+    # The default mode checks Host, as before.
+    with pytest.raises(AssertionInvalid):
+        WorkspaceResolver(KEYS, "app-1").resolve(headers, "app.saas.example")
+    with pytest.raises(ValueError):
+        WorkspaceResolver(KEYS, "app-1", host_header="sni")

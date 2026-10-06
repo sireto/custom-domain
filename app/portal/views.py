@@ -233,6 +233,7 @@ NOTICES = {
     "origin_verified_only": "Origin verified. Activate it to send traffic there.",
     "origin_activated": "Origin activated. The edge sends this application's traffic there.",
     "origin_retired": "Origin retired. It no longer receives traffic.",
+    "origin_host_header": "Host header saved; the edge applies it within a minute.",
     "origin_deleted": "Origin deleted.",
     "credential_revoked": "API key revoked. Requests using it are refused from now on.",
     "assertion_key_revoked": (
@@ -915,11 +916,30 @@ def register_origin(
     host: str = Form(""),
     scheme: str = Form("https"),
     port: int | None = Form(None),
+    host_header: str = Form("customer"),
 ):
     def act(application):
-        app_service.register_origin(db, application, host=host, scheme=scheme, port=port)
+        app_service.register_origin(
+            db, application, host=host, scheme=scheme, port=port, host_header=host_header
+        )
 
     return _action(request, session, db, slug, csrf, act, tab="origins", ok="origin_registered")
+
+
+@router.post("/applications/{slug}/origins/{origin_id}/host-header")
+def set_origin_host_header_view(
+    request: Request,
+    slug: str,
+    origin_id: uuid.UUID,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+    host_header: str = Form(""),
+):
+    def act(application):
+        app_service.set_origin_host_header(db, _origin(db, application, origin_id), host_header)
+
+    return _action(request, session, db, slug, csrf, act, tab="origins", ok="origin_host_header")
 
 
 def _origin(db, application, origin_id):

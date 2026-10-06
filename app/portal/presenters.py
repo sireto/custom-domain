@@ -147,6 +147,24 @@ def application_state(application: Application) -> State:
     return APPLICATION_STATES[application.status]
 
 
+HOST_HEADER_MODES = {
+    "customer": (
+        "Customer hostname",
+        "The edge sends Host: the customer's hostname, such as forms.customer.example.",
+    ),
+    "origin": (
+        "Origin's own name",
+        "The edge sends Host: this origin's own name, so a CDN or a host-routed proxy in front "
+        "of it routes the request as usual; the customer's hostname is in X-Forwarded-Host.",
+    ),
+}
+
+
+def host_header_mode(origin: VerifiedOrigin) -> tuple[str, str]:
+    """The Host the edge sends this origin, as a label and an explanation."""
+    return HOST_HEADER_MODES[origin.host_header.value]
+
+
 def origin_state(origin: VerifiedOrigin) -> State:
     if origin.is_active and origin.status == OriginStatus.VERIFIED:
         return State("Active", "ok", "Receives this application's traffic.")

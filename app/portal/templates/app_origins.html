@@ -27,10 +27,12 @@
   <div class="card-head"><div><h2>Origins</h2><p>Only one origin is active at a time. Activating another switches traffic to it immediately.</p></div></div>
   {% if origins %}
   <div class="table-wrap"><table>
-    <tr><th>URL</th><th>Status</th><th>Verified</th><th>Last check</th><th></th></tr>
-    {% for o in origins %}<tr>
+    <tr><th>URL</th><th>Status</th><th>Host sent</th><th>Verified</th><th>Last check</th><th></th></tr>
+    {% for o in origins %}{% set mode = p.host_header_mode(o) %}<tr>
       <td><code>{{ o.url }}</code></td>
       <td>{{ ui.badge(p.origin_state(o)) }}</td>
+      <td class="small"><span title="{{ mode[1] }}">{{ mode[0] }}</span>
+        {{ ui.post(base ~ o.id ~ '/host-header', csrf, 'Use ' ~ ('customer hostname' if o.host_header.value == 'origin' else "origin's name"), 'btn-sm', {'host_header': 'customer' if o.host_header.value == 'origin' else 'origin'}) }}</td>
       <td class="small">{{ ui.when(o.verified_at) }}</td>
       <td class="small">{{ ui.when(o.last_checked_at) }}{% if o.last_error_code %}<div class="muted"><code>{{ o.last_error_code }}</code></div>{% endif %}</td>
       <td class="num"><div class="actions" style="justify-content:flex-end">
@@ -81,9 +83,10 @@
       <div class="fixed"><label for="scheme">Scheme</label><select id="scheme" name="scheme" style="width:110px"><option value="https">https</option><option value="http">http</option></select></div>
       <div class="grow"><label for="host">Host</label><input type="text" id="host" name="host" required placeholder="app.acme.example"></div>
       <div class="fixed"><label for="port">Port</label><input type="number" id="port" name="port" min="1" max="65535" placeholder="443" style="width:100px"></div>
+      <div class="fixed"><label for="host_header">Host sent</label><select id="host_header" name="host_header"><option value="customer">Customer hostname</option><option value="origin">Origin's own name</option></select></div>
       <div class="fixed"><button type="submit" class="btn-primary">Register</button></div>
     </div>
-    <div class="card-foot small muted">Leave the port empty for the scheme's default (443 or 80). You get a verification token to serve from the origin next.</div>
+    <div class="card-foot small muted">Leave the port empty for the scheme's default (443 or 80). Choose "Origin's own name" when the origin is behind a CDN (such as Cloudflare's proxy) or a reverse proxy that routes by Host: the customer's hostname then travels in X-Forwarded-Host. You get a verification token to serve from the origin next.</div>
   </form>
 </div>
 {% endblock %}

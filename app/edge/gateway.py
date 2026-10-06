@@ -235,19 +235,31 @@ def _validate_app_route(
     dial = upstreams[0]["dial"]
     if dial not in allowed_upstreams:
         raise ConfigRejected(f"upstream {dial!r} is not a verified active origin")
-    expected_headers = {
-        "request": {
-            "set": {
-                "Host": ["{http.request.host}"],
-                "X-Forwarded-Host": ["{http.request.host}"],
-                "X-Forwarded-Proto": ["{http.request.scheme}"],
-            }
-        }
-    }
-    if proxy.get("headers") != expected_headers:
-        raise ConfigRejected("reverse_proxy headers must set Host and X-Forwarded-* only")
     transport = proxy.get("transport")
     origin_host = allowed_upstreams[dial]
+    # Host is the customer's hostname, or the origin's own name (and port)
+    # for an origin in "origin" host-header mode; never anything else.
+    dial_port = int(dial.rsplit(":", 1)[1])
+    own_name = edge_config.origin_host_value(origin_host, dial_port, transport is not None)
+    allowed_hosts = ({"{http.request.host}"}, {own_name})
+    headers = proxy.get("headers")
+    for hosts in allowed_hosts:
+        expected_headers = {
+            "request": {
+                "set": {
+                    "Host": sorted(hosts),
+                    "X-Forwarded-Host": ["{http.request.host}"],
+                    "X-Forwarded-Proto": ["{http.request.scheme}"],
+                }
+            }
+        }
+        if headers == expected_headers:
+            break
+    else:
+        raise ConfigRejected(
+            "reverse_proxy headers must set Host (the customer's hostname or the origin's own "
+            "name) and X-Forwarded-* only"
+        )
     expected_transport = {"protocol": "http", "tls": {"server_name": origin_host}}
     if transport is not None and transport != expected_transport:
         raise ConfigRejected(

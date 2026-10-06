@@ -64,8 +64,10 @@ def _ready(session, application, hostname, reference):
     return domain
 
 
-def _with_origin(session, application, host, port, scheme="http"):
-    origin = register_origin(session, application, host=host, scheme=scheme, port=port)
+def _with_origin(session, application, host, port, scheme="http", host_header="customer"):
+    origin = register_origin(
+        session, application, host=host, scheme=scheme, port=port, host_header=host_header
+    )
     record_origin_verification(session, origin, verified=True)
     activate_origin(session, origin)
     session.commit()
@@ -305,7 +307,8 @@ def test_two_applications_are_never_confused_through_real_caddy(
     origin_a = RecordingOrigin("acme")
     origin_g = RecordingOrigin("globex")
     _with_origin(session, acme, "localhost", origin_a.port)
-    _with_origin(session, globex, "localhost", origin_g.port)
+    # Globex's origin sits behind a host-routed proxy: the edge sends its own name.
+    _with_origin(session, globex, "localhost", origin_g.port, host_header="origin")
     _ready(session, acme, "one.acme-customer.example", "ws_acme_1")
     _ready(session, acme, "two.acme-customer.example", "ws_acme_2")
     _ready(session, globex, "one.globex-customer.example", "ws_globex_1")
@@ -387,8 +390,15 @@ def test_two_applications_are_never_confused_through_real_caddy(
             == "ws_acme_2"
         )
 
-        r = httpx.get(f"{base}/", headers={"Host": "one.globex-customer.example"})
+        r = httpx.get(
+            f"{base}/",
+            headers={"Host": "one.globex-customer.example", "X-Forwarded-Host": "evil.example"},
+        )
         assert r.text == "hello from globex"
+        g_received = origin_g.requests[-1]["headers"]
+        assert g_received["Host"] == f"localhost:{origin_g.port}"
+        # The visitor's X-Forwarded-Host is replaced, never passed on.
+        assert g_received["X-Forwarded-Host"] == "one.globex-customer.example"
         g_assertion = verify(origin_g.requests[-1]["headers"][ASSERTION_HEADER], KEYS)
         assert (
             g_assertion.application_id == str(globex.id) and g_assertion.reference == "ws_globex_1"

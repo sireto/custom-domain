@@ -102,7 +102,8 @@ All paths are under `/operator/v1`; errors use the v1 envelope
 | `GET /applications/{slug}/traffic?days=30` | proxied requests and response bytes per UTC day, oldest first, today last; `days` is 1 to 400 | `application traffic` |
 | `DELETE /applications/{slug}?confirm={slug}&delete_domains=true` | delete (domains kept 90 days as tombstones) | `application delete` |
 | `GET /applications/{slug}/origins` | list | `origin list` |
-| `POST /applications/{slug}/origins` `{host, scheme?, port?}` | register; returns `verification_token` and `verification_url` | `origin register` |
+| `POST /applications/{slug}/origins` `{host, scheme?, port?, host_header?}` | register; returns `verification_token` and `verification_url`. `host_header` is `customer` (default) or `origin` ([edge-routing.md](edge-routing.md#origins-behind-a-cdn-or-a-shared-proxy)) | `origin register` |
+| `PATCH /applications/{slug}/origins/{id}` `{host_header}` | change which `Host` the edge sends this origin; applied at the next reconcile | `origin set-host-header` |
 | `POST /applications/{slug}/origins/{id}/verify` `{activate?}` | verify (and by default activate); `422 origin_verification_failed` says why not | `origin verify --activate` |
 | `POST /applications/{slug}/origins/{id}/activate`, `/retire` | route traffic to it, or stop | `origin activate`, `origin retire` |
 | `DELETE /applications/{slug}/origins/{id}` | delete one that carries no traffic | `origin delete` |
@@ -115,6 +116,18 @@ All paths are under `/operator/v1`; errors use the v1 envelope
 | `POST /applications/{slug}/credentials/{id}/revoke` | revoke | `credential revoke` |
 | `DELETE /applications/{slug}/credentials/{id}` | delete a revoked or expired one | `credential delete` |
 | `GET /doctor` | the doctor's findings, for monitoring | `doctor` |
+
+### Not found
+
+Anything that doesn't exist under the application in the path, including
+another application's origin, key or credential, is a `404`, never a `403`:
+
+| Code | When |
+|---|---|
+| `application_not_found` | No application with that slug. |
+| `origin_not_found` | No such origin in this application. Before 0.10.0 this was `422 invalid_origin`; clients matching that code for a missing origin should match `404 origin_not_found` instead. |
+| `credential_not_found` | No such credential in this application. |
+| `assertion_key_not_found` | No such assertion key in this application. |
 
 ## Provisioning a tenant
 

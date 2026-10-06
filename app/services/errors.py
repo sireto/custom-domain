@@ -70,6 +70,10 @@ class CredentialNotFound(ServiceError):
     code = "credential_not_found"
 
 
+class OriginNotFound(ServiceError):
+    code = "origin_not_found"
+
+
 class AssertionKeyNotFound(ServiceError):
     code = "assertion_key_not_found"
 

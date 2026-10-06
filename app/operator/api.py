@@ -268,10 +268,25 @@ def register_origin(
     request: Request, slug: str, body: schemas.OriginCreate, db: DbSession
 ) -> schemas.OriginResource:
     origin = app_service.register_origin(
-        db, _application(db, slug), host=body.host, scheme=body.scheme, port=body.port
+        db,
+        _application(db, slug),
+        host=body.host,
+        scheme=body.scheme,
+        port=body.port,
+        host_header=body.host_header,
     )
     db.commit()
     request.state.operator_target = f"origin:{origin.id}"
+    return schemas.OriginResource.of(origin)
+
+
+@router.patch("/applications/{slug}/origins/{origin_id}", dependencies=[Operator])
+def update_origin(
+    slug: str, origin_id: uuid.UUID, body: schemas.OriginUpdate, db: DbSession
+) -> schemas.OriginResource:
+    """Change the Host the edge sends this origin; the next reconcile applies it."""
+    origin = app_service.set_origin_host_header(db, _origin(db, slug, origin_id), body.host_header)
+    db.commit()
     return schemas.OriginResource.of(origin)
 
 

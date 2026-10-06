@@ -10,6 +10,7 @@ from app.models.enums import (
     ClaimStatus,
     DomainStatus,
     EventType,
+    OriginHostHeader,
     OriginStatus,
 )
 from app.models.idempotency import IdempotencyKey
@@ -35,6 +36,7 @@ __all__ = [
     "EventType",
     "IdempotencyKey",
     "OperatorToken",
+    "OriginHostHeader",
     "OriginStatus",
     "OwnershipClaim",
     "VerifiedOrigin",

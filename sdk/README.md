@@ -12,7 +12,9 @@ pip install custom-domain-sdk        # from PyPI; from a checkout: pip install .
 ```python
 from custom_domain import Client
 
-client = Client("https://edge.example.net", credential="cd_...")  # the edge name and credential from the operator
+client = Client(
+    "https://edge.example.net", credential="cd_..."
+)  # the edge name and credential from the operator
 
 domain = client.create_domain(
     "forms.customer.example",  # the customer's exact subdomain
@@ -119,6 +121,26 @@ except AssertionInvalid as exc:
 
 Origins should only be reachable from the edge (network rules), or treat any
 request without a valid assertion as a direct call and refuse it.
+
+**Origin behind a CDN or a shared proxy** (SDK 0.10.0 and later; earlier
+versions raise `TypeError` for `host_header`). When the origin is registered in
+`origin` host-header mode, the edge sends the origin's own name as `Host`
+and the customer's hostname as `X-Forwarded-Host`. Pass the same mode to
+the SDK, so the assertion is checked against `X-Forwarded-Host`:
+
+```python
+app.add_middleware(
+    CustomDomainMiddleware,
+    keys=...,
+    application_id=...,
+    workspace_lookup=load_workspace,
+    host_header="origin",
+)
+resolver = WorkspaceResolver(keys=..., application_id=..., host_header="origin")
+```
+
+Proxies between the edge and your application must pass `X-Forwarded-Host`
+through unchanged.
 
 ## Webhooks
 

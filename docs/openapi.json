@@ -1244,6 +1244,16 @@
             "title": "Host",
             "type": "string"
           },
+          "host_header": {
+            "default": "customer",
+            "description": "The Host the edge sends: `customer` (the customer's hostname) or `origin` (the origin's own name, for an origin behind a CDN or a host-routed proxy; the customer's hostname is then in X-Forwarded-Host).",
+            "enum": [
+              "customer",
+              "origin"
+            ],
+            "title": "Host Header",
+            "type": "string"
+          },
           "port": {
             "anyOf": [
               {
@@ -1278,6 +1288,14 @@
           "active": {
             "title": "Active",
             "type": "boolean"
+          },
+          "host_header": {
+            "enum": [
+              "customer",
+              "origin"
+            ],
+            "title": "Host Header",
+            "type": "string"
           },
           "id": {
             "format": "uuid",
@@ -1350,11 +1368,31 @@
           "active",
           "verification_token",
           "verification_url",
+          "host_header",
           "verified_at",
           "last_error_code",
           "last_error_message"
         ],
         "title": "OriginResource",
+        "type": "object"
+      },
+      "OriginUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "host_header": {
+            "description": "The Host the edge sends to this origin; see OriginCreate.",
+            "enum": [
+              "customer",
+              "origin"
+            ],
+            "title": "Host Header",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host_header"
+        ],
+        "title": "OriginUpdate",
         "type": "object"
       },
       "OriginVerify": {
@@ -3357,6 +3395,112 @@
           }
         ],
         "summary": "Delete Origin",
+        "tags": [
+          "Operator"
+        ]
+      },
+      "patch": {
+        "description": "Change the Host the edge sends this origin; the next reconcile applies it.",
+        "operationId": "update_origin_operator_v1_applications__slug__origins__origin_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "origin_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Origin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OriginUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OriginResource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or wrong operator token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client address may not use it."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or the operator API is off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many failed tokens from this client."
+          }
+        },
+        "security": [
+          {
+            "OperatorToken": []
+          }
+        ],
+        "summary": "Update Origin",
         "tags": [
           "Operator"
         ]

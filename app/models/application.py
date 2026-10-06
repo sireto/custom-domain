@@ -18,7 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import ApplicationStatus, OriginStatus
+from app.models.enums import ApplicationStatus, OriginHostHeader, OriginStatus
 from app.models.types import TimestampMixin, UTCDateTime, UUIDPrimaryKeyMixin, enum_type
 
 if TYPE_CHECKING:
@@ -109,6 +109,12 @@ class VerifiedOrigin(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     scheme: Mapped[str] = mapped_column(String(8), nullable=False, default="https")
     host: Mapped[str] = mapped_column(String(253), nullable=False)
     port: Mapped[int] = mapped_column(Integer, nullable=False, default=443)
+    host_header: Mapped[OriginHostHeader] = mapped_column(
+        enum_type(OriginHostHeader, "origin_host_header"),
+        nullable=False,
+        default=OriginHostHeader.CUSTOMER,
+        server_default=OriginHostHeader.CUSTOMER.value,
+    )
     status: Mapped[OriginStatus] = mapped_column(
         enum_type(OriginStatus, "origin_status"), nullable=False, default=OriginStatus.PENDING
     )
