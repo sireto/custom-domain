@@ -12,8 +12,8 @@
     {% for a in applications %}{% set c = per_app.get(a.id, {}) %}{% set n = c.get(DomainStatus.ATTENTION_REQUIRED, 0) + c.get(DomainStatus.SUSPENDED, 0) %}<tr>
       <td class="key"><a href="/portal/applications/{{ a.slug }}">{{ a.name }}</a><span class="sub mono">{{ a.slug }}</span></td>
       <td data-label="Status">{{ ui.badge(p.application_state(a)) }}</td>
-      <td data-label="Origin">{% if a.serving_origin %}<code>{{ a.serving_origin.host }}</code>{% else %}<a class="st t-warn" href="/portal/applications/{{ a.slug }}/origins">Not connected</a>{% endif %}</td>
-      <td data-label="CNAME target"><code>{{ a.cname_target }}</code></td>
+      <td data-label="Origin">{% if a.serving_origin %}<code>{{ ui.host(a.serving_origin.host) }}</code>{% else %}<a class="st t-warn" href="/portal/applications/{{ a.slug }}/origins">Not connected</a>{% endif %}</td>
+      <td data-label="CNAME target"><code>{{ ui.host(a.cname_target) }}</code></td>
       <td data-label="Live" class="num">{{ c.get(DomainStatus.READY, 0) }}</td>
       <td data-label="Waiting" class="num">{{ c.get(DomainStatus.PENDING_DNS, 0) + c.get(DomainStatus.PROVISIONING, 0) }}</td>
       <td data-label="Attention" class="num">{% if n %}<a class="st t-fail" href="/portal/applications/{{ a.slug }}/domains?status=attention_required">{{ n }}</a>{% else %}<span class="muted">0</span>{% endif %}</td>
