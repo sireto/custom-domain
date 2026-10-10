@@ -183,3 +183,23 @@ def test_released_with_the_service_and_the_sdk():
         for name in (".", "sdk", "mcp-server")
     }
     assert len(set(version.values())) == 1, version
+
+
+def test_registry_listing_names_this_release():
+    import json
+    import tomllib
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "mcp-server"
+    listing = json.loads((root / "server.json").read_text())
+    version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    package = listing["packages"][0]
+    assert (listing["version"], package["version"]) == (version, version)
+    assert package["identifier"] == "custom-domain-mcp"
+    # The registry accepts the listing only if the PyPI README names it.
+    assert f"<!-- mcp-name: {listing['name']} -->" in (root / "README.md").read_text()
+    # The key is a secret; the server refuses to start without either setting.
+    settings = {v["name"]: v for v in package["environmentVariables"]}
+    assert set(settings) == {"CUSTOM_DOMAIN_API_URL", "CUSTOM_DOMAIN_API_KEY"}
+    assert settings["CUSTOM_DOMAIN_API_KEY"]["isSecret"] is True
+    assert all(v["isRequired"] for v in settings.values())

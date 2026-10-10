@@ -1,0 +1,40 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.sireto/custom-domain",
+  "title": "Custom Domain API",
+  "description": "Register a SaaS app's customer hostnames, show their DNS records and checks, recheck or delete them.",
+  "websiteUrl": "https://customdomainapi.com/docs/ai-agents/",
+  "repository": {
+    "url": "https://github.com/sireto/custom-domain",
+    "source": "github",
+    "subfolder": "mcp-server"
+  },
+  "version": "0.11.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "custom-domain-mcp",
+      "version": "0.11.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "CUSTOM_DOMAIN_API_URL",
+          "description": "Your edge, such as https://edge.customdomainapi.com (https only)",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "CUSTOM_DOMAIN_API_KEY",
+          "description": "An application API key (cd_...), never an operator token",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
