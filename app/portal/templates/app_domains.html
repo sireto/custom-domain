@@ -23,7 +23,7 @@
     <tbody>
     {% for d in domains %}{% set st = p.domain_state(d) %}<tr>
       <td class="key"><a class="key" href="/portal/applications/{{ application.slug }}/domains/{{ d.id }}">{{ d.hostname }}</a></td>
-      <td data-label="Workspace"><code>{{ d.reference }}</code></td>
+      <td data-label="Workspace"><code class="ref">{{ d.reference }}</code></td>
       <td data-label="Status">{{ ui.badge(st) }}</td>
       <td data-label="DNS records">{% if not d.is_deleted %}{{ ui.status(p.dns_summary(d)) }}{% else %}<span class="muted">—</span>{% endif %}</td>
       <td data-label="Checks">{% if not d.is_deleted %}{{ ui.checks(p.check_views(d)) }}{% else %}<span class="muted">—</span>{% endif %}</td>

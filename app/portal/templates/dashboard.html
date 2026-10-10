@@ -59,8 +59,8 @@
       {% for a in applications[:6] %}<tr>
         <td class="key"><a href="/portal/applications/{{ a.slug }}">{{ a.name }}</a><span class="sub mono">{{ a.slug }}</span></td>
         <td data-label="Status">{{ ui.badge(p.application_state(a)) }}</td>
-        <td data-label="CNAME target"><code>{{ a.cname_target }}</code></td>
-        <td data-label="Origin">{% if a.serving_origin %}<code>{{ a.serving_origin.host }}</code>{% else %}<span class="st t-warn">Not connected</span>{% endif %}</td>
+        <td data-label="CNAME target"><code>{{ ui.host(a.cname_target) }}</code></td>
+        <td data-label="Origin">{% if a.serving_origin %}<code>{{ ui.host(a.serving_origin.host) }}</code>{% else %}<span class="st t-warn">Not connected</span>{% endif %}</td>
       </tr>{% endfor %}
       </tbody>
     </table></div>
