@@ -9,13 +9,13 @@
     "source": "github",
     "subfolder": "mcp-server"
   },
-  "version": "0.11.0",
+  "version": "0.11.1",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "custom-domain-mcp",
-      "version": "0.11.0",
+      "version": "0.11.1",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
