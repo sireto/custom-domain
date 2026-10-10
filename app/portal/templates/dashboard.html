@@ -1,87 +1,111 @@
 {% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Overview{% endblock %}
 {% block content %}
 <div class="page-head">
-  <div><h1>Overview</h1><p>What this deployment serves, and anything that needs you.</p></div>
+  <div><h1>Overview</h1><p class="lede">What this deployment serves, and anything that needs you.</p></div>
   <div class="actions"><a class="btn" href="/portal/doctor">Run health checks</a><a class="btn btn-primary" href="/portal/new-application">New application</a></div>
 </div>
 
 {% if not applications %}
-<div class="card">
-  <div class="card-head"><div><h2>Get started</h2><p>Three steps to serve your first customer hostname.</p></div></div>
+<section class="panel" aria-labelledby="start-h">
+  <div class="panel-head"><div><h2 id="start-h">Get started</h2><p>Three steps to serve your first customer hostname.</p></div></div>
   <ol class="steps">
-    <li class="current"><span class="step-mark">1</span><div class="grow"><h3>Create an application</h3><p>An application is one SaaS product whose customers bring their own hostnames. It has its own API keys and its own backend.</p></div><div><a class="btn btn-primary btn-sm" href="/portal/new-application">Create</a></div></li>
-    <li><span class="step-mark">2</span><div class="grow"><h3>Connect its backend</h3><p>Register the origin the edge forwards requests to, and prove you control it.</p></div></li>
-    <li><span class="step-mark">3</span><div class="grow"><h3>Register customer hostnames</h3><p>Your product does this through the API or SDK; each customer then adds two DNS records.</p></div></li>
+    <li class="current"><span class="n">1</span><div><h3>Create an application</h3><p>An application is one SaaS product whose customers bring their own hostnames. It has its own API keys and its own backend.</p></div><div><a class="btn btn-primary" href="/portal/new-application">Create application</a></div></li>
+    <li><span class="n">2</span><div><h3>Connect its backend</h3><p>Register the origin the edge forwards requests to, and prove you control it.</p></div><div></div></li>
+    <li><span class="n">3</span><div><h3>Register customer hostnames</h3><p>Your product does this through the API or SDK; each customer then adds two DNS records.</p></div><div></div></li>
   </ol>
-</div>
+</section>
 {% endif %}
 
-<div class="grid grid-4" style="margin-bottom:20px">
-  <div class="card stat" style="margin:0"><div class="label">Applications</div><div class="value"><a href="/portal/applications">{{ applications|length }}</a></div></div>
-  <div class="card stat" style="margin:0"><div class="label">Live hostnames</div><div class="value" style="color:{{ 'var(--ok)' if stats.live else 'inherit' }}">{{ stats.live }}</div></div>
-  <div class="card stat" style="margin:0"><div class="label">Waiting for DNS or provisioning</div><div class="value">{{ stats.waiting }}</div></div>
-  <div class="card stat" style="margin:0"><div class="label">Need attention</div><div class="value" style="color:{{ 'var(--fail)' if stats.attention else 'inherit' }}">{{ stats.attention }}</div></div>
-</div>
+<dl class="figures">
+  <div><dt>Applications</dt><dd><a href="/portal/applications">{{ applications|length }}</a></dd></div>
+  <div><dt>Live hostnames</dt><dd{% if stats.live %} class="is-good"{% endif %}>{{ stats.live }}</dd></div>
+  <div><dt>Waiting for DNS or provisioning</dt><dd>{{ stats.waiting }}</dd></div>
+  <div><dt>Need attention</dt><dd{% if stats.attention %} class="is-bad"{% endif %}>{{ stats.attention }}</dd></div>
+</dl>
 
-<div class="grid grid-2">
-  <div class="card">
-    <div class="card-head"><div><h2>Needs attention</h2><p>Hostnames that stopped being served, and applications that cannot serve.</p></div></div>
+<div class="cols">
+<div>
+  <section class="panel" aria-labelledby="attention-h">
+    <div class="panel-head"><div><h2 id="attention-h">Needs attention</h2><p>Hostnames that stopped being served, and applications that cannot serve.</p></div></div>
     {% if attention or issues %}
-    <div class="table-wrap"><table>
+    <div class="table-wrap"><table class="rows">
+      <thead><tr><th scope="col">Hostname or application</th><th scope="col">Application</th><th scope="col" class="w-status">Status</th><th scope="col">Updated</th></tr></thead>
+      <tbody>
       {% for d in attention %}<tr>
-        <td><a class="row-link" href="/portal/applications/{{ d.application.slug }}/domains/{{ d.id }}">{{ d.hostname }}</a><div class="muted small">{{ d.application.name }}</div></td>
-        <td class="num">{{ ui.badge(p.domain_state(d)) }}</td>
+        <td class="key"><a class="key" href="/portal/applications/{{ d.application.slug }}/domains/{{ d.id }}">{{ d.hostname }}</a></td>
+        <td data-label="Application">{{ d.application.name }}</td>
+        <td data-label="Status">{{ ui.badge(p.domain_state(d)) }}</td>
+        <td data-label="Updated" class="muted">{{ ui.when(d.updated_at) }}</td>
       </tr>{% endfor %}
       {% for a, why in issues %}<tr>
-        <td><a class="row-link" href="/portal/applications/{{ a.slug }}">{{ a.name }}</a><div class="muted small">{{ why }}</div></td>
-        <td class="num"><a class="btn btn-sm" href="/portal/applications/{{ a.slug }}">Fix</a></td>
+        <td class="key"><a href="/portal/applications/{{ a.slug }}">{{ a.name }}</a><span class="sub">{{ why }} {% if a.status.value != 'active' %}<a href="/portal/applications/{{ a.slug }}/settings">Resume it in Settings</a>{% else %}<a href="/portal/applications/{{ a.slug }}/origins">Connect an origin</a>{% endif %}</span></td>
+        <td data-label="Application" class="muted">Whole application</td>
+        <td data-label="Status">{% if a.status.value != 'active' %}{{ ui.badge(p.application_state(a)) }}{% else %}<span class="badge t-warn">No origin</span>{% endif %}</td>
+        <td data-label="Updated" class="muted">—</td>
       </tr>{% endfor %}
+      </tbody>
     </table></div>
     {% else %}
-    <div class="card-body"><div class="split"><span class="badge t-ok">All clear</span><span class="muted">Every hostname that went live is still being served.</span></div></div>
+    <div class="empty"><p><span class="badge t-ok">All clear</span> Every hostname that went live is still being served.</p></div>
     {% endif %}
-  </div>
+  </section>
 
-  <div class="card">
-    <div class="card-head"><div><h2>Edge</h2><p>The Caddy server that terminates TLS for customer hostnames.</p></div><a class="btn btn-sm" href="/portal/edge">Edge &amp; DNS</a></div>
-    <div class="card-body"><dl class="kv">
+  {% if applications %}
+  <section class="panel" aria-labelledby="apps-h">
+    <div class="panel-head"><div><h2 id="apps-h">Applications</h2></div>{% if applications|length > 6 %}<a href="/portal/applications" class="small">All {{ applications|length }} applications</a>{% endif %}</div>
+    <div class="table-wrap"><table class="rows">
+      <thead><tr><th scope="col">Application</th><th scope="col" class="w-status">Status</th><th scope="col">CNAME target</th><th scope="col">Origin</th></tr></thead>
+      <tbody>
+      {% for a in applications[:6] %}<tr>
+        <td class="key"><a href="/portal/applications/{{ a.slug }}">{{ a.name }}</a><span class="sub mono">{{ a.slug }}</span></td>
+        <td data-label="Status">{{ ui.badge(p.application_state(a)) }}</td>
+        <td data-label="CNAME target"><code>{{ a.cname_target }}</code></td>
+        <td data-label="Origin">{% if a.serving_origin %}<code>{{ a.serving_origin.host }}</code>{% else %}<span class="st t-warn">Not connected</span>{% endif %}</td>
+      </tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+  {% endif %}
+
+  <section class="panel" aria-labelledby="recent-h">
+    <div class="panel-head"><div><h2 id="recent-h">Recent activity</h2><p>Registrations, verifications and status changes across all applications.</p></div></div>
+    {% if recent %}
+    <div class="table-wrap"><table class="rows">
+      <thead><tr><th scope="col">When</th><th scope="col">Event</th><th scope="col">Hostname</th></tr></thead>
+      <tbody>
+      {% for e, hostname, domain_id, a in recent %}{% set t = p.describe_event(e) %}<tr>
+        <td data-label="When" class="muted nowrap">{{ ui.when(e.created_at) }}</td>
+        <td data-label="Event">{{ t[0] }}{% if t[1] %}<span class="sub">{{ t[1] }}</span>{% endif %}</td>
+        <td data-label="Hostname">{% if a %}<a class="key" href="/portal/applications/{{ a.slug }}/domains/{{ domain_id }}">{{ hostname }}</a><span class="sub">{{ a.name }}</span>{% else %}<span class="key-text">{{ hostname }}</span>{% endif %}</td>
+      </tr>{% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}
+    {{ ui.empty('Nothing yet', 'Activity appears here once hostnames are registered.') }}
+    {% endif %}
+  </section>
+</div>
+
+<div>
+  <section class="panel" aria-labelledby="edge-h">
+    <div class="panel-head"><div><h2 id="edge-h">Edge</h2><p>The Caddy server that terminates TLS for customer hostnames.</p></div></div>
+    <div class="panel-body"><dl class="kv">
       <dt>Own name</dt><dd>{% if edge_settings and edge_settings.edge_hostname %}<code>{{ edge_settings.edge_hostname }}</code>{% else %}<span class="muted">not set (<code>EDGE_HOSTNAME</code>)</span>{% endif %}</dd>
-      <dt>HTTPS</dt><dd>{% if edge_settings and edge_settings.disable_https %}<span class="badge t-warn">Disabled</span>{% elif edge_settings %}{{ 'Let\'s Encrypt (ACME)' if edge_settings.tls_issuer == 'acme' else 'Internal test CA' }}{% endif %}</dd>
+      <dt>HTTPS</dt><dd>{% if edge_settings and edge_settings.disable_https %}<span class="badge t-warn">Disabled</span>{% elif edge_settings %}{{ 'Let\'s Encrypt (ACME)' if edge_settings.tls_issuer == 'acme' else 'Internal test CA' }}{% else %}<span class="muted">—</span>{% endif %}</dd>
       <dt>Last reconciliation</dt><dd>{% if lock and lock.locked_at %}{{ ui.when(lock.locked_at) }} <span class="muted small">by {{ lock.holder }}</span>{% else %}<span class="muted">not yet</span>{% endif %}</dd>
-      {% if last_reconcile and last_reconcile.error %}<dt>Last result</dt><dd><span class="badge t-fail">{{ last_reconcile.error }}</span></dd>{% endif %}
+      {% if last_reconcile and last_reconcile.error %}<dt>Last result</dt><dd><span class="st t-fail">{{ last_reconcile.error }}</span></dd>{% endif %}
     </dl></div>
-  </div>
-</div>
+    <div class="panel-foot"><a href="/portal/edge">Edge names and DNS</a></div>
+  </section>
 
-{% if applications %}
-<div class="card">
-  <div class="card-head"><div><h2>Applications</h2></div><a class="btn btn-sm" href="/portal/applications">View all</a></div>
-  <div class="table-wrap"><table>
-    <tr><th>Application</th><th>Status</th><th>CNAME target</th><th>Origin</th></tr>
-    {% for a in applications[:6] %}<tr>
-      <td><a class="row-link" href="/portal/applications/{{ a.slug }}">{{ a.name }}</a> <span class="tag">{{ a.slug }}</span></td>
-      <td>{{ ui.badge(p.application_state(a)) }}</td>
-      <td><code>{{ a.cname_target }}</code></td>
-      <td>{% if a.serving_origin %}<code>{{ a.serving_origin.host }}</code>{% else %}<span class="badge t-warn">Not connected</span>{% endif %}</td>
-    </tr>{% endfor %}
-  </table></div>
+  <section class="panel" aria-labelledby="maint-h">
+    <div class="panel-head"><div><h2 id="maint-h">Maintenance</h2></div></div>
+    <div class="panel-body">
+      <h3>Purge old deleted records</h3>
+      <p class="hint">Deleted hostnames and applications are kept for 90 days for auditing. This removes the ones past that period for good; nothing that is served is affected.</p>
+      <div class="form-foot start">{{ ui.confirm('/portal/maintenance/purge-tombstones', csrf, 'Purge deleted records', 'Permanently remove deleted hostnames and applications older than 90 days, with their history?', 'Purge now', danger=false, place='confirm-left') }}</div>
+    </div>
+  </section>
 </div>
-{% endif %}
-
-<div class="grid grid-2">
-  <div class="card">
-    <div class="card-head"><div><h2>Recent activity</h2><p>Registrations, verifications and status changes across all applications.</p></div></div>
-    {% if recent %}<ul class="timeline">
-      {% for e, hostname, domain_id, a in recent %}{% set t = p.describe_event(e) %}<li>
-        <time>{{ e.created_at.strftime('%b %d %H:%M') }}</time>
-        <div><b>{{ t[0] }}</b>{% if t[1] %} <span class="muted">· {{ t[1] }}</span>{% endif %}<div class="small">{% if a %}<a href="/portal/applications/{{ a.slug }}/domains/{{ domain_id }}">{{ hostname }}</a> <span class="muted">in {{ a.name }}</span>{% else %}{{ hostname }}{% endif %}</div></div>
-      </li>{% endfor %}
-    </ul>{% else %}<div class="card-body muted">Nothing yet. Activity appears here once hostnames are registered.</div>{% endif %}
-  </div>
-  <div class="card">
-    <div class="card-head"><div><h2>Maintenance</h2></div></div>
-    <div class="danger-row"><div><h3>Purge old deleted records</h3><p>Deleted hostnames and applications are kept for 90 days for auditing. This removes the ones past that period for good; nothing that is served is affected.</p></div>
-      {{ ui.confirm('/portal/maintenance/purge-tombstones', csrf, 'Purge', 'Permanently remove deleted hostnames and applications older than 90 days, with their history?', 'Purge now', danger=false, small=false) }}</div>
-  </div>
 </div>
 {% endblock %}

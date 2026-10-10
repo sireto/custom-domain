@@ -1,88 +1,89 @@
 {% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Settings · {{ application.name }}{% endblock %}
-{% block crumbs %}{{ ui.app_crumbs(application, 'Settings') }}{% endblock %}
+{% block crumbs %}{{ ui.app_crumbs(application) }}{% endblock %}
 {% block content %}
 {{ ui.app_head(application, app_state) }}
-{{ ui.app_tabs(application, 'settings', tab_counts) }}
+{% call ui.app_frame(application, 'settings', tab_counts) %}
 {% set base = '/portal/applications/' ~ application.slug %}
+<div class="section-head"><div><h2>Settings</h2></div></div>
 
-<div class="card">
-  <div class="card-head"><div><h2>General</h2></div></div>
+<div class="settings">
+<section class="setting" aria-labelledby="general-h">
+  <header><h3 id="general-h">General</h3><p>The name is shown in this portal only. The slug is the stable identifier used by the command line and in URLs.</p></header>
   <form method="post" action="{{ base }}/name"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="card-body form-row">
-      <div class="grow"><label for="name">Name</label><input type="text" id="name" name="name" required maxlength="200" value="{{ application.name }}"></div>
-      <div class="grow"><label for="slug">Slug</label><input type="text" id="slug" value="{{ application.slug }}" readonly><div class="hint">The stable identifier; it cannot be changed.</div></div>
+    <div class="form-row">
+      <div class="grow field"><label for="name">Name</label><input type="text" id="name" name="name" required maxlength="200" value="{{ application.name }}"></div>
+      <div class="grow field"><label for="slug">Slug</label><input type="text" id="slug" class="mono" value="{{ application.slug }}" readonly aria-describedby="slug-hint"></div>
     </div>
-    <div class="card-foot actions" style="justify-content:flex-end"><button type="submit" class="btn-primary">Save name</button></div>
+    <p class="hint" id="slug-hint">The slug cannot be changed.</p>
+    <div class="form-foot start"><button type="submit">Save name</button></div>
   </form>
-</div>
+</section>
 
-<div class="card">
-  <div class="card-head"><div><h2>CNAME target</h2><p>The name new hostnames tell customers to point their CNAME at. It must resolve to this server.</p></div></div>
+<section class="setting" aria-labelledby="target-h">
+  <header><h3 id="target-h">CNAME target</h3><p>The name new hostnames tell customers to point their CNAME at. It must resolve to this server.</p></header>
   <form method="post" action="{{ base }}/cname-target"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="card-body">
-      <div class="field"><label for="cname_target">CNAME target</label><input type="text" id="cname_target" name="cname_target" required value="{{ application.cname_target }}"></div>
-      <label class="check"><input type="checkbox" name="reissue_claims" value="true"><span>Also move existing hostnames to the new target. Each gets new DNS records and is not served until its customer publishes them. Leave unticked to keep existing hostnames on the target they were given.</span></label>
-      {% if edge_names|length > 1 %}<div class="callout" style="margin-top:12px">Existing hostnames still point at: {% for n in edge_names if n != application.cname_target %}<code>{{ n }}</code>{{ ', ' if not loop.last }}{% endfor %}. The edge keeps serving and certifying those names until no live hostname uses them.</div>{% endif %}
-    </div>
-    <div class="card-foot actions" style="justify-content:flex-end"><button type="submit" class="btn-primary">Save target</button></div>
+    <div class="field"><label for="cname_target">CNAME target</label><input type="text" id="cname_target" name="cname_target" class="mono" required value="{{ application.cname_target }}" autocapitalize="off" spellcheck="false"></div>
+    <label class="choice"><input type="checkbox" name="reissue_claims" value="true"><span>Also move existing hostnames to the new target. Each gets new DNS records and is not served until its customer publishes them. Leave unticked to keep existing hostnames on the target they were given.</span></label>
+    {% if edge_names|length > 1 %}<p class="hint">Existing hostnames still point at: {% for n in edge_names if n != application.cname_target %}<code>{{ n }}</code>{{ ', ' if not loop.last }}{% endfor %}. The edge keeps serving and certifying those names until no live hostname uses them.</p>{% endif %}
+    <div class="form-foot start"><button type="submit">Save target</button></div>
   </form>
-</div>
+</section>
 
-<div class="card">
-  <div class="card-head"><div><h2>Domain limit</h2><p>The most hostnames this application may have registered at once, counting every hostname not deleted, including those still waiting for DNS. At the limit, new registrations are refused with <code>domain_limit_reached</code>; hostnames that already exist are never affected.</p></div></div>
+<section class="setting" aria-labelledby="limit-h">
+  <header><h3 id="limit-h">Domain limit</h3><p>The most hostnames this application may have registered at once, counting every hostname not deleted, including those still waiting for DNS.</p><p>At the limit, new registrations are refused with <code>domain_limit_reached</code>; hostnames that already exist are never affected.</p></header>
   <form method="post" action="{{ base }}/domain-limit"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="card-body form-row">
-      <div class="grow"><label for="max_domains">Maximum hostnames</label><input type="number" id="max_domains" name="max_domains" min="1" step="1" inputmode="numeric" value="{{ application.max_domains if application.max_domains is not none else '' }}" placeholder="No limit"><div class="hint">{{ live_domains }} registered now. Leave empty for no limit of its own.{% for u in limits if u.scope == 'deployment' %} This deployment allows {{ u.limit }} across all applications (MAX_DOMAINS), {{ u.live }} in use.{% endfor %}</div></div>
-    </div>
-    <div class="card-foot actions" style="justify-content:flex-end"><button type="submit" class="btn-primary">Save limit</button></div>
+    <div class="field"><label for="max_domains">Maximum hostnames</label><input type="number" id="max_domains" name="max_domains" min="1" step="1" inputmode="numeric" class="w-md" value="{{ application.max_domains if application.max_domains is not none else '' }}" placeholder="No limit" aria-describedby="max-hint"><p class="hint" id="max-hint">{{ live_domains }} registered now. Leave empty for no limit of its own.{% for u in limits if u.scope == 'deployment' %} This deployment allows {{ u.limit }} across all applications (<code>MAX_DOMAINS</code>), {{ u.live }} in use.{% endfor %}</p></div>
+    <div class="form-foot start"><button type="submit">Save limit</button></div>
   </form>
-</div>
+</section>
 
-<div class="card">
-  <div class="card-head"><div><h2>Request limits</h2><p>Proxied requests the edge lets through for all of this application's hostnames together. Above either limit, visitors get <code>429 Too Many Requests</code> with <code>Retry-After</code>; certificates and DNS checks are not affected. Leave both empty for no limit.</p></div></div>
+<section class="setting" aria-labelledby="rate-h">
+  <header><h3 id="rate-h">Request limits</h3><p>Proxied requests the edge lets through for all of this application's hostnames together. Above either limit, visitors get <code>429 Too Many Requests</code> with <code>Retry-After</code>; certificates and DNS checks are not affected.</p></header>
   <form method="post" action="{{ base }}/rate-limit"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="card-body form-row">
-      <div class="grow"><label for="per_minute">Per minute</label><input type="number" id="per_minute" name="per_minute" min="1" step="1" inputmode="numeric" value="{{ application.rate_limit_per_minute if application.rate_limit_per_minute is not none else '' }}" placeholder="No limit"></div>
-      <div class="grow"><label for="per_second">Per second</label><input type="number" id="per_second" name="per_second" min="1" step="1" inputmode="numeric" value="{{ application.rate_limit_per_second if application.rate_limit_per_second is not none else '' }}" placeholder="No limit"></div>
+    <div class="form-row">
+      <div class="fixed field"><label for="per_minute">Per minute</label><input type="number" id="per_minute" name="per_minute" min="1" step="1" inputmode="numeric" class="w-md" value="{{ application.rate_limit_per_minute if application.rate_limit_per_minute is not none else '' }}" placeholder="No limit"></div>
+      <div class="fixed field"><label for="per_second">Per second</label><input type="number" id="per_second" name="per_second" min="1" step="1" inputmode="numeric" class="w-md" value="{{ application.rate_limit_per_second if application.rate_limit_per_second is not none else '' }}" placeholder="No limit"></div>
     </div>
-    <div class="card-foot actions" style="justify-content:flex-end"><button type="submit" class="btn-primary">Save limits</button></div>
+    <p class="hint">Leave both empty for no limit.</p>
+    <div class="form-foot start"><button type="submit">Save limits</button></div>
   </form>
-</div>
+</section>
 
-<div class="card">
-  <div class="card-head"><div><h2>Readiness</h2><p>Whether a hostname goes live only after your backend confirms it serves the right workspace.</p></div></div>
+<section class="setting" aria-labelledby="probe-h">
+  <header><h3 id="probe-h">Readiness</h3><p>Whether a hostname goes live only after your backend confirms it serves the right workspace.</p></header>
   <form method="post" action="{{ base }}/workspace-probe"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="card-body">
-      <label class="check"><input type="radio" name="enabled" value="true" {{ 'checked' if application.workspace_probe_enabled }}><span><b>Require the workspace check</b> (recommended). The origin must answer <code>/.well-known/custom-domain-workspace</code> with the workspace of each hostname; the SDK middleware does this.</span></label>
-      <label class="check"><input type="radio" name="enabled" value="false" {{ 'checked' if not application.workspace_probe_enabled }}><span><b>Do not require it.</b> Only for backends that cannot implement the check; a hostname then goes live once DNS, the certificate and a verified origin are in place.</span></label>
-    </div>
-    <div class="card-foot actions" style="justify-content:flex-end"><button type="submit" class="btn-primary">Save</button></div>
+    <fieldset><legend class="vh">Workspace check</legend>
+      <label class="choice"><input type="radio" name="enabled" value="true" {{ 'checked' if application.workspace_probe_enabled }}><span><b>Require the workspace check</b> (recommended). The origin must answer <code>/.well-known/custom-domain-workspace</code> with the workspace of each hostname; the SDK middleware does this.</span></label>
+      <label class="choice"><input type="radio" name="enabled" value="false" {{ 'checked' if not application.workspace_probe_enabled }}><span><b>Do not require it.</b> Only for backends that cannot implement the check; a hostname then goes live once DNS, the certificate and a verified origin are in place.</span></label>
+    </fieldset>
+    <div class="form-foot start"><button type="submit">Save readiness</button></div>
   </form>
+</section>
 </div>
 
-<div class="card danger-zone">
-  <div class="card-head"><div><h2 style="color:var(--fail)">Danger zone</h2></div></div>
+<section class="panel danger-panel" aria-labelledby="danger-h">
+  <div class="panel-head"><div><h3 id="danger-h">Danger zone</h3></div></div>
   <div class="danger-row">
     {% if application.status.value == 'active' %}
     <div><h3>Suspend application</h3><p>Stops serving all of its hostnames and refuses its API keys, without deleting anything. You can resume at any time.</p></div>
-    {{ ui.confirm(base ~ '/status', csrf, 'Suspend', 'All ' ~ tab_counts.domains ~ ' hostname(s) of ' ~ application.name ~ ' stop being served now, and its API keys are refused.', 'Suspend application', small=false, fields={'status': 'suspended'}) }}
+    {{ ui.confirm(base ~ '/status', csrf, 'Suspend application', 'All ' ~ tab_counts.domains ~ ' hostname(s) of ' ~ application.name ~ ' stop being served now, and its API keys are refused.', 'Suspend application', fields={'status': 'suspended'}, place='confirm-up') }}
     {% else %}
     <div><h3>Resume application</h3><p>Its hostnames are served again as soon as their checks pass, and its API keys work again.</p></div>
-    {{ ui.post(base ~ '/status', csrf, 'Resume', 'btn-primary', {'status': 'active'}) }}
+    {{ ui.post(base ~ '/status', csrf, 'Resume application', 'btn-primary', {'status': 'active'}) }}
     {% endif %}
   </div>
-  <div class="danger-row" style="align-items:flex-start">
+  <div class="danger-row">
     <div><h3>Delete application</h3><p>Deletes {{ application.name }} and every hostname{% if live_domains %} (<b>{{ live_domains }} still registered</b>){% endif %}: the edge stops serving them within a minute, its API keys are revoked and its origins retired. Its webhooks still receive a <code>domain.deleted</code> event for each hostname, then are revoked. The slug is free again at once. Records and history are kept for 90 days for auditing, then purged. This cannot be undone.</p></div>
-    <details class="confirm"><summary class="btn btn-danger-ghost">Delete application</summary>
-      <div class="confirm-pop" style="width:360px">
+    <details class="confirm confirm-up"><summary class="btn btn-danger">Delete application</summary>
+      <div class="confirm-body">
         <form method="post" action="{{ base }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}">
-          <p>Type <b>{{ application.slug }}</b> to confirm.</p>
-          <div class="field"><input type="text" name="confirm" required autocomplete="off" placeholder="{{ application.slug }}"></div>
-          {% if live_domains %}<label class="check"><input type="checkbox" name="delete_domains" value="true" required><span>Also delete its {{ live_domains }} hostname(s). Their customers' sites stop working.</span></label>{% endif %}
-          <button type="submit" class="btn-danger">Delete permanently</button>
+          <div class="field"><label for="confirm-slug">Type <b class="mono">{{ application.slug }}</b> to confirm</label><input type="text" id="confirm-slug" name="confirm" class="mono" required autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="{{ application.slug }}"></div>
+          {% if live_domains %}<label class="choice"><input type="checkbox" name="delete_domains" value="true" required><span>Also delete its {{ live_domains }} hostname(s). Their customers' sites stop working.</span></label>{% endif %}
+          <div class="form-foot start"><button type="submit" class="btn-danger-solid">Delete permanently</button></div>
         </form>
       </div>
     </details>
   </div>
-</div>
+</section>
+{% endcall %}
 {% endblock %}

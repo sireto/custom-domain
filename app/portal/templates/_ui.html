@@ -1,75 +1,92 @@
 {# Shared building blocks. No JavaScript: confirmations use <details>, copying uses user-select:all. #}
 
+{# A status as a tinted badge: the square marker and the word. Used for the one status that matters on a row or page. #}
 {% macro badge(state) -%}
 <span class="badge t-{{ state.tone }}"{% if state.help %} title="{{ state.help }}"{% endif %}>{{ state.label }}</span>
 {%- endmacro %}
 
-{% macro dot(state, title='') -%}
-<span class="dot t-{{ state.tone }}" title="{{ title }}{{ ': ' if title }}{{ state.label }}"></span>
+{# A secondary status, untinted, so a row has one loud badge at most. #}
+{% macro status(state) -%}
+<span class="st t-{{ state.tone }}"{% if state.help %} title="{{ state.help }}"{% endif %}>{{ state.label }}</span>
 {%- endmacro %}
 
-{% macro copy(value) -%}
-<span class="copy" title="Click to select, then copy">{{ value }}</span>
+{# The four checks of a domain at a glance: squares for scanning, words for meaning. #}
+{% macro checks(views) -%}
+{%- set failing = views|selectattr('state.tone', 'equalto', 'fail')|map(attribute='label')|list -%}
+{%- set passing = views|selectattr('state.tone', 'equalto', 'ok')|list|length -%}
+<span class="checks"><span class="squares" aria-hidden="true">{% for c in views %}<i class="t-{{ c.state.tone }}" title="{{ c.label }}: {{ c.state.label }}"></i>{% endfor %}</span>
+{%- if failing %}<span class="st t-fail">{{ failing|join(', ') }} failing</span>
+{%- elif passing == views|length %}<span class="muted">All {{ passing }} passing</span>
+{%- else %}<span class="muted">{{ passing }} of {{ views|length }} passing</span>{% endif %}</span>
+{%- endmacro %}
+
+{% macro copy(value, label='', hint=true) -%}
+{% if label or hint %}<span class="copy-label"><span>{{ label }}</span>{% if hint %}<span>Select to copy</span>{% endif %}</span>{% endif %}<span class="copy">{{ value }}</span>
+{%- endmacro %}
+
+{# A hostname that may break only after its dots, never inside a label. #}
+{% macro host(name) -%}
+{% for part in name.split('.') %}{{ part }}{% if not loop.last %}.<wbr>{% endif %}{% endfor %}
 {%- endmacro %}
 
 {% macro when(value, fallback='—') -%}
-{% if value %}<span class="nowrap" title="{{ value.strftime('%Y-%m-%d %H:%M:%S') }} UTC">{{ value.strftime('%b %d, %H:%M') }}</span>{% else %}<span class="muted">{{ fallback }}</span>{% endif %}
+{% if value %}<time class="nowrap" datetime="{{ value.strftime('%Y-%m-%dT%H:%M:%SZ') }}" title="{{ value.strftime('%Y-%m-%d %H:%M:%S') }} UTC">{{ value.strftime('%b %d, %H:%M') }}</time>{% else %}<span class="muted">{{ fallback }}</span>{% endif %}
 {%- endmacro %}
 
-{% macro empty(title, text, icon='plus') -%}
-<div class="empty">
-  <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{% if icon == 'globe' %}<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>{% elif icon == 'key' %}<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3M17 6l3 3M15 8l2 2"/>{% elif icon == 'server' %}<rect x="2" y="3" width="20" height="7" rx="1.5"/><rect x="2" y="14" width="20" height="7" rx="1.5"/>{% elif icon == 'bell' %}<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/>{% else %}<path d="M12 5v14M5 12h14"/>{% endif %}</svg></div>
-  <h3>{{ title }}</h3>
-  <p>{{ text }}</p>
-  {{ caller() if caller }}
-</div>
+{# One sentence saying what goes here and why it is empty, and the single next action. #}
+{% macro empty(title, text) -%}
+<div class="empty"><p><b>{{ title }}.</b> {{ text }}</p>{{ caller() if caller }}</div>
 {%- endmacro %}
 
 {# A destructive or consequential action behind a second click. #}
-{% macro confirm(action, csrf, label, text, button='Confirm', danger=true, small=true, fields={}) -%}
-<details class="confirm">
-  <summary class="btn {{ 'btn-sm' if small }} {{ 'btn-danger-ghost' if danger }}">{{ label }}</summary>
-  <div class="confirm-pop">
+{% macro confirm(action, csrf, label, text, button='Confirm', danger=true, small=true, fields={}, place='') -%}
+<details class="confirm {{ place }}">
+  <summary class="btn {{ 'btn-danger' if danger }}">{{ label }}</summary>
+  <div class="confirm-body">
     <p>{{ text }}</p>
     <form method="post" action="{{ action }}"><input type="hidden" name="csrf" value="{{ csrf }}">
       {% for k, v in fields.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
-      <button type="submit" class="btn-sm {{ 'btn-danger' if danger else 'btn-primary' }}">{{ button }}</button>
+      <button type="submit" class="{{ 'btn-danger-solid' if danger else 'btn-primary' }}">{{ button }}</button>
     </form>
   </div>
 </details>
 {%- endmacro %}
 
-{% macro post(action, csrf, label, cls='btn-sm', fields={}) -%}
+{% macro post(action, csrf, label, cls='', fields={}) -%}
 <form class="inline" method="post" action="{{ action }}"><input type="hidden" name="csrf" value="{{ csrf }}">{% for k, v in fields.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<button type="submit" class="{{ cls }}">{{ label }}</button></form>
 {%- endmacro %}
 
-{% macro app_tabs(application, active, counts={}) -%}
-{% set base = '/portal/applications/' ~ application.slug %}
-{% if application.is_deleted %}
-<div class="alert alert-warn"><div><b>This application was deleted {{ application.deleted_at.strftime('%Y-%m-%d') }}</b><p class="body">Nothing here is served any more, and nothing can be changed. Its hostnames' DNS records, checks and history are kept for auditing until {{ application.purge_after.strftime('%Y-%m-%d') }}, then purged.</p></div></div>
-{% else %}
-<nav class="tabs">
-  <a href="{{ base }}" class="{{ 'active' if active == 'overview' }}">Overview</a>
-  <a href="{{ base }}/domains" class="{{ 'active' if active == 'domains' }}">Domains{% if counts.domains is defined %}<span class="count">{{ counts.domains }}</span>{% endif %}</a>
-  <a href="{{ base }}/origins" class="{{ 'active' if active == 'origins' }}">Origins</a>
-  <a href="{{ base }}/credentials" class="{{ 'active' if active == 'credentials' }}">API keys</a>
-  <a href="{{ base }}/webhooks" class="{{ 'active' if active == 'webhooks' }}">Webhooks</a>
-  <a href="{{ base }}/traffic" class="{{ 'active' if active == 'traffic' }}">Traffic</a>
-  <a href="{{ base }}/settings" class="{{ 'active' if active == 'settings' }}">Settings</a>
-</nav>
-{% endif %}
-{%- endmacro %}
-
+{# The application's identity, shown on every one of its pages. #}
 {% macro app_head(application, app_state, subtitle='') -%}
-<div class="page-head">
+<div class="app-head">
   <div>
-    <h1>{{ application.name }} <span class="tag">{{ application.slug }}</span> {{ badge(app_state) }}</h1>
-    <p>{{ subtitle or ('Customers point their hostnames at ' ~ application.cname_target ~ ' with a CNAME record.') }}</p>
+    <div class="title-row"><h1>{{ application.name }}</h1>{{ badge(app_state) }}</div>
+    <p class="ident"><span>Slug <code>{{ application.slug.split('~')[0] }}</code></span><span>CNAME target <code>{{ application.cname_target }}</code></span></p>
   </div>
   {{ caller() if caller }}
 </div>
 {%- endmacro %}
 
+{# An application's sections, in a column on the left (a row on small screens). #}
+{% macro app_frame(application, active, counts={}) -%}
+{% set base = '/portal/applications/' ~ application.slug %}
+{% if application.is_deleted %}
+<div class="notice notice-warn"><p><b>This application was deleted {{ application.deleted_at.strftime('%Y-%m-%d') }}.</b> Nothing here is served any more, and nothing can be changed. Its hostnames' DNS records, checks and history are kept for auditing until {{ application.purge_after.strftime('%Y-%m-%d') }}, then purged.</p></div>
+<div class="app-main">{{ caller() }}</div>
+{% else %}
+<div class="app-frame">
+  <nav class="subnav" aria-label="{{ application.name }}">
+    <ul>
+      {% for key, path, label in [('overview', '', 'Overview'), ('domains', '/domains', 'Domains'), ('origins', '/origins', 'Origins'), ('credentials', '/credentials', 'API keys'), ('webhooks', '/webhooks', 'Webhooks'), ('traffic', '/traffic', 'Traffic'), ('settings', '/settings', 'Settings')] %}
+      <li><a href="{{ base }}{{ path }}"{% if active == key %} aria-current="page"{% endif %}><span>{{ label }}</span>{% if key == 'domains' and counts.domains is defined %}<span class="count">{{ counts.domains }}</span>{% endif %}</a></li>
+      {% endfor %}
+    </ul>
+  </nav>
+  <div class="app-main">{{ caller() }}</div>
+</div>
+{% endif %}
+{%- endmacro %}
+
 {% macro app_crumbs(application, page='') -%}
-<a href="/portal/applications">Applications</a><span class="crumb-sep">/</span>{% if page %}<a href="/portal/applications/{{ application.slug }}{{ '/domains' if application.is_deleted }}">{{ application.name }}</a><span class="crumb-sep">/</span><span class="current">{{ page }}</span>{% else %}<span class="current">{{ application.name }}</span>{% endif %}
+<li><a href="/portal/applications">Applications</a></li>{% if page %}<li><a href="/portal/applications/{{ application.slug }}{{ '/domains' if application.is_deleted }}">{{ application.name }}</a></li><li><span aria-current="page">{{ page }}</span></li>{% endif %}
 {%- endmacro %}

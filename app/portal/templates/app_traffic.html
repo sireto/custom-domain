@@ -1,19 +1,28 @@
 {% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Traffic · {{ application.name }}{% endblock %}
-{% block crumbs %}{{ ui.app_crumbs(application, 'Traffic') }}{% endblock %}
+{% block crumbs %}{{ ui.app_crumbs(application) }}{% endblock %}
 {% block content %}
-{{ ui.app_head(application, app_state, 'Requests the edge proxied for this application\'s hostnames, and the bytes it sent back, per UTC day.') }}
-{{ ui.app_tabs(application, 'traffic', tab_counts) }}
+{{ ui.app_head(application, app_state) }}
+{% call ui.app_frame(application, 'traffic', tab_counts) %}
+<div class="section-head"><div><h2>Traffic</h2><p>Requests the edge proxied for this application's hostnames, and the bytes it sent back, per UTC day. Requests the edge refused (over a request limit, or without an assertion) are counted too. Today is still counting; the edge reports about once a minute.</p></div></div>
 
-<div class="card">
-  <div class="card-head"><div><h2>Last {{ traffic_days|length }} days</h2><p>{{ '{:,}'.format(traffic_requests) }} requests, {{ traffic_sent }} sent. Requests the edge refused (over a request limit, or without an assertion) are counted too. Today is still counting; the edge reports about once a minute.</p></div></div>
-  <div class="table-wrap"><table>
-    <tr><th>Day</th><th class="num">Requests</th><th class="num">Sent</th><th style="width:40%"></th></tr>
+<h3 class="figures-title">Last {{ traffic_days|length }} days</h3>
+<dl class="figures figures-2">
+  <div><dt>Requests</dt><dd>{{ '{:,}'.format(traffic_requests) }}</dd></div>
+  <div><dt>Sent</dt><dd>{{ traffic_sent }}</dd></div>
+</dl>
+
+<section class="panel" aria-label="Traffic per day">
+  <div class="table-wrap"><table class="traffic">
+    <thead><tr><th scope="col">Day (UTC)</th><th scope="col" class="num">Requests</th><th scope="col" class="num">Sent</th><th scope="col" class="bar-cell"><span class="vh">Requests compared with the busiest day</span></th></tr></thead>
+    <tbody>
     {% for row in traffic_days|reverse %}<tr>
-      <td class="small">{{ row.day.isoformat() }}</td>
-      <td class="num">{{ '{:,}'.format(row.requests) }}</td>
-      <td class="num">{{ human_bytes(row.response_bytes) }}</td>
-      <td>{% if traffic_peak %}<div class="meter"><span style="width:{{ (100 * row.requests / traffic_peak)|round(1) }}%"></span></div>{% endif %}</td>
+      <td class="tnum">{{ row.day.isoformat() }}{% if loop.first %} <span class="muted small">today</span>{% endif %}</td>
+      <td data-label="Requests" class="num">{{ '{:,}'.format(row.requests) }}</td>
+      <td data-label="Sent" class="num">{{ human_bytes(row.response_bytes) }}</td>
+      <td class="bar-cell" aria-hidden="true">{% if traffic_peak %}<div class="meter"><span style="width:{{ (100 * row.requests / traffic_peak)|round(1) }}%"></span></div>{% endif %}</td>
     </tr>{% endfor %}
+    </tbody>
   </table></div>
-</div>
+</section>
+{% endcall %}
 {% endblock %}

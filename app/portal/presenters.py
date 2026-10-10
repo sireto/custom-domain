@@ -26,8 +26,10 @@ from app.models import (
 )
 from app.models.types import utcnow
 
-# Tones map to badge colours: ok (green), progress (blue), pending (grey),
-# warn (amber), fail (red), muted (neutral).
+# Tones map to the portal's status marks (an 8px square and the word, never
+# colour alone): ok (green, filled: ready), progress (amber, half filled: under
+# way), pending (amber, outlined: waiting on someone), warn (amber, filled),
+# fail (red, filled: not served or broken), muted (neutral, outlined: retired).
 
 
 @dataclass(frozen=True)
@@ -57,7 +59,7 @@ DOMAIN_STATES: dict[DomainStatus, State] = {
     ),
     DomainStatus.ATTENTION_REQUIRED: State(
         "Needs attention",
-        "warn",
+        "fail",
         "A check started failing after the hostname went live, so the edge has stopped "
         "serving it. It goes live again by itself once every check passes; the failing "
         "check below says what to fix.",

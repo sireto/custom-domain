@@ -1,51 +1,56 @@
 {% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Domains · {{ application.name }}{% endblock %}
-{% block crumbs %}{{ ui.app_crumbs(application, 'Domains') }}{% endblock %}
+{% block crumbs %}{{ ui.app_crumbs(application) }}{% endblock %}
 {% block content %}
-{{ ui.app_head(application, app_state, 'Customer hostnames served for this application. Open one to see its DNS records and checks.') }}
-{{ ui.app_tabs(application, 'domains', tab_counts) }}
+{{ ui.app_head(application, app_state) }}
+{% call ui.app_frame(application, 'domains', tab_counts) %}
+<div class="section-head"><div><h2>Domains</h2><p>Customer hostnames served for this application. Open one to see its DNS records and checks.</p></div></div>
+
 {% for u in limits %}
-<div class="callout{{ ' t-warn' if u.near }}" style="margin-bottom:16px">
+<div class="notice {{ 'notice-warn' if u.near or u.reached }}"><p>
   {% if u.scope == 'application' %}This application has <b>{{ u.live }} of {{ u.limit }}</b> hostnames allowed{% else %}This deployment has <b>{{ u.live }} of {{ u.limit }}</b> hostnames allowed across all applications{% endif %}.
-  {% if u.reached %}New registrations are refused until one is deleted or the limit is raised{% if u.scope == 'application' %} in <a href="/portal/applications/{{ application.slug }}/settings">Settings</a>{% else %} with MAX_DOMAINS{% endif %}. Existing hostnames keep working.{% elif u.near %}It is close to the limit.{% endif %}
-</div>
+  {% if u.reached %}New registrations are refused until one is deleted or the limit is raised{% if u.scope == 'application' %} in <a href="/portal/applications/{{ application.slug }}/settings">Settings</a>{% else %} with <code>MAX_DOMAINS</code>{% endif %}. Existing hostnames keep working.{% elif u.near %}It is close to the limit.{% endif %}
+</p></div>
 {% endfor %}
 
-<div class="card">
-  <div class="card-head">
-    <div class="chips">{% for value, label in filters %}{% set n = domain_counts[p.DomainStatus(value)] if value else tab_counts.domains %}<a class="chip {{ 'active' if value == domain_status }}" href="?status={{ value }}{{ '&q=' ~ q|urlencode if q }}">{{ label }} <span class="muted">{{ n }}</span></a>{% endfor %}</div>
-    <form method="get" action="" class="form-row" style="gap:6px"><input type="hidden" name="status" value="{{ domain_status }}"><div class="fixed"><input type="search" name="q" value="{{ q }}" placeholder="Search hostname or workspace" style="width:240px"></div><div class="fixed"><button type="submit" class="btn-sm">Search</button></div></form>
+<section class="panel" aria-label="Hostnames">
+  <div class="filters">
+    <nav aria-label="Filter by status"><ul class="filter-links">{% for value, label in filters %}{% set n = domain_counts[p.DomainStatus(value)] if value else tab_counts.domains %}<li><a href="?status={{ value }}{{ '&q=' ~ q|urlencode if q }}"{% if value == domain_status %} aria-current="true"{% endif %}>{{ label }} <span class="n">{{ n }}</span></a></li>{% endfor %}</ul></nav>
+    <form method="get" action="" class="search" role="search"><input type="hidden" name="status" value="{{ domain_status }}"><label for="q" class="vh">Search hostname or workspace</label><input type="search" id="q" name="q" value="{{ q }}" placeholder="Search hostname or workspace" class="mono"><button type="submit">Search</button></form>
   </div>
   {% if domains %}
-  <div class="table-wrap"><table>
-    <tr><th>Hostname</th><th>Workspace</th><th>Status</th><th>DNS records</th><th>Checks</th><th>Updated</th></tr>
-    {% for d in domains %}<tr>
-      <td><a class="row-link" href="/portal/applications/{{ application.slug }}/domains/{{ d.id }}">{{ d.hostname }}</a></td>
-      <td><code>{{ d.reference }}</code></td>
-      <td>{{ ui.badge(p.domain_state(d)) }}</td>
-      <td>{% if not d.is_deleted %}{{ ui.badge(p.dns_summary(d)) }}{% else %}<span class="muted">—</span>{% endif %}</td>
-      <td><span class="dots">{% for c in p.check_views(d) %}{{ ui.dot(c.state, c.label) }}{% endfor %}</span></td>
-      <td class="muted small">{{ ui.when(d.updated_at) }}</td>
+  <div class="table-wrap"><table class="rows">
+    <thead><tr><th scope="col">Hostname</th><th scope="col">Workspace</th><th scope="col" class="w-status">Status</th><th scope="col">DNS records</th><th scope="col">Checks</th><th scope="col">Updated</th></tr></thead>
+    <tbody>
+    {% for d in domains %}{% set st = p.domain_state(d) %}<tr>
+      <td class="key"><a class="key" href="/portal/applications/{{ application.slug }}/domains/{{ d.id }}">{{ d.hostname }}</a></td>
+      <td data-label="Workspace"><code>{{ d.reference }}</code></td>
+      <td data-label="Status">{{ ui.badge(st) }}</td>
+      <td data-label="DNS records">{% if not d.is_deleted %}{{ ui.status(p.dns_summary(d)) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td data-label="Checks">{% if not d.is_deleted %}{{ ui.checks(p.check_views(d)) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td data-label="Updated" class="muted">{{ ui.when(d.updated_at) }}</td>
     </tr>{% endfor %}
+    </tbody>
   </table></div>
-  {% if offset or has_more %}<div class="card-foot split" style="justify-content:space-between"><span class="muted small">Showing {{ offset + 1 }}–{{ offset + domains|length }}</span><span class="actions">{% if offset %}<a class="btn btn-sm" href="?status={{ domain_status }}&q={{ q|urlencode }}&offset={{ [offset - 50, 0]|max }}">Previous</a>{% endif %}{% if has_more %}<a class="btn btn-sm" href="?status={{ domain_status }}&q={{ q|urlencode }}&offset={{ offset + 50 }}">Next</a>{% endif %}</span></div>{% endif %}
+  {% if offset or has_more %}<div class="panel-foot bar"><span class="tnum">Showing {{ offset + 1 }}–{{ offset + domains|length }}</span><span class="actions">{% if offset %}<a class="btn" href="?status={{ domain_status }}&q={{ q|urlencode }}&offset={{ [offset - 50, 0]|max }}">Previous</a>{% endif %}{% if has_more %}<a class="btn" href="?status={{ domain_status }}&q={{ q|urlencode }}&offset={{ offset + 50 }}">Next</a>{% endif %}</span></div>{% endif %}
   {% elif q or domain_status %}
-  {{ ui.empty('No matching hostnames', 'Nothing matches this filter. Clear it to see every hostname.', 'globe') }}
+  {% call ui.empty('No matching hostnames', 'Nothing matches this filter.') %}<a class="btn" href="?">Clear the filter</a>{% endcall %}
   {% else %}
-  {{ ui.empty('No hostnames yet', 'Your product registers customer hostnames through the API or SDK with an API key. You can also add one below, for a test or a migration.', 'globe') }}
+  {{ ui.empty('No hostnames yet', 'Your product registers customer hostnames through the API or SDK with an API key. You can also add one below, for a test or a migration.') }}
   {% endif %}
-</div>
+</section>
 
 {% if not application.is_deleted %}
-<div class="card">
-  <div class="card-head"><div><h2>Register a hostname</h2><p>Normally done by your product through the API. The customer then publishes the two DNS records shown on the hostname's page.</p></div></div>
+<section class="setting" aria-labelledby="register-h">
+  <header><h2 id="register-h">Register a hostname</h2><p>Normally done by your product through the API. The customer then publishes the two DNS records shown on the hostname's page.</p></header>
   <form method="post" action="/portal/applications/{{ application.slug }}/domains"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="card-body form-row">
-      <div class="grow"><label for="hostname">Customer hostname</label><input type="text" id="hostname" name="hostname" required placeholder="forms.customer.example"></div>
-      <div class="grow"><label for="reference">Workspace reference</label><input type="text" id="reference" name="reference" required maxlength="255" placeholder="ws_8f3a1c"></div>
-      <div class="fixed"><button type="submit" class="btn-primary">Register</button></div>
+    <div class="form-row">
+      <div class="grow field"><label for="hostname">Customer hostname</label><input type="text" id="hostname" name="hostname" class="mono" required placeholder="forms.customer.example" autocapitalize="off" spellcheck="false"></div>
+      <div class="grow field"><label for="reference">Workspace reference</label><input type="text" id="reference" name="reference" class="mono" required maxlength="255" placeholder="ws_8f3a1c" autocapitalize="off" spellcheck="false" aria-describedby="reference-hint"></div>
+      <div class="fixed"><button type="submit" class="btn-primary">Register hostname</button></div>
     </div>
-    <div class="card-foot small muted">The workspace reference is your product's identifier for the customer's workspace. The edge passes it to your backend with every request for this hostname.</div>
+    <p class="hint" id="reference-hint">The workspace reference is your product's identifier for the customer's workspace. The edge passes it to your backend with every request for this hostname.</p>
   </form>
-</div>
+</section>
 {% endif %}
+{% endcall %}
 {% endblock %}

@@ -1,21 +1,29 @@
 {% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Webhook deliveries{% endblock %}
-{% block crumbs %}<a href="/portal/applications">Applications</a><span class="crumb-sep">/</span><a href="/portal/applications/{{ application.slug }}">{{ application.name }}</a><span class="crumb-sep">/</span><a href="/portal/applications/{{ application.slug }}/webhooks">Webhooks</a><span class="crumb-sep">/</span><span class="current">Deliveries</span>{% endblock %}
+{% block crumbs %}<li><a href="/portal/applications">Applications</a></li><li><a href="/portal/applications/{{ application.slug }}">{{ application.name }}</a></li><li><a href="/portal/applications/{{ application.slug }}/webhooks">Webhooks</a></li>{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1><code style="font-size:18px">{{ subscription.url }}</code> {% if subscription.is_active %}<span class="badge t-ok">Active</span>{% else %}<span class="badge t-muted">Revoked</span>{% endif %}</h1><p>Deliveries to this endpoint, newest first. Replaying sends the same payload again; your endpoint should ignore event ids it has already processed.</p></div></div>
-<div class="card">
-  <div class="card-head"><div class="chips">{% for v, l in [('', 'All'), ('pending', 'Pending'), ('delivered', 'Delivered'), ('abandoned', 'Abandoned')] %}<a class="chip {{ 'active' if v == state }}" href="?state={{ v }}">{{ l }}</a>{% endfor %}</div></div>
+<div class="page-head"><div>
+  <h1 class="host">{{ subscription.url }}</h1>
+  <p class="ident-line">{% if subscription.is_active %}<span class="badge t-ok">Active</span>{% else %}<span class="badge t-muted">Revoked</span>{% endif %}<span>Events {% for e in subscription.events %}<code>{{ e }}</code>{{ ', ' if not loop.last }}{% endfor %}</span></p>
+  <p class="lede">Deliveries to this endpoint, newest first. Replaying sends the same payload again; your endpoint should ignore event ids it has already processed.</p>
+</div></div>
+<section class="panel" aria-label="Deliveries">
+  <div class="filters"><nav aria-label="Filter by state"><ul class="filter-links">{% for v, l in [('', 'All'), ('pending', 'Pending'), ('delivered', 'Delivered'), ('abandoned', 'Abandoned')] %}<li><a href="?state={{ v }}"{% if v == state %} aria-current="true"{% endif %}>{{ l }}</a></li>{% endfor %}</ul></nav></div>
   {% if deliveries %}
-  <div class="table-wrap"><table>
-    <tr><th>Event</th><th>State</th><th class="num">Attempts</th><th>Last response</th><th>Created</th><th></th></tr>
-    {% for d in deliveries %}<tr>
-      <td><code>{{ d.event_type }}</code><div class="muted small">{{ ((d.payload.get('data') or {}).get('domain') or {}).get('hostname', '') if d.payload is mapping else '' }}</div></td>
-      <td>{% if d.state == 'delivered' %}<span class="badge t-ok">Delivered</span>{% elif d.state == 'abandoned' %}<span class="badge t-fail">Abandoned</span>{% else %}<span class="badge t-progress">Pending</span>{% endif %}</td>
-      <td class="num">{{ d.attempts }}</td>
-      <td class="small">{% if d.last_status %}HTTP {{ d.last_status }}{% endif %}{% if d.last_error %}<div class="muted">{{ d.last_error[:160] }}</div>{% endif %}{% if not d.last_status and not d.last_error %}<span class="muted">—</span>{% endif %}</td>
-      <td class="small">{{ ui.when(d.created_at) }}</td>
-      <td class="num">{% if d.state != 'pending' %}{{ ui.post('/portal/applications/' ~ application.slug ~ '/webhooks/' ~ subscription.id ~ '/deliveries/' ~ d.id ~ '/replay', csrf, 'Replay') }}{% endif %}</td>
+  <div class="table-wrap"><table class="rows">
+    <thead><tr><th scope="col">Event</th><th scope="col" class="w-status">State</th><th scope="col" class="num">Attempts</th><th scope="col">Last response</th><th scope="col">Created</th><th scope="col"><span class="vh">Actions</span></th></tr></thead>
+    <tbody>
+    {% for d in deliveries %}<tr{% if d.state == 'abandoned' %} class="row-flag"{% endif %}>
+      <td class="key"><code>{{ d.event_type }}</code><span class="sub mono">{{ ((d.payload.get('data') or {}).get('domain') or {}).get('hostname', '') if d.payload is mapping else '' }}</span></td>
+      <td data-label="State">{% if d.state == 'delivered' %}<span class="st t-ok">Delivered</span>{% elif d.state == 'abandoned' %}<span class="badge t-fail">Abandoned</span>{% else %}<span class="badge t-progress">Pending</span>{% endif %}</td>
+      <td data-label="Attempts" class="num">{{ d.attempts }}</td>
+      <td data-label="Last response">{% if d.last_status %}<code>HTTP {{ d.last_status }}</code>{% endif %}{% if d.last_error %}<span class="sub">{{ d.last_error[:160] }}</span>{% endif %}{% if not d.last_status and not d.last_error %}<span class="muted">—</span>{% endif %}</td>
+      <td data-label="Created">{{ ui.when(d.created_at) }}</td>
+      <td class="act">{% if d.state != 'pending' %}{{ ui.post('/portal/applications/' ~ application.slug ~ '/webhooks/' ~ subscription.id ~ '/deliveries/' ~ d.id ~ '/replay', csrf, 'Replay') }}{% endif %}</td>
     </tr>{% endfor %}
+    </tbody>
   </table></div>
-  {% else %}{{ ui.empty('No deliveries', 'Deliveries appear here when a subscribed event happens.', 'bell') }}{% endif %}
-</div>
+  {% elif state %}
+  {% call ui.empty('No ' ~ state ~ ' deliveries', 'None of this endpoint\'s deliveries is in this state.') %}<a class="btn" href="?">Show all deliveries</a>{% endcall %}
+  {% else %}{{ ui.empty('No deliveries', 'Deliveries appear here when a subscribed event happens.') }}{% endif %}
+</section>
 {% endblock %}

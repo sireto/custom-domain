@@ -1,92 +1,99 @@
 {% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Origins · {{ application.name }}{% endblock %}
-{% block crumbs %}{{ ui.app_crumbs(application, 'Origins') }}{% endblock %}
+{% block crumbs %}{{ ui.app_crumbs(application) }}{% endblock %}
 {% block content %}
-{{ ui.app_head(application, app_state, 'The origin is your product\'s backend. The edge forwards every customer request to the active origin, with the workspace it belongs to.') }}
-{{ ui.app_tabs(application, 'origins', tab_counts) }}
+{{ ui.app_head(application, app_state) }}
+{% call ui.app_frame(application, 'origins', tab_counts) %}
 {% set base = '/portal/applications/' ~ application.slug ~ '/origins/' %}
+<div class="section-head"><div><h2>Origins</h2><p>The origin is your product's backend. The edge forwards every customer request to the active origin, with the workspace it belongs to. Only one origin is active at a time; activating another switches traffic to it immediately.</p></div></div>
 
 {% for o in origins if not o.is_active and o.status.value in ('pending', 'failed') %}
-<div class="card" style="border-color:var(--{{ 'fail' if o.status.value == 'failed' else 'progress' }}-line)">
-  <div class="card-head"><div><h2>Verify <code>{{ o.url }}</code></h2><p>Prove you control this origin before it can receive traffic.</p></div>{{ ui.badge(p.origin_state(o)) }}</div>
-  <div class="card-body">
-    <div class="callout"><ol>
-      <li>Make the origin answer <b>GET</b> {{ ui.copy(o.url ~ well_known) }}</li>
-      <li>with status 200, content type <code>text/plain</code>, and exactly this body: {{ ui.copy(o.verification_token) }}</li>
-      <li>Then press <b>Verify and activate</b>. The SDK's middleware serves the token for you when configured with it.</li>
-    </ol></div>
-    {% if o.last_error_code %}<div class="observed" style="margin-top:12px"><b>Last attempt failed:</b> {{ o.last_error_message or o.last_error_code }} <span class="muted">(<code>{{ o.last_error_code }}</code>, {{ ui.when(o.last_checked_at) }})</span></div>{% endif %}
+<section class="panel" aria-labelledby="verify-{{ o.id }}">
+  <div class="panel-head"><div><h3 id="verify-{{ o.id }}">Verify <code>{{ o.url }}</code></h3><p>Prove you control this origin before it can receive traffic.</p></div>{{ ui.badge(p.origin_state(o)) }}</div>
+  <div class="panel-body">
+    <ol class="prose verify-steps">
+      <li>Make the origin answer <b>GET</b> at this URL:{{ ui.copy(o.url ~ well_known, 'URL') }}</li>
+      <li>with status 200, content type <code>text/plain</code>, and exactly this body:{{ ui.copy(o.verification_token, 'Body') }}</li>
+      <li>Then choose <b>Verify and activate</b>. The SDK's middleware serves the token for you when configured with it.</li>
+    </ol>
+    {% if o.last_error_code %}<p class="observed">Last attempt failed: {{ o.last_error_message or o.last_error_code }} <span class="muted">(<code>{{ o.last_error_code }}</code>, {{ ui.when(o.last_checked_at) }})</span></p>{% endif %}
   </div>
-  <div class="card-foot actions" style="justify-content:space-between">
-    {{ ui.confirm(base ~ o.id ~ '/delete', csrf, 'Delete', 'Remove this origin registration?', 'Delete origin') }}
+  <div class="panel-foot bar">
     {{ ui.post(base ~ o.id ~ '/verify', csrf, 'Verify and activate', 'btn-primary', {'activate': 'true'}) }}
+    {{ ui.confirm(base ~ o.id ~ '/delete', csrf, 'Delete', 'Remove this origin registration?', 'Delete origin', place='confirm-up') }}
   </div>
-</div>
+</section>
 {% endfor %}
 
-<div class="card">
-  <div class="card-head"><div><h2>Origins</h2><p>Only one origin is active at a time. Activating another switches traffic to it immediately.</p></div></div>
+<section class="panel" aria-label="Registered origins">
   {% if origins %}
-  <div class="table-wrap"><table>
-    <tr><th>URL</th><th>Status</th><th>Host sent</th><th>Verified</th><th>Last check</th><th></th></tr>
+  <div class="table-wrap"><table class="rows">
+    <thead><tr><th scope="col">URL</th><th scope="col" class="w-status">Status</th><th scope="col">Host sent</th><th scope="col">Verified</th><th scope="col">Last check</th><th scope="col"><span class="vh">Actions</span></th></tr></thead>
+    <tbody>
     {% for o in origins %}{% set mode = p.host_header_mode(o) %}<tr>
-      <td><code>{{ o.url }}</code></td>
-      <td>{{ ui.badge(p.origin_state(o)) }}</td>
-      <td class="small"><span title="{{ mode[1] }}">{{ mode[0] }}</span>
-        {{ ui.post(base ~ o.id ~ '/host-header', csrf, 'Use ' ~ ('customer hostname' if o.host_header.value == 'origin' else "origin's name"), 'btn-sm', {'host_header': 'customer' if o.host_header.value == 'origin' else 'origin'}) }}</td>
-      <td class="small">{{ ui.when(o.verified_at) }}</td>
-      <td class="small">{{ ui.when(o.last_checked_at) }}{% if o.last_error_code %}<div class="muted"><code>{{ o.last_error_code }}</code></div>{% endif %}</td>
-      <td class="num"><div class="actions" style="justify-content:flex-end">
-        {% if o.status.value == 'verified' and not o.is_active %}{{ ui.post(base ~ o.id ~ '/activate', csrf, 'Activate', 'btn-sm btn-primary') }}{% endif %}
-        {% if o.status.value in ('verified', 'retired') and not o.is_active %}{{ ui.post(base ~ o.id ~ '/verify', csrf, 'Re-verify', 'btn-sm') }}{% endif %}
+      <td class="key"><span class="key-text">{{ o.url }}</span></td>
+      <td data-label="Status">{{ ui.badge(p.origin_state(o)) }}</td>
+      <td data-label="Host sent"><span title="{{ mode[1] }}">{{ mode[0] }}</span>
+        <div class="row-sub">{{ ui.post(base ~ o.id ~ '/host-header', csrf, 'Use ' ~ ('customer hostname' if o.host_header.value == 'origin' else "origin's name"), 'btn-quiet btn-link', {'host_header': 'customer' if o.host_header.value == 'origin' else 'origin'}) }}</div></td>
+      <td data-label="Verified">{{ ui.when(o.verified_at) }}</td>
+      <td data-label="Last check">{{ ui.when(o.last_checked_at) }}{% if o.last_error_code %}<span class="sub"><code>{{ o.last_error_code }}</code></span>{% endif %}</td>
+      <td class="act"><div class="actions">
+        {% if o.status.value == 'verified' and not o.is_active %}{{ ui.post(base ~ o.id ~ '/activate', csrf, 'Activate', 'btn-primary') }}{% endif %}
+        {% if o.status.value in ('verified', 'retired') and not o.is_active %}{{ ui.post(base ~ o.id ~ '/verify', csrf, 'Re-verify') }}{% endif %}
         {% if o.is_active %}{{ ui.confirm(base ~ o.id ~ '/retire', csrf, 'Retire', 'Stop sending traffic to this origin. Until another origin is active, none of this application\'s hostnames is served.', 'Retire origin') }}
         {% else %}{{ ui.confirm(base ~ o.id ~ '/delete', csrf, 'Delete', 'Remove this origin registration? It carries no traffic.', 'Delete origin') }}{% endif %}
       </div></td>
     </tr>{% endfor %}
+    </tbody>
   </table></div>
   {% else %}
-  {{ ui.empty('No origin yet', 'Register the backend server of ' ~ application.name ~ ' below. Customer hostnames cannot go live until it is verified and active.', 'server') }}
+  {{ ui.empty('No origin yet', 'Register the backend server of ' ~ application.name ~ ' below. Customer hostnames cannot go live until it is verified and active.') }}
   {% endif %}
-</div>
+</section>
 
-<div class="card">
-  <div class="card-head"><div><h2>Assertion key</h2><p>The edge signs every request it sends to the origin. The origin verifies that signature with this application's key, and checks the application id <span class="copy-inline">{{ application.id }}</span>. {% if assertion_signing %}This application signs with its own key <code>{{ assertion_signing.key_id }}</code>.{% else %}This application is signed with the deployment's key (<code>EDGE_ASSERTION_KEYS</code>). Give it its own key when other parties' applications share this deployment.{% endif %}</p></div></div>
+<section class="setting" aria-labelledby="register-h">
+  <header><h2 id="register-h">Register an origin</h2><p>The host the edge connects to. It must be reachable from this server and serve your product for any workspace. You get a verification token to serve from it next.</p></header>
+  <form method="post" action="/portal/applications/{{ application.slug }}/origins"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="form-row">
+      <div class="fixed field"><label for="scheme">Scheme</label><select id="scheme" name="scheme" class="w-sm"><option value="https">https</option><option value="http">http</option></select></div>
+      <div class="grow field"><label for="host">Host</label><input type="text" id="host" name="host" class="mono" required placeholder="app.acme.example" autocapitalize="off" spellcheck="false"></div>
+      <div class="fixed field"><label for="port">Port</label><input type="number" id="port" name="port" min="1" max="65535" placeholder="443" class="w-sm" aria-describedby="origin-hint"></div>
+    </div>
+    <div class="field mt"><label for="host_header">Host sent</label><select id="host_header" name="host_header" class="w-lg" aria-describedby="origin-hint"><option value="customer">Customer hostname</option><option value="origin">Origin's own name</option></select></div>
+    <p class="hint" id="origin-hint">Leave the port empty for the scheme's default (443 or 80). Choose "Origin's own name" when the origin is behind a CDN (such as Cloudflare's proxy) or a reverse proxy that routes by Host: the customer's hostname then travels in X-Forwarded-Host.</p>
+    <div class="form-foot start"><button type="submit" class="btn-primary">Register origin</button></div>
+  </form>
+</section>
+
+<section class="setting" aria-labelledby="keys-h">
+  <header><h2 id="keys-h">Assertion key</h2><p>The edge signs every request it sends to the origin. The origin verifies that signature with this application's key, and checks the application id <span class="copy-inline">{{ application.id }}</span>.</p><p>{% if assertion_signing %}This application signs with its own key <code>{{ assertion_signing.key_id }}</code>.{% else %}This application is signed with the deployment's key (<code>EDGE_ASSERTION_KEYS</code>). Give it its own key when other parties' applications share this deployment.{% endif %}</p></header>
+  <div>
   {% if assertion_secret %}
-  <div class="card-body"><div class="secret">
-    <b>Copy the secret of key {{ assertion_key.key_id }} now. It is shown only once.</b>
-    {{ ui.copy(assertion_secret) }}
-    <div class="hint" style="color:var(--fg-2)">Add it to the origin's keyring under the id <code>{{ assertion_key.key_id }}</code>, next to the key it uses now. It starts signing {{ ui.when(assertion_key.active_from) }}.</div>
-  </div></div>
+  <div class="secret" role="status">
+    <p><b>Copy the secret of key {{ assertion_key.key_id }} now. It is shown only once.</b></p>
+    {{ ui.copy(assertion_secret, 'Secret') }}
+    <p class="hint">Add it to the origin's keyring under the id <code>{{ assertion_key.key_id }}</code>, next to the key it uses now. It starts signing {{ ui.when(assertion_key.active_from) }}.</p>
+  </div>
   {% endif %}
   {% if assertion_keys %}
-  <div class="table-wrap"><table>
-    <tr><th>Key id</th><th>Status</th><th>Signs from</th><th></th></tr>
+  <div class="panel"><div class="table-wrap"><table class="rows">
+    <thead><tr><th scope="col">Key id</th><th scope="col" class="w-status">Status</th><th scope="col">Signs from</th><th scope="col"><span class="vh">Actions</span></th></tr></thead>
+    <tbody>
     {% for key, state in assertion_keys %}<tr>
-      <td><code>{{ key.key_id }}</code></td>
-      <td>{{ ui.badge({'signing': {'tone': 'ok', 'label': 'Signing'}, 'next': {'tone': 'progress', 'label': 'Next'}, 'previous': {'tone': 'muted', 'label': 'Replaced'}, 'revoked': {'tone': 'muted', 'label': 'Revoked'}}[state]) }}</td>
-      <td class="small">{{ ui.when(key.active_from) }}</td>
-      <td class="num">{% if state != 'revoked' %}{{ ui.confirm('/portal/applications/' ~ application.slug ~ '/assertion-keys/' ~ key.key_id ~ '/revoke', csrf, 'Revoke', 'Stop signing with this key now. The previous key, or the deployment key, signs instead: make sure the origin holds it.', 'Revoke key') }}{% endif %}</td>
+      <td class="key"><span class="key-text">{{ key.key_id }}</span></td>
+      <td data-label="Status">{{ ui.badge({'signing': {'tone': 'ok', 'label': 'Signing'}, 'next': {'tone': 'progress', 'label': 'Next'}, 'previous': {'tone': 'muted', 'label': 'Replaced'}, 'revoked': {'tone': 'muted', 'label': 'Revoked'}}[state]) }}</td>
+      <td data-label="Signs from">{{ ui.when(key.active_from) }}</td>
+      <td class="act">{% if state != 'revoked' %}{{ ui.confirm('/portal/applications/' ~ application.slug ~ '/assertion-keys/' ~ key.key_id ~ '/revoke', csrf, 'Revoke', 'Stop signing with this key now. The previous key, or the deployment key, signs instead: make sure the origin holds it.', 'Revoke key') }}{% endif %}</td>
     </tr>{% endfor %}
-  </table></div>
+    </tbody>
+  </table></div></div>
   {% endif %}
   <form method="post" action="/portal/applications/{{ application.slug }}/assertion-keys"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="card-body form-row">
-      <div class="grow"><label for="activate_in_hours">Starts signing</label><select id="activate_in_hours" name="activate_in_hours"><option value="24">In 24 hours, so the origin can add it first</option><option value="0">Now (the origin has no key yet)</option></select></div>
-      <div class="fixed"><button type="submit" class="btn-primary">Issue a key</button></div>
+    <div class="form-row">
+      <div class="grow field"><label for="activate_in_hours">Starts signing</label><select id="activate_in_hours" name="activate_in_hours"><option value="24">In 24 hours, so the origin can add it first</option><option value="0">Now (the origin has no key yet)</option></select></div>
+      <div class="fixed"><button type="submit">Issue a key</button></div>
     </div>
   </form>
-</div>
-
-<div class="card">
-  <div class="card-head"><div><h2>Register an origin</h2><p>The host the edge connects to. It must be reachable from this server and serve your product for any workspace.</p></div></div>
-  <form method="post" action="/portal/applications/{{ application.slug }}/origins"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="card-body form-row">
-      <div class="fixed"><label for="scheme">Scheme</label><select id="scheme" name="scheme" style="width:110px"><option value="https">https</option><option value="http">http</option></select></div>
-      <div class="grow"><label for="host">Host</label><input type="text" id="host" name="host" required placeholder="app.acme.example"></div>
-      <div class="fixed"><label for="port">Port</label><input type="number" id="port" name="port" min="1" max="65535" placeholder="443" style="width:100px"></div>
-      <div class="fixed"><label for="host_header">Host sent</label><select id="host_header" name="host_header"><option value="customer">Customer hostname</option><option value="origin">Origin's own name</option></select></div>
-      <div class="fixed"><button type="submit" class="btn-primary">Register</button></div>
-    </div>
-    <div class="card-foot small muted">Leave the port empty for the scheme's default (443 or 80). Choose "Origin's own name" when the origin is behind a CDN (such as Cloudflare's proxy) or a reverse proxy that routes by Host: the customer's hostname then travels in X-Forwarded-Host. You get a verification token to serve from the origin next.</div>
-  </form>
-</div>
+  </div>
+</section>
+{% endcall %}
 {% endblock %}

@@ -1,39 +1,43 @@
 {% extends "base.html" %}{% import "_ui.html" as ui %}{% block title %}Applications{% endblock %}
 {% block content %}
 <div class="page-head">
-  <div><h1>Applications</h1><p>Each application is one product whose customers bring their own hostnames. It has its own backend, API keys and CNAME target.</p></div>
+  <div><h1>Applications</h1><p class="lede">Each application is one product whose customers bring their own hostnames. It has its own backend, API keys and CNAME target.</p></div>
   <div class="actions"><a class="btn btn-primary" href="/portal/new-application">New application</a></div>
 </div>
-<div class="card">
+<section class="panel" aria-label="Applications">
 {% if applications %}
-  <div class="table-wrap"><table>
-    <tr><th>Application</th><th>Status</th><th>Origin</th><th>CNAME target</th><th class="num">Live</th><th class="num">Waiting</th><th class="num">Attention</th></tr>
-    {% for a in applications %}{% set c = per_app.get(a.id, {}) %}<tr>
-      <td><a class="row-link" href="/portal/applications/{{ a.slug }}">{{ a.name }}</a><div class="muted small">{{ a.slug }}</div></td>
-      <td>{{ ui.badge(p.application_state(a)) }}</td>
-      <td>{% if a.serving_origin %}<code>{{ a.serving_origin.host }}</code>{% else %}<a class="badge t-warn" href="/portal/applications/{{ a.slug }}/origins">Not connected</a>{% endif %}</td>
-      <td><code>{{ a.cname_target }}</code></td>
-      <td class="num">{{ c.get(DomainStatus.READY, 0) }}</td>
-      <td class="num">{{ c.get(DomainStatus.PENDING_DNS, 0) + c.get(DomainStatus.PROVISIONING, 0) }}</td>
-      <td class="num">{% set n = c.get(DomainStatus.ATTENTION_REQUIRED, 0) + c.get(DomainStatus.SUSPENDED, 0) %}{% if n %}<a href="/portal/applications/{{ a.slug }}/domains?status=attention_required" style="color:var(--fail);font-weight:600">{{ n }}</a>{% else %}0{% endif %}</td>
+  <div class="table-wrap"><table class="rows">
+    <thead><tr><th scope="col">Application</th><th scope="col" class="w-status">Status</th><th scope="col">Origin</th><th scope="col">CNAME target</th><th scope="col" class="num">Live</th><th scope="col" class="num">Waiting</th><th scope="col" class="num">Attention</th></tr></thead>
+    <tbody>
+    {% for a in applications %}{% set c = per_app.get(a.id, {}) %}{% set n = c.get(DomainStatus.ATTENTION_REQUIRED, 0) + c.get(DomainStatus.SUSPENDED, 0) %}<tr>
+      <td class="key"><a href="/portal/applications/{{ a.slug }}">{{ a.name }}</a><span class="sub mono">{{ a.slug }}</span></td>
+      <td data-label="Status">{{ ui.badge(p.application_state(a)) }}</td>
+      <td data-label="Origin">{% if a.serving_origin %}<code>{{ a.serving_origin.host }}</code>{% else %}<a class="st t-warn" href="/portal/applications/{{ a.slug }}/origins">Not connected</a>{% endif %}</td>
+      <td data-label="CNAME target"><code>{{ a.cname_target }}</code></td>
+      <td data-label="Live" class="num">{{ c.get(DomainStatus.READY, 0) }}</td>
+      <td data-label="Waiting" class="num">{{ c.get(DomainStatus.PENDING_DNS, 0) + c.get(DomainStatus.PROVISIONING, 0) }}</td>
+      <td data-label="Attention" class="num">{% if n %}<a class="st t-fail" href="/portal/applications/{{ a.slug }}/domains?status=attention_required">{{ n }}</a>{% else %}<span class="muted">0</span>{% endif %}</td>
     </tr>{% endfor %}
+    </tbody>
   </table></div>
 {% else %}
-  {% call ui.empty('No applications yet', 'Create one for each product that lets its customers use their own domain.', 'globe') %}<a class="btn btn-primary" href="/portal/new-application">New application</a>{% endcall %}
+  {% call ui.empty('No applications yet', 'Create one for each product that lets its customers use their own domain.') %}<a class="btn btn-primary" href="/portal/new-application">New application</a>{% endcall %}
 {% endif %}
-</div>
+</section>
 {% if deleted_applications %}
-<div class="card">
-  <div class="card-head"><div><h2>Deleted applications</h2><p>Nothing of these is served. Their hostnames' records and history are kept for auditing until the date shown, then purged.</p></div></div>
-  <div class="table-wrap"><table>
-    <tr><th>Application</th><th>Deleted</th><th>Kept until</th><th></th></tr>
+<section class="panel" aria-labelledby="deleted-h">
+  <div class="panel-head"><div><h2 id="deleted-h">Deleted applications</h2><p>Nothing of these is served. Their hostnames' records and history are kept for auditing until the date shown, then purged.</p></div></div>
+  <div class="table-wrap"><table class="rows">
+    <thead><tr><th scope="col">Application</th><th scope="col">Deleted</th><th scope="col">Kept until</th><th scope="col"><span class="vh">Actions</span></th></tr></thead>
+    <tbody>
     {% for a in deleted_applications %}<tr>
-      <td><b>{{ a.name }}</b><div class="muted small">{{ a.slug.split('~')[0] }}</div></td>
-      <td class="small">{{ ui.when(a.deleted_at) }}</td>
-      <td class="small">{{ a.purge_after.strftime('%Y-%m-%d') }}</td>
-      <td class="num"><a class="btn btn-sm" href="/portal/applications/{{ a.slug }}/domains">View records</a></td>
+      <td class="key">{{ a.name }}<span class="sub mono">{{ a.slug.split('~')[0] }}</span></td>
+      <td data-label="Deleted">{{ ui.when(a.deleted_at) }}</td>
+      <td data-label="Kept until" class="tnum">{{ a.purge_after.strftime('%Y-%m-%d') }}</td>
+      <td class="act"><a class="btn" href="/portal/applications/{{ a.slug }}/domains">View records</a></td>
     </tr>{% endfor %}
+    </tbody>
   </table></div>
-</div>
+</section>
 {% endif %}
 {% endblock %}
