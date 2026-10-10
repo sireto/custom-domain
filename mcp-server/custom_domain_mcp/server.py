@@ -97,6 +97,7 @@ def build_server(client: Client) -> MCPServer:
         title="Custom Domain API",
         instructions=INSTRUCTIONS,
         website_url="https://customdomainapi.com",
+        version=__version__,
     )
 
     @server.tool(

@@ -36,6 +36,14 @@ def test_tools_are_listed_with_safety_hints(sdk):  # noqa: F811
         return (await mcp.list_tools()).tools
 
     tools = {t.name: t for t in _run(client, steps)}
+
+    async def info(mcp):
+        return mcp.server_info
+
+    from custom_domain_mcp import __version__
+
+    # Clients show the server's version; it's the package's.
+    assert _run(client, info).version == __version__
     assert set(tools) == {
         "create_domain",
         "get_domain",
