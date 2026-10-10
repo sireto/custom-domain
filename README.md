@@ -185,6 +185,11 @@ The Python SDK in [sdk/](sdk/README.md) (`custom-domain-sdk`, released at the
 same version as the service image) has the API client, the assertion
 verifier, an ASGI middleware and the webhook signature verifier.
 
+For AI assistants, the MCP server in [mcp-server/](mcp-server/README.md)
+(`custom-domain-mcp`, released with the SDK) exposes the v1 API as tools:
+register a customer's hostname, read its DNS records and checks, recheck or
+delete it. It uses the application's API key only.
+
 ```python
 from custom_domain import Client, CustomDomainMiddleware
 

@@ -62,6 +62,7 @@ TEST_DATABASE_URL=postgresql+psycopg://test:test@localhost:55432/test uv run pyt
 | `app/cli.py` | The `custom-domain` command |
 | `app/db/migrations/versions/` | Alembic migrations, numbered `0001`, `0002`, ... |
 | `sdk/custom_domain/` | The Python SDK: client, assertion verifier, ASGI middleware, webhook verifier |
+| `mcp-server/custom_domain_mcp/` | The MCP server (`custom-domain-mcp`): the v1 API as tools for AI assistants, with the application's key only |
 | `deploy/` | Production Compose file, installer (`install.sh`), cloud-init, local Compose, and the AWS, Azure and Google Cloud templates |
 | `tests/` | One file per area; `conftest.py` has the database fixtures |
 | `docs/` | Contracts and runbooks; `docs/openapi.json` is generated |
@@ -176,7 +177,8 @@ change. The README lists every doc.
 One bare version number (no `v` prefix) releases the image and the SDK
 together:
 
-1. On a branch, set `version` in `pyproject.toml` and `sdk/pyproject.toml`,
+1. On a branch, set `version` in `pyproject.toml`, `sdk/pyproject.toml` and
+   `mcp-server/pyproject.toml`,
    and the default version of every cloud template (`deploy/cloud-init.yaml`,
    `deploy/aws/custom-domain.yaml`, `deploy/azure/main.bicep` then rebuild
    `azuredeploy.json`, `deploy/gcp/deploy.sh`). Run `uv lock` and open a PR.
@@ -184,9 +186,9 @@ together:
    release.
 2. After it merges, tag the merge commit (`git tag -a X.Y.Z <sha>`), push
    the tag, then run `gh release create X.Y.Z --verify-tag`.
-3. The workflows publish `ghcr.io/sireto/custom-domain:X.Y.Z` and
-   `custom-domain-sdk` X.Y.Z on PyPI. They fail if the tag and the two
-   versions differ.
+3. The workflows publish `ghcr.io/sireto/custom-domain:X.Y.Z`, and
+   `custom-domain-sdk` and `custom-domain-mcp` X.Y.Z on PyPI. They fail if
+   the tag and the three versions differ.
 
 Tag and publish only when asked; a release reaches every self-hosted
 deployment through `custom-domain upgrade`.
@@ -209,6 +211,8 @@ need these instead:
 
 - [sdk/README.md](sdk/README.md): the client, the middleware and the
   webhook verifier.
+- [mcp-server/README.md](mcp-server/README.md): the MCP server, to manage an
+  application's domains from an AI assistant.
 - [docs/api-v1.md](docs/api-v1.md): the API with examples and error codes.
 - [docs/edge-routing.md](docs/edge-routing.md): the assertion format.
 - [docs/webhooks.md](docs/webhooks.md): the webhook signatures.
