@@ -389,8 +389,8 @@ pre.cmd{background:var(--code-bg);color:var(--code-text);font-family:var(--mono)
     <a class="mark" href="/portal">Custom Domain <span>Operator</span></a>
     <nav class="primary-nav" aria-label="Sections">
       <ul>
-        {% for key, href, label in [('overview', '/portal', 'Overview'), ('applications', '/portal/applications', 'Applications'), ('edge', '/portal/edge', 'Edge &amp; DNS'), ('doctor', '/portal/doctor', 'Health checks'), ('legacy', '/portal/legacy', 'Import')] %}
-        <li><a href="{{ href }}"{% if section == key %} aria-current="page"{% endif %}>{{ label|safe }}</a></li>
+        {% for key, href, label in [('overview', '/portal', 'Overview'), ('applications', '/portal/applications', 'Applications'), ('edge', '/portal/edge', 'Edge & DNS'), ('doctor', '/portal/doctor', 'Health checks'), ('legacy', '/portal/legacy', 'Import')] %}
+        <li><a href="{{ href }}"{% if section == key %} aria-current="page"{% endif %}>{{ label }}</a></li>
         {% endfor %}
       </ul>
     </nav>
