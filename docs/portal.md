@@ -79,9 +79,17 @@ limits who can even try it.
 
 ## Pages
 
-The sidebar has five sections. Every page says what it is for and what to do
-next; statuses are shown in words (for example "Waiting for DNS" or "Needs
-attention") with the reason next to them.
+The bar at the top has five sections: Overview, Applications, Edge & DNS,
+Health checks and Import. An application's pages share its name, status,
+slug and CNAME target at the top, and list its own sections (Overview,
+Domains, Origins, API keys, Webhooks, Traffic, Settings) in a column on the
+left, or in a row on small screens. Every page says what it is for and what
+to do next; statuses are shown in words with a square mark (for example
+"Waiting for DNS" or "Needs attention"), never by colour alone, with the
+reason next to them. Lists are tables that become stacked label and value
+blocks on narrow screens; filters are plain links and search forms, so a
+filtered list has its own URL. The pages work in light and dark mode,
+following the browser's setting, and use no JavaScript.
 
 | Page | What it is for | Command-line equivalent |
 |---|---|---|

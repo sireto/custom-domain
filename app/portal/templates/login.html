@@ -1,19 +1,16 @@
 {% extends "_auth.html" %}{% block title %}Sign in{% endblock %}
 {% block auth %}
-<div class="card">
-  <div class="card-body" style="padding:26px 26px 22px">
-    <h1 style="font-size:19px;margin:0 0 4px">Sign in</h1>
-    <p class="muted" style="margin:0 0 20px">Manage applications, customer hostnames and the edge of this deployment.</p>
-    {% if error %}<div class="alert alert-fail"><p>{{ error }}</p></div>{% endif %}
-    <form method="post" action="/portal/login">
-      <input type="hidden" name="next" value="{{ next }}">
-      <div class="field">
-        <label for="password">Operator password</label>
-        <input type="password" id="password" name="password" autofocus autocomplete="current-password" required>
-        <div class="hint">The <code>PORTAL_PASSWORD</code> value in the deployment's <code>.env</code> file (<code>/opt/custom-domain/deploy/.env</code> on installer setups).</div>
-      </div>
-      <button type="submit" class="btn-primary" style="width:100%;justify-content:center">Sign in</button>
-    </form>
+<h1>Sign in</h1>
+<p class="lede">Manage applications, customer hostnames and the edge of this deployment.</p>
+<form method="post" action="/portal/login">
+  <input type="hidden" name="next" value="{{ next }}">
+  <div class="field{{ ' invalid' if error }}">
+    <label for="password">Operator password</label>
+    <input type="password" id="password" name="password" autofocus autocomplete="current-password" required aria-describedby="{{ 'password-error ' if error }}password-hint"{% if error %} aria-invalid="true"{% endif %}>
+    {% if error %}<p class="field-error" id="password-error" role="alert">{{ error }}</p>{% endif %}
+    <p class="hint" id="password-hint">The <code>PORTAL_PASSWORD</code> value in the deployment's <code>.env</code> file (<code>/opt/custom-domain/deploy/.env</code> on installer setups).</p>
   </div>
-</div>
+  <button type="submit" class="btn-primary btn-block">Sign in</button>
+</form>
+<p class="after">Five wrong passwords from one address block that address for fifteen minutes. The <code>custom-domain</code> command on the server offers the same actions without signing in.</p>
 {% endblock %}
