@@ -40,8 +40,9 @@ classifiers = [
 dependencies = ["httpx>=0.27"]
 
 [project.urls]
-Homepage = "https://github.com/sireto/custom-domain"
-Documentation = "https://github.com/sireto/custom-domain/blob/main/sdk/README.md"
+Homepage = "https://customdomainapi.com"
+Documentation = "https://customdomainapi.com/docs/"
+Reference = "https://github.com/sireto/custom-domain/blob/main/sdk/README.md"
 Source = "https://github.com/sireto/custom-domain/tree/main/sdk"
 Issues = "https://github.com/sireto/custom-domain/issues"
 Changelog = "https://github.com/sireto/custom-domain/releases"
