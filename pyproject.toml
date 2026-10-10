@@ -32,10 +32,11 @@ build-backend = "hatchling.build"
 packages = ["app"]
 
 [tool.uv.workspace]
-members = ["sdk"]
+members = ["sdk", "mcp-server"]
 
 [tool.uv.sources]
 custom-domain-sdk = { workspace = true }
+custom-domain-mcp = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -61,6 +62,7 @@ ignore = ["B008"]
 [dependency-groups]
 dev = [
     "custom-domain-sdk",
+    "custom-domain-mcp",
     "pytest>=9.1.1",
     "pyyaml>=6.0",
     "ruff>=0.16.9",
