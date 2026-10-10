@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.47.16.16243",
-      "templateHash": "5640574941649337699"
+      "templateHash": "5470323749989279184"
     }
   },
   "parameters": {
@@ -66,7 +66,7 @@
     },
     "version": {
       "type": "string",
-      "defaultValue": "0.10.0",
+      "defaultValue": "0.11.0",
       "maxLength": 20,
       "metadata": {
         "description": "The Custom Domain release to install, such as 0.6.0, or latest (image, installer and SDK share one version number)."
