@@ -41,14 +41,12 @@ jobs:
           mcp=$(uv run python -c "import tomllib; print(tomllib.load(open('mcp-server/pyproject.toml','rb'))['project']['version'])")
           test "${GITHUB_REF_NAME}" = "${service}" && test "${GITHUB_REF_NAME}" = "${sdk}" && test "${GITHUB_REF_NAME}" = "${mcp}" \
             || { echo "tag ${GITHUB_REF_NAME} must equal pyproject.toml (${service}), sdk/pyproject.toml (${sdk}) and mcp-server/pyproject.toml (${mcp})"; exit 1; }
-      - name: Test the SDK and the MCP server
-        run: uv run pytest tests/test_sdk.py tests/test_assertion.py tests/test_mcp_server.py
+      - name: Test the SDK
+        run: uv run pytest tests/test_sdk.py tests/test_assertion.py
       - name: Build distributions
-        run: |
-          uv build --package custom-domain-sdk --out-dir dist
-          uv build --package custom-domain-mcp --out-dir dist-mcp
+        run: uv build --package custom-domain-sdk --out-dir dist
       - name: Check distributions
-        run: uvx twine check --strict dist/* dist-mcp/*
+        run: uvx twine check --strict dist/*
       - name: Check that the built package reports the tag as its version
         if: github.ref_type == 'tag'
         run: |
@@ -62,6 +60,38 @@ jobs:
           name: sdk-dist
           path: dist/
           if-no-files-found: error
+
+  # The MCP server builds and publishes on its own, so a failure here never
+  # stops the SDK (or the other way round).
+  build-mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Check that the tag is the version
+        if: github.ref_type == 'tag'
+        run: |
+          mcp=$(uv run python -c "import tomllib; print(tomllib.load(open('mcp-server/pyproject.toml','rb'))['project']['version'])")
+          test "${GITHUB_REF_NAME}" = "${mcp}" \
+            || { echo "tag ${GITHUB_REF_NAME} must equal mcp-server/pyproject.toml (${mcp})"; exit 1; }
+      - name: Test the MCP server
+        run: uv run pytest tests/test_mcp_server.py
+      - name: Build distributions
+        run: uv build --package custom-domain-mcp --out-dir dist-mcp
+      - name: Check distributions
+        run: uvx twine check --strict dist-mcp/*
+      - name: Check that the built package reports the tag as its version
+        if: github.ref_type == 'tag'
+        run: |
+          uv venv --quiet /tmp/mcp-check
+          VIRTUAL_ENV=/tmp/mcp-check uv pip install --quiet dist-mcp/*.whl
+          runtime=$(/tmp/mcp-check/bin/python -c "import custom_domain_mcp; print(custom_domain_mcp.__version__)")
+          test "${runtime}" = "${GITHUB_REF_NAME}" \
+            || { echo "built package reports '${runtime}', tag is ${GITHUB_REF_NAME}"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: mcp-dist
@@ -88,11 +118,11 @@ jobs:
           packages-dir: dist/
           print-hash: true
 
-  # A job of its own, so the SDK is published even if this one fails (for
-  # example before the PyPI project's trusted publisher is set up).
+  # Its own build and publish jobs: the SDK is published even if these fail
+  # (for example before the PyPI project's trusted publisher is set up).
   publish-mcp-pypi:
     if: github.ref_type == 'tag'
-    needs: build
+    needs: build-mcp
     runs-on: ubuntu-latest
     environment:
       name: pypi

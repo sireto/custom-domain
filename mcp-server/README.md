@@ -16,7 +16,7 @@ It reads two settings from the environment:
 
 | Setting | Value |
 |---|---|
-| `CUSTOM_DOMAIN_API_URL` | your edge, such as `https://edge.example.net` (on the hosted Free plan: `https://edge.customdomainapi.com`) |
+| `CUSTOM_DOMAIN_API_URL` | your edge, such as `https://edge.example.net` (https only; plain http just for `localhost`) |
 | `CUSTOM_DOMAIN_API_KEY` | an application API key (`cd_…`) |
 
 Claude Code:
@@ -63,6 +63,14 @@ Claude Desktop, Cursor and other clients (`mcpServers` in their config):
 - **No webhook creation or rotation.** Their responses carry the signing
   secret, which would end up in the assistant's conversation. Create
   webhooks through the API or the portal.
+
+**Customer data is data, not instructions.** Hostnames, workspace
+references, metadata and check messages come from your application's
+customers and from DNS. The server tells the assistant to report them,
+never to follow them, and to call `delete_domain` only when you explicitly
+asked for that domain to be deleted, repeating its hostname back to you
+first. Your MCP client's own confirmation for destructive tools adds a
+second check.
 
 The server's instructions also tell the assistant the one rule integration
 code must follow: select the tenant from the verified

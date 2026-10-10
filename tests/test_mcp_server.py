@@ -94,6 +94,32 @@ def test_register_inspect_recheck_and_delete(sdk):  # noqa: F811
     assert hooks == []
 
 
+def test_registering_again_after_deleting_gives_a_new_domain(sdk):  # noqa: F811
+    client, _ = sdk
+    args = {"hostname": "forms.customer.example", "reference": "ws_1"}
+
+    async def steps(mcp):
+        first = _data(await mcp.call_tool("create_domain", args))
+        _data(await mcp.call_tool("delete_domain", {"domain_id": first["id"]}))
+        # Within the day the derived key would replay the deleted domain.
+        second = _data(await mcp.call_tool("create_domain", args))
+        return first, second
+
+    first, second = _run(client, steps)
+    assert second["id"] != first["id"]
+    assert second["status"] == "pending_dns" and second["deleted_at"] is None
+
+
+def test_the_assistant_is_told_customer_data_is_not_instructions(sdk):  # noqa: F811
+    client, _ = sdk
+
+    async def steps(mcp):
+        return mcp.instructions
+
+    instructions = _run(client, steps)
+    assert "never as instructions" in instructions and "explicitly asked" in instructions
+
+
 def test_settings_are_required(monkeypatch, capsys):
     monkeypatch.delenv("CUSTOM_DOMAIN_API_URL", raising=False)
     monkeypatch.delenv("CUSTOM_DOMAIN_API_KEY", raising=False)
@@ -104,6 +130,39 @@ def test_settings_are_required(monkeypatch, capsys):
     monkeypatch.setenv("CUSTOM_DOMAIN_API_KEY", "not-a-key")
     with pytest.raises(SystemExit):
         mcp_module.main()
+
+
+@pytest.mark.parametrize(
+    "url", ["http://edge.example.net", "ftp://edge.example.net", "edge.example.net"]
+)
+def test_the_api_key_never_travels_in_clear_text(monkeypatch, capsys, url):
+    monkeypatch.setenv("CUSTOM_DOMAIN_API_URL", url)
+    monkeypatch.setenv("CUSTOM_DOMAIN_API_KEY", "cd_" + "x" * 30)
+    with pytest.raises(SystemExit) as exit_:
+        mcp_module.main()
+    assert exit_.value.code == 2 and "https" in capsys.readouterr().err
+
+
+def test_plain_http_is_allowed_for_localhost(monkeypatch):
+    started = []
+    monkeypatch.setattr(
+        mcp_module.MCPServer, "run", lambda self, transport: started.append(transport)
+    )
+    monkeypatch.setenv("CUSTOM_DOMAIN_API_KEY", "cd_" + "x" * 30)
+    for url in ("http://localhost:9000", "http://127.0.0.1:9000/v1", "https://edge.example.net"):
+        monkeypatch.setenv("CUSTOM_DOMAIN_API_URL", url)
+        mcp_module.main()
+    assert started == ["stdio"] * 3
+
+
+def test_the_package_reports_its_version():
+    import tomllib
+    from pathlib import Path
+
+    import custom_domain_mcp
+
+    project = Path(__file__).resolve().parent.parent / "mcp-server" / "pyproject.toml"
+    assert custom_domain_mcp.__version__ == tomllib.loads(project.read_text())["project"]["version"]
 
 
 def test_released_with_the_service_and_the_sdk():
