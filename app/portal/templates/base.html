@@ -123,7 +123,7 @@ legend{font-size:13px;font-weight:500;padding:0;margin:0 0 8px}
 .narrow{max-width:600px}
 .mt{margin-top:16px}
 .w-sm{width:112px}.w-lg{max-width:320px}.w-md{width:160px!important}
-.btn-link,button.btn-link{height:auto;padding:0;border:0;background:none;font-size:13px;font-weight:400;color:var(--text-2);text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:.2em}
+.btn-link,button.btn-link{height:auto;padding:0;border:0;background:none;font-size:13px;font-weight:400;color:var(--text-2);text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:.2em;white-space:normal;text-align:left;line-height:1.35}
 .btn-link:hover,button.btn-link:hover{background:none;color:var(--accent);text-decoration-color:var(--accent)}
 .row-sub{margin-top:4px}
 .plain-list{list-style:none;margin:0;padding:0}
@@ -167,11 +167,11 @@ td{padding:8px 16px;border-bottom:1px solid var(--line);vertical-align:top;line-
 tbody tr:last-child td{border-bottom:0}
 td.num,th.num{text-align:right}
 td.act{text-align:right;white-space:nowrap}
-td.act .actions{justify-content:flex-end;flex-wrap:nowrap}
+td.act .actions{justify-content:flex-end;flex-wrap:wrap}
 .panel>.table-wrap>table th:first-child,.panel>.table-wrap>table td:first-child{padding-left:16px}
 td .sub{display:block;font-size:12px;color:var(--muted);margin-top:2px}
 a.key,.key-text{font-family:var(--mono);font-size:13px;overflow-wrap:anywhere}
-td.key{min-width:224px}
+td.key{min-width:192px}
 td.key>a,a.key{text-decoration:none}
 td.key>a:hover,a.key:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 td.key>a{font-weight:500}
@@ -188,12 +188,14 @@ th.w-status{width:1%}
 .badge.t-warn,.badge.t-progress,.badge.t-pending{color:var(--warn);background:var(--warn-bg)}
 .badge.t-fail{color:var(--danger);background:var(--danger-bg)}
 .badge.t-muted{color:var(--text-2);background:var(--subtle)}
-.st{color:var(--text-2);font-weight:400;font-size:13px}
+.st{color:var(--text-2);font-weight:400;font-size:13px;white-space:normal;align-items:flex-start}
+.st::before{margin-top:4px}
 .st.t-ok::before{color:var(--muted)}
 .st.t-warn::before,.st.t-progress::before,.st.t-pending::before{color:var(--warn)}
 .st.t-fail{color:var(--danger)}
 .st.t-muted::before{color:var(--muted)}
-.checks{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.checks{display:inline-flex;flex-direction:column;align-items:flex-start;gap:4px}
+code.ref{overflow-wrap:anywhere}
 .squares{display:inline-flex;gap:2px}
 .squares i{width:8px;height:8px;border:1px solid var(--line-strong);display:block}
 .squares i.t-ok{background:var(--muted);border-color:var(--muted)}
@@ -332,7 +334,7 @@ details.more[open]>summary{border-bottom:1px solid var(--line)}
 .solo ol li{margin:0 0 8px}
 pre.cmd{background:var(--code-bg);color:var(--code-text);font-family:var(--mono);font-size:13px;line-height:1.55;padding:8px 12px;border-radius:6px;margin:8px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:all;-webkit-user-select:all}
 
-@media (max-width:1023px){
+@media (max-width:1199px){
   .app-frame{grid-template-columns:minmax(0,1fr);gap:16px}
   .subnav{border-bottom:1px solid var(--line);margin:0 -4px}
   .subnav ul{display:flex;flex-wrap:wrap;gap:0 4px}
@@ -357,8 +359,8 @@ pre.cmd{background:var(--code-bg);color:var(--code-text);font-family:var(--mono)
   dl.kv{grid-template-columns:minmax(0,1fr);gap:0}
   dl.kv dd{margin-bottom:8px}
 }
-/* Below 900px each table row becomes a stacked block of label/value pairs. */
-@media (max-width:899px){
+/* Below 1024px each table row becomes a stacked block of label/value pairs. */
+@media (max-width:1023px){
   table.rows,table.rows tbody,table.rows tr,table.rows td{display:block;width:auto}
   table.rows thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
   table.rows tr{padding:12px 16px;border-bottom:1px solid var(--line)}
