@@ -23,7 +23,7 @@
       "environmentVariables": [
         {
           "name": "CUSTOM_DOMAIN_API_URL",
-          "description": "Your edge, such as https://edge.customdomainapi.com (https only)",
+          "description": "Your edge, such as https://edge.example.net (https only)",
           "isRequired": true,
           "format": "string"
         },

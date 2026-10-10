@@ -169,6 +169,7 @@ jobs:
         run: |
           # PyPI can take a minute to serve a new release to the registry's check.
           for attempt in 1 2 3 4 5; do
+            echo "attempt ${attempt} of 5"
             ./mcp-publisher publish mcp-server/server.json && exit 0
             sleep $((attempt * 30))
           done

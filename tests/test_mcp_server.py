@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import anyio
 import pytest
@@ -196,6 +197,9 @@ def test_registry_listing_names_this_release():
     package = listing["packages"][0]
     assert (listing["version"], package["version"]) == (version, version)
     assert package["identifier"] == "custom-domain-mcp"
+    # The registry's schema limits, checked here rather than at release time.
+    assert re.fullmatch(r"[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+", listing["name"])
+    assert len(listing["title"]) <= 100 and len(listing["description"]) <= 100
     # The registry accepts the listing only if the PyPI README names it.
     assert f"<!-- mcp-name: {listing['name']} -->" in (root / "README.md").read_text()
     # The key is a secret; the server refuses to start without either setting.
