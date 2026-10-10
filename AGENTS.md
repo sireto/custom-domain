@@ -178,7 +178,7 @@ One bare version number (no `v` prefix) releases the image and the SDK
 together:
 
 1. On a branch, set `version` in `pyproject.toml`, `sdk/pyproject.toml` and
-   `mcp-server/pyproject.toml`,
+   `mcp-server/pyproject.toml`, both versions in `mcp-server/server.json`,
    and the default version of every cloud template (`deploy/cloud-init.yaml`,
    `deploy/aws/custom-domain.yaml`, `deploy/azure/main.bicep` then rebuild
    `azuredeploy.json`, `deploy/gcp/deploy.sh`). Run `uv lock` and open a PR.
@@ -187,8 +187,9 @@ together:
 2. After it merges, tag the merge commit (`git tag -a X.Y.Z <sha>`), push
    the tag, then run `gh release create X.Y.Z --verify-tag`.
 3. The workflows publish `ghcr.io/sireto/custom-domain:X.Y.Z`, and
-   `custom-domain-sdk` and `custom-domain-mcp` X.Y.Z on PyPI. They fail if
-   the tag and the three versions differ.
+   `custom-domain-sdk` and `custom-domain-mcp` X.Y.Z on PyPI, then list the
+   MCP server on the MCP Registry. They fail if the tag and the versions
+   differ.
 
 Tag and publish only when asked; a release reaches every self-hosted
 deployment through `custom-domain upgrade`.

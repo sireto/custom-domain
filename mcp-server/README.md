@@ -6,6 +6,8 @@ customers' hostnames, show them their DNS records, check why a domain isn't
 live yet, and recheck or delete it. It acts as one application, with that
 application's own API key.
 
+<!-- mcp-name: io.github.sireto/custom-domain -->
+
 ## Setup
 
 ```bash

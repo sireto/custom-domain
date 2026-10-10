@@ -77,12 +77,14 @@ in its summary; nothing is configured from the answer.
 
 A release is one version number, for example `0.3.1`, used everywhere: the
 git tag (no prefix), the image tag `ghcr.io/sireto/custom-domain:0.3.1`
-(also `0.3`), and the SDK `custom-domain-sdk==0.3.1` on PyPI. Developers
+(also `0.3`), the SDK `custom-domain-sdk==0.3.1` and the MCP server
+`custom-domain-mcp==0.3.1` on PyPI. Developers
 run the SDK at the version of the service they integrate with, and
 upgrading is one number. To release:
 
-1. Set `version` in `pyproject.toml` and `sdk/pyproject.toml` to the same
-   value, and set the same version as the default of the cloud templates:
+1. Set `version` in `pyproject.toml`, `sdk/pyproject.toml` and
+   `mcp-server/pyproject.toml`, and both versions in `mcp-server/server.json`,
+   to the same value, and set the same version as the default of the cloud templates:
    `CUSTOM_DOMAIN_VERSION` in `deploy/cloud-init.yaml`, `Version` in
    `deploy/aws/custom-domain.yaml`, `version` in `deploy/azure/main.bicep`
    (then rebuild `deploy/azure/azuredeploy.json` with
@@ -93,9 +95,9 @@ upgrading is one number. To release:
 2. Tag the merge commit with the bare version and push the tag:
    `git tag 0.3.1 <merge commit> && git push origin 0.3.1`.
 3. The tag runs both publish workflows. Each first checks that the tag
-   equals both `pyproject.toml` versions and fails otherwise; the image
-   workflow then publishes the image, and the SDK workflow the package
-   (Trusted Publishing, see below).
+   equals the versions it publishes and fails otherwise; the image
+   workflow then publishes the image, and the SDK workflow both packages
+   (Trusted Publishing, see below) and the MCP Registry listing.
 
 `deploy/cloud-init.yaml` fetches the installer and the Compose file at the
 tag named by `CUSTOM_DOMAIN_VERSION`, so a user-data document only ever
@@ -134,6 +136,18 @@ tags or to the releasing maintainers limits who can mint the token. A
 manual run of the workflow ("Run workflow", target `testpypi`) rehearses a
 release on test.pypi.org (same publisher there, environment `testpypi`)
 and never publishes to PyPI.
+
+`custom-domain-mcp` has its own publisher with the same settings (project
+`custom-domain-mcp`) and its own jobs, so a failure there never stops the
+SDK. After it is on PyPI, the `publish-mcp-registry` job lists the version
+on the [MCP Registry](https://registry.modelcontextprotocol.io) as
+`io.github.sireto/custom-domain`, from `mcp-server/server.json`. It logs in
+with GitHub's OpenID Connect token, which the registry accepts for the
+`io.github.sireto/` namespace, so no token is stored. The registry accepts
+the listing only if the package's README on PyPI contains
+`<!-- mcp-name: io.github.sireto/custom-domain -->`. The job pins
+`mcp-publisher` to a release and checks its SHA-256; to update it, change
+both values from the registry's release checksums file.
 
 ## Upgrading
 

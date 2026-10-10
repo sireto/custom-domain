@@ -76,8 +76,9 @@ jobs:
         if: github.ref_type == 'tag'
         run: |
           mcp=$(uv run python -c "import tomllib; print(tomllib.load(open('mcp-server/pyproject.toml','rb'))['project']['version'])")
-          test "${GITHUB_REF_NAME}" = "${mcp}" \
-            || { echo "tag ${GITHUB_REF_NAME} must equal mcp-server/pyproject.toml (${mcp})"; exit 1; }
+          listing=$(uv run python -c "import json; d=json.load(open('mcp-server/server.json')); print(d['version'], d['packages'][0]['version'])")
+          test "${GITHUB_REF_NAME}" = "${mcp}" && test "${listing}" = "${GITHUB_REF_NAME} ${GITHUB_REF_NAME}" \
+            || { echo "tag ${GITHUB_REF_NAME} must equal mcp-server/pyproject.toml (${mcp}) and mcp-server/server.json (${listing})"; exit 1; }
       - name: Test the MCP server
         run: uv run pytest tests/test_mcp_server.py
       - name: Build distributions
@@ -139,6 +140,40 @@ jobs:
         with:
           packages-dir: dist/
           print-hash: true
+
+  # Lists the released version on the MCP Registry (registry.modelcontextprotocol.io),
+  # which MCP clients and directories read. GitHub OIDC proves the io.github.sireto/
+  # namespace, so no token is stored; the registry checks the package on PyPI
+  # for the mcp-name line in its README.
+  publish-mcp-registry:
+    if: github.ref_type == 'tag'
+    needs: publish-mcp-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # MCP Registry login (OIDC)
+      contents: read
+    env:
+      PUBLISHER_VERSION: v1.8.1
+      PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mcp-publisher (pinned, checksum verified)
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum --check --strict
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+      - name: Log in with GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+      - name: Publish mcp-server/server.json
+        run: |
+          # PyPI can take a minute to serve a new release to the registry's check.
+          for attempt in 1 2 3 4 5; do
+            echo "attempt ${attempt} of 5"
+            ./mcp-publisher publish mcp-server/server.json && exit 0
+            sleep $((attempt * 30))
+          done
+          exit 1
 
   publish-testpypi:
     if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
