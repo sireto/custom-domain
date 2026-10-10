@@ -11,6 +11,13 @@ Several applications share one deployment. Each has its own credentials, its
 own verified origin and its own hostnames; nothing an application does can
 affect another's.
 
+Integration guides (quickstart, API, verifying requests, webhooks, and a
+brief for AI coding agents) are at
+[customdomainapi.com/docs](https://customdomainapi.com/docs/), also as
+Markdown for agents ([llms.txt](https://customdomainapi.com/llms.txt)). The
+same service is run as a hosted option at
+[customdomainapi.com](https://customdomainapi.com).
+
 ## How it works
 
 1. The operator creates an application, registers its origin and proves
