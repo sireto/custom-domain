@@ -85,6 +85,43 @@ export interface DomainCreate {
   reference: string;
 }
 
+/** Ask for a signed Domain Connect apply URL for one domain. */
+export interface ConnectRequest {
+  /** Where the DNS provider sends the customer when they are done: an https URL with a host, no user name and no fragment, at most 512 bytes. It ends up in the signed URL, so it is the application's responsibility; point it at a page of your own. The customer arrives there with your `state` (and `error=access_denied` if they declined). */
+  redirect_uri?: string | null;
+  /** Opaque value returned to `redirect_uri` unchanged, at most 512 bytes without control characters. */
+  state?: string | null;
+}
+
+export interface ConnectResource {
+  /** Ask for a new URL after this time. The DNS records in it stay valid as long as the domain's records do. */
+  expires_at: string;
+  /** The DNS provider the URL goes to. */
+  provider: SetupProvider | null;
+  /** The signed apply URL at the customer's DNS provider. Send the customer there (a link or a redirect); they approve the two records in one step. */
+  url: string;
+}
+
+/** Ask for a link to the setup page for one domain. */
+export interface ConnectSessionRequest {
+  /** Your application's name, shown on the page as "Back to <app_name>" when `return_url` is set. At most 64 characters without control characters. */
+  app_name?: string | null;
+  /** Where "Back to <app_name>" goes: an https URL with a host, no user name and no fragment, at most 512 bytes. */
+  return_url?: string | null;
+  /** How long the link works, in seconds: 300 to 86400. Default 86400 (24 hours). */
+  ttl_seconds?: number | null;
+}
+
+export interface ConnectSessionResource {
+  created_at: string;
+  /** The link stops working after this time. */
+  expires_at: string;
+  /** The session's id, to revoke it. */
+  id: string;
+  /** The setup page for the customer: `https://<edge hostname>/connect/<token>`. Anyone with it can see the domain's setup and status, ask for a check and start one-step setup, so send it only to the customer. It is shown only in this response. */
+  url: string;
+}
+
 export interface ErrorBody {
   code: string;
   details: Record<string, unknown>;

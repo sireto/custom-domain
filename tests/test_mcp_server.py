@@ -51,11 +51,19 @@ def test_tools_are_listed_with_safety_hints(sdk):  # noqa: F811
         "list_domains",
         "dns_instructions",
         "recheck_domain",
+        "create_connect_session",
+        "revoke_connect_session",
         "delete_domain",
         "list_webhooks",
     }
     assert tools["delete_domain"].annotations.destructive_hint is True
     assert tools["get_domain"].annotations.read_only_hint is True
+    # A new link each call; revoking ends the customer's link.
+    create_link = tools["create_connect_session"].annotations
+    assert create_link.destructive_hint is False and create_link.idempotent_hint is False
+    assert not create_link.read_only_hint
+    revoke_link = tools["revoke_connect_session"].annotations
+    assert revoke_link.destructive_hint is True and revoke_link.idempotent_hint is True
     # Webhook secrets would land in the conversation: no tool creates or rotates them.
     assert not {"create_webhook", "rotate_webhook"} & set(tools)
 
@@ -101,6 +109,119 @@ def test_register_inspect_recheck_and_delete(sdk):  # noqa: F811
     assert apex.is_error and "apex_not_supported" in apex.content[0].text
     assert deleted["status"] == "deleting"
     assert hooks == []
+
+
+@pytest.fixture
+def sdk_with_page(monkeypatch, request):
+    """An SDK client against an API that serves the setup page."""
+    monkeypatch.setenv("PUBLIC_API", "true")
+    monkeypatch.setenv("EDGE_HOSTNAME", "edge.example.net")
+    return request.getfixturevalue("sdk")
+
+
+def test_setup_page_link_is_created_and_revoked(sdk_with_page):
+    client, _ = sdk_with_page
+    api_key = client._http.headers["Authorization"].removeprefix("Bearer ")
+    assert api_key.startswith("cd_")
+
+    async def steps(mcp):
+        domain = _data(
+            await mcp.call_tool(
+                "create_domain", {"hostname": "setup.customer.example", "reference": "ws_1"}
+            )
+        )
+        raw = await mcp.call_tool(
+            "create_connect_session",
+            {
+                "domain_id": domain["id"],
+                "ttl_seconds": 600,
+                "app_name": "Acme Forms",
+                "return_url": "https://app.example/settings/domains",
+            },
+        )
+        link = _data(raw)
+        revoked = _data(
+            await mcp.call_tool(
+                "revoke_connect_session", {"domain_id": domain["id"], "session_id": link["id"]}
+            )
+        )
+        again = _data(
+            await mcp.call_tool(
+                "revoke_connect_session", {"domain_id": domain["id"], "session_id": link["id"]}
+            )
+        )
+        unknown = await mcp.call_tool(
+            "revoke_connect_session",
+            {"domain_id": domain["id"], "session_id": "00000000-0000-0000-0000-000000000000"},
+        )
+        short = await mcp.call_tool(
+            "create_connect_session", {"domain_id": domain["id"], "ttl_seconds": 10}
+        )
+        return raw, link, revoked, again, unknown, short
+
+    raw, link, revoked, again, unknown, short = _run(client, steps)
+    assert re.fullmatch(r"https://edge\.example\.net/connect/[A-Za-z0-9_-]{43}", link["url"])
+    assert set(link) == {"id", "url", "expires_at", "created_at"}
+    # The tool hands out the customer's link, never the application's key.
+    assert api_key not in json.dumps([c.model_dump() for c in raw.content])
+    assert api_key not in json.dumps(raw.structured_content)
+    assert revoked == again
+    assert revoked["session_id"] == link["id"] and revoked["revoked"] is True
+    assert unknown.is_error and "connect_session_not_found" in unknown.content[0].text
+    assert short.is_error and "422" in short.content[0].text
+
+
+def test_setup_page_link_needs_a_deployment_that_serves_it(sdk):  # noqa: F811
+    client, _ = sdk
+
+    async def steps(mcp):
+        domain = _data(
+            await mcp.call_tool(
+                "create_domain", {"hostname": "setup.customer.example", "reference": "ws_1"}
+            )
+        )
+        return await mcp.call_tool("create_connect_session", {"domain_id": domain["id"]})
+
+    result = _run(client, steps)
+    assert result.is_error and "409 connect_page_unavailable" in result.content[0].text
+
+
+def test_dns_instructions_name_the_provider_and_its_guide(sdk, session):  # noqa: F811
+    import uuid
+    from datetime import timedelta
+
+    from app.models import DnsZone, Domain
+    from app.models.types import utcnow
+
+    client, _ = sdk
+    domain = client.create_domain("forms.customer.example", "ws_1")
+    assert domain.setup is not None and domain.setup.method is None
+
+    async def steps(mcp):
+        return (await mcp.call_tool("dns_instructions", {"domain_id": domain.id})).content[0].text
+
+    before = _run(client, steps)
+    assert "_custom-domain-challenge.forms.customer.example" in before
+    assert "DNS provider:" not in before and "Step-by-step guide" not in before
+
+    # What the DNS worker stores once it has looked up the zone.
+    session.add(
+        DnsZone(
+            zone="customer.example",
+            provider="cloudflare",
+            nameservers=["ns1.cloudflare.com"],
+            checked_at=utcnow(),
+            expires_at=utcnow() + timedelta(hours=1),
+        )
+    )
+    session.get(Domain, uuid.UUID(domain.id)).zone = "customer.example"
+    session.commit()
+    guide = client.get_domain(domain.id).setup.guide_url
+    assert guide
+
+    after = _run(client, steps)
+    assert after.startswith(before)
+    assert "DNS provider: Cloudflare." in after and f"Step-by-step guide: {guide}" in after
 
 
 def test_registering_again_after_deleting_gives_a_new_domain(sdk):  # noqa: F811

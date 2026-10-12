@@ -10,6 +10,7 @@ import {
   AuthenticationError,
   ConflictError,
   CustomDomainClient,
+  DomainConnectUnavailableError,
   findCheck,
   isReady,
   NotFoundError,
@@ -125,6 +126,41 @@ describe("against the real API", { skip }, () => {
     assert.equal(revoked.active, false);
     assert.ok(revoked.revoked_at);
     await assert.rejects(client.rotateWebhook("00000000-0000-0000-0000-000000000000"), NotFoundError);
+  });
+
+  test("setup page links and Domain Connect", async () => {
+    const domain = await client.createDomain({ hostname: "setup.customer.example", reference: "ws_s" });
+    // The DNS worker is off, so the provider was never looked up: no one-step setup.
+    assert.equal(domain.setup.method, null);
+    assert.equal(domain.setup.host, "setup");
+    await assert.rejects(
+      client.connectUrl(domain.id, { redirectUri: "https://app.example/done", state: "s" }),
+      (error) =>
+        error instanceof DomainConnectUnavailableError &&
+        error instanceof ConflictError &&
+        error.code === "domain_connect_unavailable",
+    );
+
+    // The script turns the page on (PUBLIC_API=true, EDGE_HOSTNAME=edge.example.net).
+    const page = await client.connectSession(domain.id, {
+      ttlSeconds: 600,
+      appName: "Acme Forms",
+      returnUrl: "https://app.example/settings/domains",
+    });
+    assert.match(page.url, /^https:\/\/edge\.example\.net\/connect\/[A-Za-z0-9_-]{43}$/);
+    const lifetime = Date.parse(page.expires_at) - Date.parse(page.created_at);
+    assert.ok(Math.abs(lifetime - 600_000) < 2_000, `lifetime ${lifetime}`);
+    await client.revokeConnectSession(domain.id, page.id);
+    await client.revokeConnectSession(domain.id, page.id); // again: a no-op
+    await assert.rejects(
+      client.revokeConnectSession(domain.id, "00000000-0000-0000-0000-000000000000"),
+      (error) => error instanceof NotFoundError && error.code === "connect_session_not_found",
+    );
+    await assert.rejects(
+      client.connectSession(domain.id, { ttlSeconds: 10 }),
+      (error) => error instanceof ValidationError,
+    );
+    await client.deleteDomain(domain.id);
   });
 
   test("a wrong credential is refused", async () => {

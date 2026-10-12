@@ -588,3 +588,32 @@ def test_connect_session_create_and_revoke():
         ("POST", "/v1/domains/d1/connect-session", {"ttl_seconds": 600, "app_name": "Acme"}),
         ("DELETE", "/v1/domains/d1/connect-session/s1", None),
     ]
+
+
+def test_connect_session_typed_error_and_retries():
+    from custom_domain import ConnectPageUnavailableError
+
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        if request.method == "POST":
+            return httpx.Response(
+                409,
+                json={"error": {"code": "connect_page_unavailable", "message": "no page"}},
+            )
+        return httpx.Response(503, json={"error": {"code": "unavailable", "message": "later"}})
+
+    client = Client(
+        "http://api",
+        credential="cd_x",
+        transport=httpx.MockTransport(handler),
+        sleep=lambda s: None,
+    )
+    with pytest.raises(ConnectPageUnavailableError) as caught:
+        client.connect_session("d1")
+    assert isinstance(caught.value, ConflictError) and caught.value.status == 409
+    # A revoke is safe to repeat; a create is not retried.
+    with pytest.raises(ServerError):
+        client.revoke_connect_session("d1", "s1")
+    assert calls == ["POST", "DELETE", "DELETE", "DELETE"]
