@@ -21,6 +21,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse, RedirectResponse
 
+from app.connect.page import router as connect_page_router
 from app.db.session import get_session_factory
 from app.dns.resolver import make_resolver
 from app.dns.settings import DnsSettings, SetupSettings
@@ -167,6 +168,7 @@ def create_app() -> FastAPI:
     app.state.v1_rate_limiter = CredentialRateLimiter.from_env()
     app.include_router(v1_router)
     app.include_router(domain_connect_return_router)
+    app.include_router(connect_page_router)
     app.include_router(internal_router)
     app.include_router(webhooks_router)
     import os

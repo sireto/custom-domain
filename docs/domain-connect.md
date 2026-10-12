@@ -220,6 +220,38 @@ at most 512 bytes; `state` at most 512 bytes without control characters. Both
 end up in a signed URL, so they are the application's responsibility: point
 `redirect_uri` at a page of your own.
 
+## The setup page
+
+An application that does not want to build a setup screen sends its
+customer a link to the service's own page for the domain
+(`POST /v1/domains/{id}/connect-session`,
+[api-v1.md](api-v1.md#setup-page)): `https://<EDGE_HOSTNAME>/connect/<token>`.
+When the domain's `setup.method` is `domain_connect`, the page has a
+**Set up automatically with <provider>** button. It works like
+`POST /v1/domains/{id}/connect`, within the same limits:
+
+- The button POSTs to `/connect/<token>/apply`, which builds and signs the
+  apply URL with the deployment's signer and answers `303` to it. If
+  one-step setup is not possible after all, or the signer is unavailable or
+  rate limited, the customer is sent back to the page with a short notice
+  and the records to add by hand.
+- The return address is the service's own
+  (`https://<EDGE_HOSTNAME>/v1/domain-connect/return`, or
+  `DOMAIN_CONNECT_RETURN_URL`), and the return goes on to the setup page.
+  The page's own address carries its token, so it never travels in the
+  clear: it is encrypted (AES-256-GCM, a key derived from
+  `SERVICE_SECRET_KEY`) inside the sealed `state` the provider sees. Without
+  `SERVICE_SECRET_KEY` the URL has no `redirect_uri` at all and the
+  provider shows its own confirmation; the fast recheck still applies.
+- The page sends no `Referer` (`Referrer-Policy: no-referrer`), so the
+  provider never learns the page's address that way either.
+
+The page's buttons only work from the page itself: each POST must repeat a
+random value from a cookie scoped to `/connect/<token>` (`SameSite=Strict`,
+`HttpOnly`). Its Content-Security-Policy allows no scripts and lets forms go
+only to the page and, when the button is shown, to the provider's origin
+the apply URL goes to. The token is masked in log lines (`/connect/***`).
+
 ## Limits and audit
 
 At most 10 links per domain and 120 per application per hour
@@ -229,3 +261,7 @@ provider and the signer kind, never the URL or its signature) and logged by
 `app.domain_connect.audit` with the application and the domain id. The
 signature, the challenge token and the state are masked if they ever appear
 in a log line.
+Setup page links are logged by `app.connect.audit` when they are created or
+revoked (the session id, the application and the domain id, never the
+token); a **Check now** from the page is recorded as a
+`domain.recheck_requested` event with `requested_by: connect_page`.

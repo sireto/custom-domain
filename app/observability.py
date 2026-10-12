@@ -101,6 +101,8 @@ _SECRET_PATTERNS = [
 ]
 # Domain Connect URLs: the signature, the sealed state and the challenge token.
 _QUERY_SECRET = re.compile(r"([?&](?:sig|state|token)=)[^&\s\"']+")
+# Setup page links: the token is the path segment after /connect/.
+_CONNECT_TOKEN = re.compile(r"(/connect/)[A-Za-z0-9_-]{16,}")
 _KEY_VALUE = re.compile(
     r"(?i)(password|secret|token|authorization)(=|:\s*)((?:bearer\s+)?[^\s,;\"']+)"
 )
@@ -116,6 +118,7 @@ def redact(text: str) -> str:
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub(_mask, text)
     text = _QUERY_SECRET.sub(lambda m: f"{m.group(1)}***", text)
+    text = _CONNECT_TOKEN.sub(lambda m: f"{m.group(1)}***", text)
     return _KEY_VALUE.sub(lambda m: f"{m.group(1)}{m.group(2)}***", text)
 
 

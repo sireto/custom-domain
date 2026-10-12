@@ -21,6 +21,10 @@ def test_v1_paths_and_methods(spec):
     assert set(paths["/v1/domains"]) == {"get", "post"}
     assert set(paths["/v1/domains/{domain_id}"]) == {"get", "delete"}
     assert set(paths["/v1/domains/{domain_id}/checks"]) == {"post"}
+    assert set(paths["/v1/domains/{domain_id}/connect-session"]) == {"post"}
+    assert set(paths["/v1/domains/{domain_id}/connect-session/{session_id}"]) == {"delete"}
+    # The setup page is not part of the API contract.
+    assert not any(path.startswith("/connect") for path in paths)
     scheme = spec["components"]["securitySchemes"]["ApplicationCredential"]
     assert scheme["type"] == "http" and scheme["scheme"] == "bearer"
     for path, methods in paths.items():

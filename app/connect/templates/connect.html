@@ -1,0 +1,54 @@
+{% extends "_base.html" %}
+{% block head %}{% if refresh %}<meta http-equiv="refresh" content="{{ refresh }}; url={{ page }}">{% endif %}{% endblock %}
+{% block title %}Set up {{ view.hostname }}{% endblock %}
+{% block back %}{% if return_url %}<a href="{{ return_url }}" rel="noopener noreferrer">Back to {{ app_name or 'the application' }}</a>{% endif %}{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>{{ view.hostname }}</h1>
+  <p><span class="badge t-{{ view.state.tone }}">{{ view.state.label }}</span></p>
+  <p class="lede">{{ view.state.help }}</p>
+</div>
+
+{% if notice %}<div class="notice notice-{{ notice[0] }}" role="status"><p>{{ notice[1] }}</p></div>{% endif %}
+
+<section class="panel" aria-labelledby="next-h">
+  <div class="panel-head"><h2 id="next-h">What to do next</h2></div>
+  <div class="panel-body next">
+    <p>{{ view.next_step }}</p>
+    <dl class="kv">
+      <dt>DNS provider</dt><dd>{% if view.provider_name %}{{ view.provider_name }}{% else %}<span class="muted">Not identified yet</span>{% endif %}</dd>
+      {% if view.guide_url %}<dt>Instructions</dt><dd><a href="{{ view.guide_url }}" rel="noopener noreferrer">{{ view.guide_label }}</a></dd>{% endif %}
+    </dl>
+    <div class="buttons">
+      {% if view.can_apply %}<form method="post" action="{{ page }}/apply"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="primary">Set up automatically with {{ view.provider_name or 'your DNS provider' }}</button></form>{% endif %}
+      <form method="post" action="{{ page }}/check"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">Check now</button></form>
+    </div>
+  </div>
+</section>
+
+{% if view.records %}
+<section class="panel" aria-labelledby="records-h">
+  <div class="panel-head"><h2 id="records-h">DNS records</h2><p>Add both at your DNS provider and keep them for as long as you use this domain.</p></div>
+  {% for r in view.records %}
+  <div class="record">
+    <div class="record-head"><h3><span class="rtype">{{ r.type }}</span>{{ r.purpose }}</h3><span class="badge t-{{ r.state.tone }}">{{ r.state.label }}</span></div>
+    <div class="fields">
+      <div><span class="label"><span>Name</span><span>Select to copy</span></span><span class="copy">{{ r.name }}</span>
+        {% if r.host_label and r.host_label != r.name %}<p class="hint">Most providers want only <span class="copy-inline">{{ r.host_label }}</span> in the Name or Host field.</p>{% endif %}</div>
+      <div><span class="label"><span>Value</span><span>Select to copy</span></span><span class="copy">{{ r.value }}</span></div>
+    </div>
+    {% if r.detail %}<div class="seen"><p><b>What DNS shows now:</b> {{ r.detail }}</p>{% if r.observed %}<p>Found: {% for v in r.observed %}<code>{{ v }}</code>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}</div>{% endif %}
+    <p class="hint">{{ r.help }}</p>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section class="panel" aria-labelledby="checks-h">
+  <div class="panel-head"><h2 id="checks-h">Checks</h2><p>Your domain works once all four pass.</p></div>
+  <ul class="checks">
+    {% for c in view.checks %}<li><div><h3>{{ c.label }}</h3><p>{{ c.purpose }}</p></div><span class="badge t-{{ c.state.tone }}">{{ c.state.label }}</span></li>{% endfor %}
+  </ul>
+</section>
+{% endblock %}
+{% block foot %}<footer class="foot"><p>{% if refresh %}This page refreshes every {{ refresh }} seconds while setup is under way. {% endif %}This link works until <time datetime="{{ expires_at.strftime('%Y-%m-%dT%H:%M:%SZ') }}">{{ expires_at.strftime('%b %d, %Y %H:%M') }} UTC</time>. Keep it private: anyone with it can see this page.</p></footer>{% endblock %}

@@ -26,6 +26,7 @@ from custom_domain.errors import (
 from custom_domain.middleware import CustomDomainMiddleware, WorkspaceResolver
 from custom_domain.models import (
     Check,
+    ConnectSession,
     ConnectUrl,
     Delivery,
     DnsRecord,
@@ -46,6 +47,7 @@ __all__ = [
     "Check",
     "Client",
     "ConflictError",
+    "ConnectSession",
     "ConnectUrl",
     "CredentialReadOnlyError",
     "CustomDomainMiddleware",

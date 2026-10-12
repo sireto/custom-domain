@@ -69,6 +69,7 @@ TEST_DATABASE_URL=postgresql+psycopg://test:test@localhost:55432/test uv run pyt
 | `app/dns/`, `app/webhooks/` | The DNS checks worker and the webhook delivery worker |
 | `app/operator/` | The operator API (`/operator/v1`): applications, origins and credentials over HTTP, behind `OPERATOR_API_TOKEN` |
 | `app/portal/` | Operator portal: `views.py` (routes), `presenters.py` (what every status means, in words), `auth.py`, Jinja templates |
+| `app/connect/` | The customer's setup page, `/connect/<token>`, for a connect session (`app/services/connect_sessions.py`); its words are in `presenters.py` |
 | `app/cli.py` | The `custom-domain` command |
 | `app/db/migrations/versions/` | Alembic migrations, numbered `0001`, `0002`, ... |
 | `sdk/custom_domain/` | The Python SDK: client, assertion verifier, ASGI middleware, webhook verifier |

@@ -100,6 +100,29 @@ class ConnectUrl:
 
 
 @dataclass(frozen=True)
+class ConnectSession:
+    """A link to the setup page for one domain: send the customer to ``url``.
+
+    ``url`` holds the session's token; it is returned only once. Keep ``id``
+    to revoke the link.
+    """
+
+    id: str
+    url: str = field(repr=False)
+    expires_at: datetime | None
+    created_at: datetime | None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ConnectSession:
+        return cls(
+            id=data["id"],
+            url=data["url"],
+            expires_at=_dt(data.get("expires_at")),
+            created_at=_dt(data.get("created_at")),
+        )
+
+
+@dataclass(frozen=True)
 class Domain:
     id: str
     hostname: str

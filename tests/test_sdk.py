@@ -557,3 +557,34 @@ def test_connect_url_and_its_typed_error():
         client.connect_url("d2")
     assert isinstance(caught.value, ConflictError) and caught.value.details == {"method": "guided"}
     assert bodies[1] == ("/v1/domains/d2/connect", {})
+
+
+def test_connect_session_create_and_revoke():
+    from custom_domain import ConnectSession
+
+    calls = []
+    page = "https://edge.example.net/connect/" + "t" * 43
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path, json.loads(request.content or b"null")))
+        if request.method == "POST":
+            return httpx.Response(
+                201,
+                json={
+                    "id": "s1",
+                    "url": page,
+                    "expires_at": "2026-09-25T15:00:00Z",
+                    "created_at": "2026-09-25T14:00:00Z",
+                },
+            )
+        return httpx.Response(204)
+
+    client = Client("http://api", credential="cd_x", transport=httpx.MockTransport(handler))
+    link = client.connect_session("d1", ttl_seconds=600, app_name="Acme")
+    assert isinstance(link, ConnectSession) and link.url == page and link.id == "s1"
+    assert link.expires_at.hour == 15 and "t" * 43 not in repr(link)
+    assert client.revoke_connect_session("d1", "s1") is None
+    assert calls == [
+        ("POST", "/v1/domains/d1/connect-session", {"ttl_seconds": 600, "app_name": "Acme"}),
+        ("DELETE", "/v1/domains/d1/connect-session/s1", None),
+    ]

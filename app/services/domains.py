@@ -597,6 +597,7 @@ def request_recheck(
     application: Application,
     domain_id: uuid.UUID,
     *,
+    requested_by: str = "api",
     now: datetime | None = None,
 ) -> Domain:
     """Ask the lifecycle worker to re-run every check at the next opportunity.
@@ -618,7 +619,9 @@ def request_recheck(
     for check in domain.checks:
         check.next_check_at = now
     session.flush()
-    record_event(session, domain, EventType.RECHECK_REQUESTED, {"requested_by": "api"}, now=now)
+    record_event(
+        session, domain, EventType.RECHECK_REQUESTED, {"requested_by": requested_by}, now=now
+    )
     return domain
 
 

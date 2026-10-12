@@ -8,7 +8,7 @@ stay consistent with the lifecycle rules in docs/lifecycle.md.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
@@ -518,6 +518,144 @@ def dns_summary(domain: Domain) -> State:
         missing = [r.type for r in records if r.state.tone == "fail"]
         return State(" and ".join(missing) + " missing or wrong", "fail")
     return State("Not checked yet", "pending")
+
+
+# --- the customer's setup page (/connect/<token>) ----------------------------------
+#
+# The page is read by the application's customer, not the operator: it says
+# what the customer should do, and never shows operator detail (the messages
+# of the certificate and origin checks, the application, other domains).
+
+CONNECT_STATES: dict[DomainStatus, State] = {
+    DomainStatus.PENDING_DNS: State(
+        "Waiting for DNS",
+        "pending",
+        "Add the two DNS records below at your DNS provider. This page checks again by "
+        "itself; changes can take a few minutes to be seen.",
+    ),
+    DomainStatus.PROVISIONING: State(
+        "Almost done",
+        "progress",
+        "Both DNS records are in place. A security certificate is being issued; this "
+        "usually takes a few minutes. There is nothing more to do.",
+    ),
+    DomainStatus.READY: State(
+        "Connected",
+        "ok",
+        "Your domain is set up and working. You can close this page.",
+    ),
+    DomainStatus.ATTENTION_REQUIRED: State(
+        "Needs attention",
+        "fail",
+        "Your domain was working, but a check now fails, so it is not being served. Check "
+        "that both DNS records below are still in place; it starts working again by itself "
+        "once every check passes.",
+    ),
+    DomainStatus.SUSPENDED: State(
+        "Suspended",
+        "fail",
+        "The ownership record (TXT) has been missing for more than a day, so your domain is "
+        "not being served. Add it again; service resumes once both records are found.",
+    ),
+}
+
+# What each check means, said to the customer.
+CONNECT_CHECK_PURPOSES: dict[CheckType, str] = {
+    CheckType.OWNERSHIP: "The TXT record shows that you control this domain.",
+    CheckType.ROUTING: "The CNAME record sends your domain's visitors here.",
+    CheckType.CERTIFICATE: "A certificate lets visitors reach your domain securely over HTTPS.",
+    CheckType.ORIGIN: "The application answers on your domain.",
+}
+
+# Fixed messages for the page, picked by a code in its URL; never text from the URL.
+CONNECT_NOTICES: dict[str, tuple[str, str]] = {
+    "checking": ("ok", "Checking again now. The results below update within a minute."),
+    "rate_limited": (
+        "warn",
+        "A check was asked for less than a minute ago. This page updates by itself.",
+    ),
+    "unavailable": (
+        "warn",
+        "Automatic setup is not available for this domain right now. Add the records below "
+        "by hand instead.",
+    ),
+    "signer": (
+        "warn",
+        "Automatic setup is unavailable at the moment. Try again in a few minutes, or add the "
+        "records below by hand.",
+    ),
+    "busy": (
+        "warn",
+        "Automatic setup was started too many times in the last hour. Try again later, or "
+        "add the records below by hand.",
+    ),
+    "returned": (
+        "ok",
+        "Your DNS provider is applying the records. They are checked again now; the results "
+        "below update by themselves.",
+    ),
+    "declined": ("warn", "Your DNS provider made no changes."),
+}
+
+
+@dataclass(frozen=True)
+class ConnectPageView:
+    hostname: str
+    state: State
+    provider_name: str | None
+    method: str | None
+    guide_url: str | None
+    guide_label: str
+    records: list[RecordView]
+    checks: list[CheckView]
+    can_apply: bool
+    waiting: bool
+    next_step: str
+
+
+def connect_page_view(domain: Domain) -> ConnectPageView:
+    """What the customer's setup page shows for ``domain``."""
+    from app.dns.providers import UNKNOWN, get_provider
+    from app.services.dns_setup import DOMAIN_CONNECT, domain_setup
+
+    setup = domain_setup(domain)
+    state = CONNECT_STATES.get(domain.status, State("Unknown", "muted"))
+    # An unidentified provider is named only if it named itself through discovery.
+    provider = setup.provider_name
+    if setup.provider_id == UNKNOWN and provider == get_provider(UNKNOWN).name:
+        provider = None
+    can_apply = setup.method == DOMAIN_CONNECT and domain.status in (
+        DomainStatus.PENDING_DNS,
+        DomainStatus.ATTENTION_REQUIRED,
+    )
+    if domain.status == DomainStatus.READY:
+        next_step = "Nothing. Your domain is working."
+    elif domain.status == DomainStatus.PROVISIONING:
+        next_step = "Nothing: wait a few minutes while the certificate is issued."
+    elif can_apply:
+        next_step = (
+            f"Select “Set up automatically with {provider or 'your DNS provider'}” "
+            "and approve the two records there, or add them by hand."
+        )
+    else:
+        next_step = f"Add the two records below at {provider or 'your DNS provider'}."
+    guide = get_provider(setup.provider_id)
+    return ConnectPageView(
+        hostname=domain.hostname,
+        state=state,
+        provider_name=provider,
+        method=setup.method,
+        guide_url=setup.guide_url,
+        guide_label=f"{guide.name} setup guide" if guide.guide else "Setup guide",
+        records=record_views(domain),
+        checks=[
+            replace(check, purpose=CONNECT_CHECK_PURPOSES[check.type], message=None)
+            for check in check_views(domain)
+        ],
+        can_apply=can_apply,
+        waiting=domain.status != DomainStatus.READY,
+        next_step=next_step,
+    )
 
 
 # --- setup progress ---------------------------------------------------------------

@@ -162,6 +162,66 @@ wants a check at a moment of its choosing calls
 `POST /v1/domains/{id}/checks`. How the deployment signs, the return address
 and the key are in [domain-connect.md](domain-connect.md).
 
+### Setup page
+
+Instead of building a setup screen, an application can send its customer a
+link to a page this service serves for one domain:
+
+```bash
+curl -X POST https://edge.example.net/v1/domains/$DOMAIN_ID/connect-session \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"ttl_seconds": 3600, "app_name": "Acme Forms", "return_url": "https://app.example/settings/domains"}'
+```
+
+```json
+{
+  "id": "3d9e8f71-2c4b-4a5d-9e6f-7a8b9c0d1e2f",
+  "url": "https://edge.example.net/connect/q3Zl0bS8n1cJ2xVvYw4R6tE9uI7oP5aSdFgHjKlZxC0",
+  "expires_at": "2026-09-25T15:00:00Z",
+  "created_at": "2026-09-25T14:00:00Z"
+}
+```
+
+The page at `url` shows the hostname, its status in plain words, the
+detected DNS provider and its guide (`setup.guide_url`), the two DNS records
+with values selected in one click, what DNS shows for each, and the state of
+the four checks. It has a **Check now** button (limited like
+`POST /v1/domains/{id}/checks`) and, when `setup.method` is
+`domain_connect`, a **Set up automatically with <provider>** button that
+sends the customer to their provider with a signed apply URL (limited like
+`POST /v1/domains/{id}/connect`) and brings them back to the page. With
+`app_name` and `return_url` it links "Back to <app_name>". The page names no
+one but the edge hostname, uses no JavaScript (it refreshes itself every 30
+seconds until the domain is ready) and works on a phone.
+
+| Field | Meaning |
+| --- | --- |
+| `ttl_seconds` (request, optional) | How long the link works: 300 to 86400 seconds, default 86400 (24 hours). |
+| `app_name` (request, optional) | Your application's name for "Back to <app_name>", at most 64 characters. |
+| `return_url` (request, optional) | Where that link goes: `https`, with a host, no user name and no fragment, at most 512 bytes. |
+| `id` | The session, to revoke it. |
+| `url` | `https://<EDGE_HOSTNAME>/connect/<token>`. Shown only in this response. |
+| `expires_at` | The link stops working after this time. |
+
+**The link is a credential for one domain.** Whoever holds it can see that
+domain's setup and status, ask for a check and start one-step setup;
+nothing else, and never your API key or other domains. Send it only to the
+customer. The token is 32 random bytes and the service stores only its
+SHA-256. End a link early with
+`DELETE /v1/domains/{id}/connect-session/{session_id}` (`204`, also when it
+had already ended). An expired or revoked link, a deleted domain or a
+suspended application shows the same "Link not valid" page (`404`) as a link
+that never existed. Such links count against the client's address like an
+invalid API key (`V1_AUTH_FAILURES_PER_MINUTE`), so a client guessing tokens
+gets `429` instead.
+
+Creating a link is a `POST`, so a read-only key is refused; it is limited to
+20 links per domain and 600 per application per hour (`429 rate_limited`).
+The page is served through the edge on `EDGE_HOSTNAME`, so the deployment
+needs `PUBLIC_API=true` and `EDGE_HOSTNAME`; otherwise the request answers
+`409 connect_page_unavailable`. On a dedicated edge, the page is under that
+edge's own name.
+
 ## Endpoints
 
 | Method and path | Purpose | Success |
@@ -171,6 +231,8 @@ and the key are in [domain-connect.md](domain-connect.md).
 | `GET /v1/domains/{id}` | One domain with current checks. | `200` domain |
 | `POST /v1/domains/{id}/checks` | Ask for all checks to run again. | `202` domain |
 | `POST /v1/domains/{id}/connect` | A signed Domain Connect apply URL ([one-step setup](#one-step-setup-domain-connect)). | `200` `{url, provider, expires_at}` |
+| `POST /v1/domains/{id}/connect-session` | A link to the customer's [setup page](#setup-page). | `201` `{id, url, expires_at, created_at}` |
+| `DELETE /v1/domains/{id}/connect-session/{session_id}` | End a setup page link now. | `204` |
 | `DELETE /v1/domains/{id}` | Stop serving, revoke ownership, tombstone. | `202` domain |
 
 ### Register
@@ -329,9 +391,11 @@ Every error has the same body:
 | --- | --- | --- |
 | 401 | `unauthorized` | Missing, malformed, unknown, revoked or expired credential, or suspended application. `WWW-Authenticate: Bearer` is set. |
 | 404 | `domain_not_found` | No such domain in the calling application, including domains of other applications and deleted domains without `include_deleted`. |
+| 404 | `connect_session_not_found` | No such connect session for this domain (revoking a session through another domain's path included). |
 | 409 | `hostname_already_claimed` | The hostname is live in this or another application. |
 | 409 | `domain_limit_reached` | The application or the whole deployment already has as many live domains as its limit allows. `details` gives `scope` (`application` or `deployment`), `limit` and `live`. Domains already registered keep working; delete one or ask the operator to raise the limit. |
 | 409 | `domain_connect_unavailable` | One-step setup cannot be offered for this domain: `setup.method` is not `domain_connect` (`details.method`), the domain is suspended or deleting (`details.status`), or the signer refused it (`details.reason`). Follow `setup.guide_url` instead. |
+| 409 | `connect_page_unavailable` | This deployment does not serve the setup page: it needs `PUBLIC_API=true` and `EDGE_HOSTNAME`. |
 | 503 | `domain_connect_signer_unavailable` | The Domain Connect signer could not be reached or answered badly (`details.reason`). Retry shortly. |
 | 409 | `invalid_status_transition` | The operation does not apply to the domain's current status (for example rechecking a deleted domain). |
 | 409 | `idempotency_request_in_progress` | The original request with this key has not finished. |
@@ -339,7 +403,7 @@ Every error has the same body:
 | 422 | `empty_hostname`, `wildcard_not_supported`, `ip_literal_not_supported`, `hostname_too_long`, `invalid_label`, `apex_not_supported`, `invalid_hostname` | The hostname cannot be registered. `details.field` is `hostname`. |
 | 422 | `invalid_reference` | The reference is empty or longer than 255 characters. |
 | 422 | `idempotency_key_reused` | The key was used with a different body within the last 24 hours. |
-| 429 | `rate_limited` | Too many manual rechecks or Domain Connect links for this domain or application, too many requests with an invalid credential from the client's address (`V1_AUTH_FAILURES_PER_MINUTE`, default 30 a minute), or more requests with this credential than the deployment allows (`V1_REQUESTS_PER_MINUTE`, off by default; counted per credential in any 60 seconds). `Retry-After` says how long to wait. |
+| 429 | `rate_limited` | Too many manual rechecks, Domain Connect links or setup page links for this domain or application, too many requests with an invalid credential from the client's address (`V1_AUTH_FAILURES_PER_MINUTE`, default 30 a minute), or more requests with this credential than the deployment allows (`V1_REQUESTS_PER_MINUTE`, off by default; counted per credential in any 60 seconds). `Retry-After` says how long to wait. |
 | 403 | `application_suspended` | The application was suspended while the request ran. |
 | 403 | `credential_read_only` | The credential has the `read` scope and the request is not a `GET` or `HEAD`. Nothing was changed. `details` gives `scope` and `method`. Use a `full` credential for changes. |
 
