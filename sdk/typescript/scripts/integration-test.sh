@@ -2,7 +2,7 @@
 # Run the TypeScript client against the real service.
 #
 # Starts the API on a temporary SQLite database (workers off, private webhook
-# URLs allowed, as the Python SDK tests do), creates an application and a
+# URLs allowed, as the Python SDK tests do; the setup page on), creates an application and a
 # credential with the `custom-domain` CLI, then runs test/integration.test.ts.
 # Needs uv and the repository's Python environment (`uv sync --all-packages`).
 #
@@ -28,6 +28,9 @@ export EDGE_RECONCILE_ENABLED=false
 export DNS_WORKER_ENABLED=false
 export WEBHOOK_WORKER_ENABLED=false
 export ORIGIN_ALLOW_PRIVATE=true
+# The setup page (connect sessions) needs both; nothing is served on the name.
+export PUBLIC_API=true
+export EDGE_HOSTNAME=edge.example.net
 
 cd "${repo}"
 uv run --quiet custom-domain db upgrade >/dev/null 2>&1

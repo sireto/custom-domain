@@ -5,8 +5,10 @@ import {
   ApiError,
   AuthenticationError,
   ConflictError,
+  ConnectPageUnavailableError,
   CredentialReadOnlyError,
   CustomDomainClient,
+  DomainConnectUnavailableError,
   findCheck,
   isReady,
   NotFoundError,
@@ -221,6 +223,93 @@ describe("CustomDomainClient", () => {
       ],
     );
     assert.deepEqual(seen[0]!.body, { url: "https://app.example/hooks", events: ["domain.ready"] });
+  });
+
+  test("asks for a Domain Connect apply URL", async () => {
+    const link = {
+      url: "https://dc.example/apply?domain=a&key=k&sig=s",
+      provider: { id: "cloudflare", name: "Cloudflare" },
+      expires_at: "2026-09-25T15:00:00Z",
+    };
+    const { client, seen } = fake(json(200, link), json(200, link));
+    const answer = await client.connectUrl("d1", { redirectUri: "https://app.example/done", state: "s" });
+    assert.deepEqual(answer, link);
+    assert.equal(answer.provider?.id, "cloudflare");
+    await client.connectUrl("d/2");
+    assert.deepEqual(
+      seen.map((s) => [`${s.method} ${s.url.pathname}`, s.body]),
+      [
+        ["POST /v1/domains/d1/connect", { redirect_uri: "https://app.example/done", state: "s" }],
+        ["POST /v1/domains/d%2F2/connect", {}],
+      ],
+    );
+  });
+
+  test("creates and revokes a setup page link", async () => {
+    const session = {
+      id: "s1",
+      url: "https://edge.example.net/connect/" + "t".repeat(43),
+      expires_at: "2026-09-25T15:00:00Z",
+      created_at: "2026-09-25T14:00:00Z",
+    };
+    const { client, seen } = fake(json(201, session), json(201, session), new Response(null, { status: 204 }));
+    const created = await client.connectSession("d1", {
+      ttlSeconds: 600,
+      appName: "Acme Forms",
+      returnUrl: "https://app.example/settings/domains",
+    });
+    assert.deepEqual(created, session);
+    await client.connectSession("d1");
+    assert.equal(await client.revokeConnectSession("d1", "s1"), undefined);
+    assert.deepEqual(
+      seen.map((s) => [`${s.method} ${s.url.pathname}`, s.body]),
+      [
+        [
+          "POST /v1/domains/d1/connect-session",
+          { ttl_seconds: 600, app_name: "Acme Forms", return_url: "https://app.example/settings/domains" },
+        ],
+        ["POST /v1/domains/d1/connect-session", {}],
+        ["DELETE /v1/domains/d1/connect-session/s1", undefined],
+      ],
+    );
+  });
+
+  test("Domain Connect and setup page refusals have their own ConflictError classes", async () => {
+    const { client } = fake(
+      apiError(409, "domain_connect_unavailable", { method: "guided" }),
+      apiError(409, "connect_page_unavailable"),
+    );
+    await assert.rejects(client.connectUrl("d1"), (error) => {
+      assert.ok(error instanceof DomainConnectUnavailableError);
+      assert.ok(error instanceof ConflictError);
+      assert.equal(error.name, "DomainConnectUnavailableError");
+      assert.deepEqual(error.details, { method: "guided" });
+      return true;
+    });
+    await assert.rejects(client.connectSession("d1"), (error) => {
+      assert.ok(error instanceof ConnectPageUnavailableError);
+      assert.ok(error instanceof ConflictError);
+      assert.equal(error.code, "connect_page_unavailable");
+      assert.equal(error.status, 409);
+      return true;
+    });
+  });
+
+  test("retries a setup page revoke but not a link", async () => {
+    const revoke = fake(apiError(503, "unavailable"), new Response(null, { status: 204 }));
+    await revoke.client.revokeConnectSession("d1", "s1");
+    assert.equal(revoke.seen.length, 2);
+    for (const call of [
+      (c: CustomDomainClient) => c.connectUrl("d1"),
+      (c: CustomDomainClient) => c.connectSession("d1"),
+    ]) {
+      const { client, seen } = fake(apiError(503, "unavailable"), json(200, {}));
+      await assert.rejects(call(client), ServerError);
+      assert.equal(seen.length, 1);
+      const limited = fake(apiError(429, "rate_limited"), json(200, {}));
+      await assert.rejects(call(limited.client), RateLimitedError);
+      assert.equal(limited.seen.length, 1);
+    }
   });
 
   test("maps each status to its error class with code, message, details and request id", async () => {

@@ -40,6 +40,13 @@ class DomainConnectUnavailableError(ConflictError):
     """409 ``domain_connect_unavailable``: no one-step setup for this domain; use the guide."""
 
 
+class ConnectPageUnavailableError(ConflictError):
+    """409 ``connect_page_unavailable``: this deployment serves no setup page.
+
+    It needs ``PUBLIC_API=true`` and ``EDGE_HOSTNAME``; show the DNS records yourself.
+    """
+
+
 class ValidationError(ApiError):
     """422: invalid hostname, reference, body or idempotency key reuse."""
 
@@ -72,6 +79,8 @@ def error_for(status: int, code: str, message: str, details=None, retry_after: i
     if status == 409:
         if code == "domain_connect_unavailable":
             return DomainConnectUnavailableError(status, code, message, details)
+        if code == "connect_page_unavailable":
+            return ConnectPageUnavailableError(status, code, message, details)
         return ConflictError(status, code, message, details)
     if status == 422:
         return ValidationError(status, code, message, details)

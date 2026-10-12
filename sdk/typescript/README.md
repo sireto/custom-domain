@@ -85,6 +85,9 @@ Resources are the API's JSON as typed objects (generated from
 | `listDomains({reference, status, includeDeleted, limit, offset})` | `GET /v1/domains` |
 | `iterDomains({reference, status, includeDeleted, pageSize})` | every page of `GET /v1/domains` |
 | `recheckDomain(id)` | `POST /v1/domains/{id}/checks` |
+| `connectUrl(id, {redirectUri, state})` | `POST /v1/domains/{id}/connect` |
+| `connectSession(id, {ttlSeconds, appName, returnUrl})` | `POST /v1/domains/{id}/connect-session` |
+| `revokeConnectSession(id, sessionId)` | `DELETE /v1/domains/{id}/connect-session/{session_id}` |
 | `deleteDomain(id)` | `DELETE /v1/domains/{id}` |
 | `createWebhook({url, events})` | `POST /v1/webhooks` |
 | `listWebhooks()` | `GET /v1/webhooks` |
@@ -96,13 +99,74 @@ Resources are the API's JSON as typed objects (generated from
 
 Every method also takes a `signal` (an `AbortSignal`) in its last argument.
 
+## Helping the customer publish the records
+
+`domain.setup` says how the customer will likely publish the records, from
+the DNS provider the service detected: `method` is `domain_connect` (one-step
+setup at the provider), `guided` (the provider's own guide at `guide_url`),
+`manual`, or `null` until the lookup has run
+([api-v1.md](https://github.com/sireto/custom-domain/blob/main/docs/api-v1.md#setup)).
+When it is `domain_connect`, send the customer to a signed apply URL, where
+they approve both records in one step:
+
+```ts
+import { CustomDomainClient, DomainConnectUnavailableError } from "@customdomainapi/sdk";
+
+declare const client: CustomDomainClient;
+declare const domainId: string;
+
+const domain = await client.getDomain(domainId);
+if (domain.setup.method === "domain_connect") {
+  try {
+    const link = await client.connectUrl(domain.id, {
+      redirectUri: "https://app.example/settings/domains?done=1", // a page of your own
+      state: "s-42", // returned to redirectUri unchanged
+    });
+    console.log(link.url, link.provider?.name, link.expires_at); // redirect the customer to link.url
+  } catch (error) {
+    if (!(error instanceof DomainConnectUnavailableError)) throw error;
+    console.log(domain.setup.guide_url); // fall back to the provider's guide
+  }
+}
+```
+
+Or send the customer to the service's own setup page for the domain, which
+shows the records, the live checks and the one-step button when there is
+one. The link works for this domain only; send it only to the customer.
+
+```ts
+import { ConnectPageUnavailableError, CustomDomainClient } from "@customdomainapi/sdk";
+
+declare const client: CustomDomainClient;
+declare const domainId: string;
+
+try {
+  const page = await client.connectSession(domainId, {
+    appName: "Acme Forms", // shown as "Back to Acme Forms"
+    returnUrl: "https://app.example/settings/domains",
+  });
+  console.log(page.url, page.expires_at); // valid 24 hours by default (ttlSeconds: 300 to 86400)
+  await client.revokeConnectSession(domainId, page.id); // to end it early
+} catch (error) {
+  if (!(error instanceof ConnectPageUnavailableError)) throw error;
+  // this deployment serves no setup page: show domain.dns_records yourself
+}
+```
+
+The service never trusts the provider's redirect: it checks DNS itself, and
+the outcome arrives as usual through `getDomain` or the `domain.ready`
+webhook.
+
 ## Errors
 
 Every API error throws a subclass of `ApiError` with `status`, the stable
 `code` from the API ([api-v1.md](https://github.com/sireto/custom-domain/blob/main/docs/api-v1.md#errors)), `message`,
 `details` and `requestId` (when a proxy sets `X-Request-Id`):
 `AuthenticationError` (401), `NotFoundError` (404), `ConflictError` (409,
-for example `hostname_already_claimed`), `ValidationError` (422, for example
+for example `hostname_already_claimed`), `DomainConnectUnavailableError` (a
+`ConflictError` for `domain_connect_unavailable`),
+`ConnectPageUnavailableError` (a `ConflictError` for
+`connect_page_unavailable`), `ValidationError` (422, for example
 `apex_not_supported`), `RateLimitedError` (429, with `retryAfter` in
 seconds) and `ServerError` (5xx). `TransportError` means no HTTP response
 was received.
@@ -133,9 +197,11 @@ to repeat, that is `GET`, `DELETE`, the delivery replays, and `createDomain`
 (default 2) on connection errors, timeouts, 429 (waiting `Retry-After`) and
 5xx, with exponential backoff from 0.5 seconds. A 429 asking for more than
 `maxRetryDelayMs` (default 60 seconds) is thrown instead of waited for. A
-create without an idempotency key, a recheck, a webhook create and a secret
-rotation are never retried by the client: retrying a create could register
-twice and a recheck is rate limited, so the caller decides. Redirects are
+create without an idempotency key, a recheck, a Domain Connect link
+(`connectUrl`), a setup page link (`connectSession`), a webhook create and a
+secret rotation are never retried by the client: retrying a create could
+register twice and rechecks and links are rate limited, so the caller
+decides. Redirects are
 never followed, so the API key is only ever sent to `baseUrl`. Every request
 carries `User-Agent: custom-domain-sdk-ts/<version>`.
 

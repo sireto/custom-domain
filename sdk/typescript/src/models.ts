@@ -4,6 +4,8 @@
 
 import type {
   CheckResult,
+  ConnectResource,
+  ConnectSessionResource,
   DeliveryResource,
   DnsRecord,
   DomainCreate,
@@ -22,11 +24,18 @@ export type {
   DomainStatus,
   ErrorBody,
   ErrorResponse,
+  SetupProvider,
   WebhookEvent,
 } from "./generated/openapi.js";
 
 /** A registered hostname with its DNS records and checks. */
 export type Domain = DomainResource;
+/**
+ * How the customer will publish the records, from the detected DNS provider
+ * (`domain.setup`). `method` is `domain_connect`, `guided`, `manual`, or
+ * `null` until the service has looked up the hostname's zone.
+ */
+export type Setup = DomainResource["setup"];
 /** One of the four checks (`ownership`, `routing`, `certificate`, `origin`). */
 export type Check = CheckResult;
 /** One page of {@link Domain}s; `next_offset` is `null` on the last page. */
@@ -37,6 +46,14 @@ export type Webhook = WebhookResource;
 export type WebhookWithSecret = WebhookCreated;
 /** One delivery of an event to a subscription. */
 export type Delivery = DeliveryResource;
+/** A signed Domain Connect apply URL: send the customer to `url`. */
+export type ConnectUrl = ConnectResource;
+/**
+ * A link to the setup page for one domain: send the customer to `url`.
+ * `url` holds the session's token and is returned only once; keep `id` to
+ * revoke the link.
+ */
+export type ConnectSession = ConnectSessionResource;
 export type DomainCreateInput = DomainCreate;
 export type WebhookCreateInput = WebhookCreate;
 export type WebhookEventType = WebhookEvent["type"];
