@@ -163,6 +163,12 @@ class OriginResource(BaseModel):
 class CredentialCreate(_Strict):
     label: str = Field(max_length=100, examples=["backend"])
     expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+    scope: Literal["full", "read"] = Field(
+        default="full",
+        description="`full` allows every v1 operation; `read` allows GET and HEAD only "
+        "and is refused anything else with `credential_read_only`. Fixed at issue; "
+        "a rotation keeps it.",
+    )
 
 
 class CredentialRotate(_Strict):
@@ -173,6 +179,7 @@ class CredentialResource(BaseModel):
     id: uuid.UUID
     label: str
     key_prefix: str
+    scope: Literal["full", "read"]
     created_at: datetime
     last_used_at: datetime | None
     expires_at: datetime | None
@@ -184,6 +191,7 @@ class CredentialResource(BaseModel):
             id=credential.id,
             label=credential.label,
             key_prefix=credential.key_prefix,
+            scope=credential.scope.value,
             created_at=credential.created_at,
             last_used_at=credential.last_used_at,
             expires_at=credential.expires_at,

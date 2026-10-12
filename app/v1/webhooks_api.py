@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.services import webhooks as service
+from app.v1 import examples
 from app.v1.deps import CurrentApplication, DbSession
 from app.v1.schemas import ErrorResponse, WebhookEventType
 
@@ -18,6 +19,12 @@ router = APIRouter(
     tags=["Webhooks"],
     responses={
         401: {"model": ErrorResponse},
+        403: {
+            "model": ErrorResponse,
+            "description": "A read-only credential (`credential_read_only`) made a request "
+            "other than GET or HEAD.",
+            "content": {"application/json": {"example": examples.ERRORS["credential_read_only"]}},
+        },
         429: {
             "model": ErrorResponse,
             "description": "Too many requests with an invalid credential from this client "

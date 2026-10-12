@@ -24,6 +24,7 @@ from app.services.errors import (
     ConfirmationMismatch,
     CredentialInUse,
     CredentialNotFound,
+    CredentialReadOnly,
     DomainLimitReached,
     DomainNotFound,
     HostnameAlreadyClaimed,
@@ -70,6 +71,7 @@ def unauthorized(message: str = "A valid application credential is required") ->
 SERVICE_ERROR_STATUS: list[tuple[type[ServiceError], int]] = [
     (InvalidCredential, 401),
     (ApplicationSuspended, 403),
+    (CredentialReadOnly, 403),
     (DomainNotFound, 404),
     (HostnameAlreadyClaimed, 409),
     (DomainLimitReached, 409),

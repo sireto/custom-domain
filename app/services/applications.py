@@ -22,6 +22,7 @@ from app.models import (
     ApiCredential,
     Application,
     ApplicationStatus,
+    CredentialScope,
     OriginHostHeader,
     OriginStatus,
     VerifiedOrigin,
@@ -315,10 +316,16 @@ def issue_credential(
     *,
     label: str,
     expires_at: datetime | None = None,
+    scope: CredentialScope | str = CredentialScope.FULL,
 ) -> tuple[ApiCredential, str]:
-    """Create a credential and return it with the plaintext secret (shown once)."""
+    """Create a credential and return it with the plaintext secret (shown once).
+
+    ``scope`` is ``full`` (every v1 operation) or ``read`` (GET and HEAD only).
+    It is fixed for the life of the credential.
+    """
     if not label or not label.strip():
         raise InvalidCredential("Label is required")
+    credential_scope = _credential_scope(scope)
     secret = generate_secret()
     credential = ApiCredential(
         application_id=application.id,
@@ -326,10 +333,18 @@ def issue_credential(
         key_prefix=secret[:KEY_PREFIX_LENGTH],
         key_hash=hash_secret(secret),
         expires_at=expires_at,
+        scope=credential_scope,
     )
     session.add(credential)
     session.flush()
     return credential, secret
+
+
+def _credential_scope(value: CredentialScope | str) -> CredentialScope:
+    try:
+        return CredentialScope((value or "").strip().lower())
+    except ValueError as exc:
+        raise InvalidCredential("Scope must be full or read") from exc
 
 
 def authenticate_credential(
@@ -424,7 +439,8 @@ def rotate_credential(
 ) -> tuple[ApiCredential, str, ApiCredential]:
     """Issue a replacement credential and let the old one expire after ``grace``.
 
-    Returns ``(new_credential, plaintext_secret, old_credential)``. The old
+    Returns ``(new_credential, plaintext_secret, old_credential)``. The new
+    credential has the old one's scope. The old
     credential keeps working during the grace period so clients can switch
     without downtime; it is not extended if it already expires sooner.
     """
@@ -437,7 +453,8 @@ def rotate_credential(
     )
     if old is None:
         raise CredentialNotFound()
-    new, secret = issue_credential(session, application, label=label or old.label)
+    # The replacement has the same scope: rotating never widens or narrows a key.
+    new, secret = issue_credential(session, application, label=label or old.label, scope=old.scope)
     cutoff = now + grace
     if old.revoked_at is None and (old.expires_at is None or old.expires_at > cutoff):
         old.expires_at = cutoff

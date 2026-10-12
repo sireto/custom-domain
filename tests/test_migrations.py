@@ -29,3 +29,65 @@ def test_downgrade_and_upgrade_roundtrip(engine, database_url):
         "domain_checks",
         "domain_events",
     } <= tables
+
+
+def test_existing_credentials_keep_full_access_across_0013(engine, database_url):
+    """0013 adds api_credentials.scope; a credential issued before it stays full."""
+    import uuid
+
+    from sqlalchemy import Column, DateTime, MetaData, String, Table, Uuid, select
+
+    from app.models.types import utcnow
+
+    # Only the columns the previous release has, so nothing writes scope.
+    old_credentials = Table(
+        "api_credentials",
+        MetaData(),
+        Column("id", Uuid),
+        Column("application_id", Uuid),
+        Column("label", String),
+        Column("key_prefix", String),
+        Column("key_hash", String),
+        Column("created_at", DateTime),
+        Column("updated_at", DateTime),
+    )
+    applications = Base.metadata.tables["applications"]
+    application_id, now = uuid.uuid4(), utcnow()
+
+    migrate.downgrade(database_url, "0012")
+    try:
+        assert "scope" not in {c["name"] for c in inspect(engine).get_columns("api_credentials")}
+        with engine.begin() as conn:
+            conn.execute(
+                applications.insert().values(
+                    id=application_id,
+                    slug="old",
+                    name="Old",
+                    status="active",
+                    cname_target="old.edge.example.net",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            conn.execute(
+                old_credentials.insert().values(
+                    id=uuid.uuid4(),
+                    application_id=application_id,
+                    label="old",
+                    key_prefix="cd_old",
+                    key_hash="0" * 64,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        migrate.upgrade(database_url)
+        scope = Base.metadata.tables["api_credentials"].c.scope
+        with engine.connect() as conn:
+            assert [str(s) for s in conn.execute(select(scope)).scalars()] == ["full"]
+        migrate.downgrade(database_url, "0012")
+        assert "scope" not in {c["name"] for c in inspect(engine).get_columns("api_credentials")}
+    finally:
+        migrate.upgrade(database_url)
+        with engine.begin() as conn:
+            conn.execute(Base.metadata.tables["api_credentials"].delete())
+            conn.execute(applications.delete())

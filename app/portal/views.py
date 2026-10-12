@@ -1068,6 +1068,7 @@ def issue_credential(
     csrf: str = Form(""),
     label: str = Form(""),
     expires_in_days: str = Form(""),
+    scope: str = Form("full"),
 ):
     def act(application):
         from app.models.types import utcnow
@@ -1079,9 +1080,13 @@ def issue_credential(
             )
         expires_at = utcnow() + timedelta(days=days) if days else None
         credential, secret = app_service.issue_credential(
-            db, application, label=label, expires_at=expires_at
+            db, application, label=label, expires_at=expires_at, scope=scope
         )
-        return {"credential_secret": secret, "credential_label": credential.label}
+        return {
+            "credential_secret": secret,
+            "credential_label": credential.label,
+            "credential_scope": credential.scope.value,
+        }
 
     return _action(request, session, db, slug, csrf, act, tab="credentials", ok="")
 
@@ -1122,6 +1127,7 @@ def rotate_credential(
         return {
             "credential_secret": secret,
             "credential_label": credential.label,
+            "credential_scope": credential.scope.value,
             "rotated_from": old,
         }
 

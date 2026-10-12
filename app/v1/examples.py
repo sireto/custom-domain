@@ -133,6 +133,13 @@ ERRORS = {
             "details": {},
         }
     },
+    "credential_read_only": {
+        "error": {
+            "code": "credential_read_only",
+            "message": "This credential is read-only; it can only make GET and HEAD requests",
+            "details": {"scope": "read", "method": "POST"},
+        }
+    },
     "hostname_already_claimed": {
         "error": {
             "code": "hostname_already_claimed",
