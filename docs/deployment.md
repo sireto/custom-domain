@@ -305,10 +305,14 @@ restart the api and worker to turn it on.
 ## Secrets
 
 Copy `deploy/env.production.example` to `deploy/.env` and fill it. Compose
-reads `deploy/.env` on its own for the `${...}` substitutions in the file and
-the services load the same file through `env_file`, so no variable has to be
-exported in the shell; run every command from the `deploy` directory (or
-pass `--project-directory deploy`).
+reads `deploy/.env` on its own for the `${...}` substitutions in the file,
+and the api and worker load all of it through `env_file`, so no variable has
+to be exported in the shell; run every command from the `deploy` directory
+(or pass `--project-directory deploy`). Do not export these settings in the
+shell either: Compose prefers a shell value over `.env` for a substitution
+but not for `env_file`, so the edge would see a different value than the
+reconciler. The installer clears them before it runs Compose.
+
 It holds the database password, `EDGE_ASSERTION_KEYS` (signs assertions),
 `EDGE_TOKEN` (edge to API), `SERVICE_SECRET_KEY` (encrypts secrets the
 service stores, such as the Domain Connect signer's credential, and signs
@@ -316,10 +320,31 @@ the Domain Connect return state; the installer generates it, and changing it
 means setting the signer again), `CADDY_REDIS_PASSWORD` and
 `CADDY_REDIS_ENCRYPTION_KEY`. With `DOMAIN_CONNECT_SIGNER=local` it also
 holds the Domain Connect private key ([domain-connect.md](domain-connect.md)). Only the edge containers need the Redis
-values; the entrypoint scrubs them from the Python processes' environment.
+values; the entrypoint scrubs them from the Python processes' environment,
+and Caddy itself starts with an empty environment.
 Application credentials and webhook secrets are issued by the CLI and shown
 once. Logs never carry any of these: the code does not log them, and a
 redaction filter masks credential-looking values as a last line of defence.
+
+The internet-facing `edge` container has no `env_file`. It gets only what
+Caddy and the gateway read, each taken from `.env` with the default the code
+uses when the setting is unset: `EDGE_TOKEN`, `DISABLE_HTTPS`, `ACME_EMAIL`,
+`EDGE_TLS_ISSUER`, `EDGE_HTTPS_PORT`, `EDGE_HTTP_PORT`, the Redis certificate
+store settings (`CADDY_REDIS_PASSWORD`, `CADDY_REDIS_ENCRYPTION_KEY`,
+`CADDY_REDIS_DB`, `CADDY_REDIS_KEY_PREFIX`) and `LOG_LEVEL`, plus fixed values
+in the Compose file (`EDGE_ASK_URL`, `EDGE_ASSERT_UPSTREAM`, `API_URL`, and
+`EDGE_RECONCILE_ENABLED=false`, since the edge never reconciles and so needs no
+assertion keys). The database URL and password, `SERVICE_SECRET_KEY`,
+`OPERATOR_API_TOKEN`, `PORTAL_PASSWORD`, `EDGE_ASSERTION_KEYS` and the
+`DOMAIN_CONNECT_*` settings never reach it. The portal allowlist, the operator
+allowlist and `PUBLIC_API` reach the gateway from the API
+(`/internal/edge/origins`), so changing them needs no edge restart.
+`tests/test_deploy_files.py` checks that, for any `.env`, the gateway accepts
+exactly what the api and worker build. A Compose file you customized keeps
+`env_file` on the edge until you merge the release's `compose.production.yml.new`.
+The api and worker still share all of `.env`. The worker needs the database,
+the assertion keys and the operator token's presence for the reconciler, and
+its DNS checks reach the Domain Connect code, so it is not narrowed further.
 
 ## Bring-up
 

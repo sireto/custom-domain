@@ -331,6 +331,18 @@ chmod 0755 "${BIN_DIR}/custom-domain"
 # --- Start -------------------------------------------------------------------
 log "Pulling ${IMAGE} and starting the stack"
 cd "${DIR}/deploy"
+# Compose fills ${...} in the Compose file from the shell before .env, but
+# env_file reads .env only. The edge gets its settings through ${...} and the
+# api and worker through env_file, so a value left in this shell (ACME_EMAIL
+# from the install config, say) would give the edge a different setting than
+# the reconciler and the gateway would refuse every configuration. Every name
+# the Compose file substitutes comes from .env alone
+# (tests/test_install_script.py checks this list against the file).
+COMPOSE_SUBSTITUTED="CUSTOM_DOMAIN_IMAGE POSTGRES_PASSWORD CADDY_REDIS_PASSWORD \
+CADDY_REDIS_ENCRYPTION_KEY CADDY_REDIS_DB CADDY_REDIS_KEY_PREFIX EDGE_TOKEN DISABLE_HTTPS \
+ACME_EMAIL EDGE_TLS_ISSUER EDGE_HTTPS_PORT EDGE_HTTP_PORT LOG_LEVEL"
+# shellcheck disable=SC2086
+unset ${COMPOSE_SUBSTITUTED}
 ${COMPOSE} pull -q
 ${COMPOSE} up -d --wait --wait-timeout 300
 
