@@ -1,0 +1,1142 @@
+{
+  "generator": "sdk/typescript/scripts/generate_fixtures.py (expected outcomes from the Python SDK)",
+  "cases": [
+    {
+      "name": "valid",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "valid without a hostname check",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": null,
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "valid at the end of the skew",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000090,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "expired",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000091,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "expired"
+      }
+    },
+    {
+      "name": "issued in the future",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1799999969,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "not_yet_valid"
+      }
+    },
+    {
+      "name": "issued at the start of the skew",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1799999970,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "custom skew",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000091,
+      "skew": 120,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "missing",
+      "kind": "verify",
+      "token": null,
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "missing"
+      }
+    },
+    {
+      "name": "empty",
+      "kind": "verify",
+      "token": "",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "missing"
+      }
+    },
+    {
+      "name": "garbage",
+      "kind": "verify",
+      "token": "garbage",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "malformed"
+      }
+    },
+    {
+      "name": "three parts",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "malformed"
+      }
+    },
+    {
+      "name": "five parts",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c.x",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "malformed"
+      }
+    },
+    {
+      "name": "other version",
+      "kind": "verify",
+      "token": "v2.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "malformed"
+      }
+    },
+    {
+      "name": "unknown key id",
+      "kind": "verify",
+      "token": "v1.2.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.aOHqj-o2nuW9jQ_e2aPZZkxAhr2Sa11qd2Db8C_Yzt0",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "unknown_key"
+      }
+    },
+    {
+      "name": "key id of an object property",
+      "kind": "verify",
+      "token": "v1.constructor.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.s3h6yPzwzAnKAXYf3-qwRz7U-EmCchmVA9ZCA2bilJ4",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "unknown_key"
+      }
+    },
+    {
+      "name": "wrong secret for the key id",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.qXFVVRtCq4kJMRcgf3tvqkS93idrDKq0hP34h0FNwEg",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "bad_signature"
+      }
+    },
+    {
+      "name": "tampered payload",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiAiM2YwYzhhNTItNmQxZS00YjdhLTljMmYtMGUxZDJjM2I0YTU5IiwgImRvbSI6ICI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCAicmVmIjogIndzX2F0dGFja2VyIiwgImhvc3QiOiAiZm9ybXMuY3VzdG9tZXIuZXhhbXBsZSIsICJpYXQiOiAxODAwMDAwMDAwLCAiZXhwIjogMTgwMDAwMDA2MCwgInJpZCI6ICJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "bad_signature"
+      }
+    },
+    {
+      "name": "tampered signature",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5AAAA",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "bad_signature"
+      }
+    },
+    {
+      "name": "signature not base64url",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5!!!!",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "bad_signature"
+      }
+    },
+    {
+      "name": "signature with padding",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c=",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "signature with a stray character",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c!",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "malformed"
+      }
+    },
+    {
+      "name": "signature with a dangling character",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27cA",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "bad_signature"
+      }
+    },
+    {
+      "name": "signature with a non-ASCII character",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27cé",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "malformed"
+      }
+    },
+    {
+      "name": "signature in the standard alphabet",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "payload with padding",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJyZWYiOiJ3c184ZjNhMWMiLCJob3N0IjoiZm9ybXMuY3VzdG9tZXIuZXhhbXBsZSIsImlhdCI6MTgwMDAwMDAwMCwiZXhwIjoxODAwMDAwMDYwLCJyaWQiOiJyZXEtMDEifQ==.Gocfx-19blqfR11tu3iMSnYi1PsOOff3tZct9Cb6Q78",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-01",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "integer fields as strings",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJyZWYiOiJ3c184ZjNhMWMiLCJob3N0IjoiZm9ybXMuY3VzdG9tZXIuZXhhbXBsZSIsImlhdCI6IjE4MDAwMDAwMDAiLCJleHAiOiIxODAwMDAwMDYwIiwicmlkIjoicmVxLTAwMDEifQ.T5vGmC0bJs8CB0wTXn3sUyQJ-e7WYn7PnECXlwP6IKI",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "payload not json",
+      "kind": "verify",
+      "token": "v1.1.bm90IGpzb24.ylrkhGfRvVl9HX9W25gS0xkghEFdTzoYmLz8fF9XxTo",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "malformed"
+      }
+    },
+    {
+      "name": "payload a list",
+      "kind": "verify",
+      "token": "v1.1.WzEsIDJd.GBk4JMzzu87bYQH6QIEeUXR_cYvBdzcTIguWgDS7Cog",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "malformed"
+      }
+    },
+    {
+      "name": "payload lacks rid",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiAiM2YwYzhhNTItNmQxZS00YjdhLTljMmYtMGUxZDJjM2I0YTU5IiwgImRvbSI6ICI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCAicmVmIjogInIiLCAiaG9zdCI6ICJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwgImlhdCI6IDE4MDAwMDAwMDAsICJleHAiOiAxODAwMDAwMDAwfQ.HGopRTXqnwIYt9v_F4-faZJ9UwOfewnjgk8UvZV5WrY",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "malformed"
+      }
+    },
+    {
+      "name": "wrong application",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "wrong_application"
+      }
+    },
+    {
+      "name": "signed for another application",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiI5YjhhN2M2ZC01ZTRmLTRhM2ItOGMyZC0xZTBmOWE4YjdjNmQiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.oU_Gyp4o_cW2FSmeIS0uRVOY0oGoOrv0nMP7iBxQ0yI",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "wrong_application"
+      }
+    },
+    {
+      "name": "wrong hostname",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "other.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "wrong_hostname"
+      }
+    },
+    {
+      "name": "hostname case and trailing dot",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "FORMS.CUSTOMER.EXAMPLE.",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "rotation: signed with the new key",
+      "kind": "verify",
+      "token": "v1.2.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.aOHqj-o2nuW9jQ_e2aPZZkxAhr2Sa11qd2Db8C_Yzt0",
+      "keys": {
+        "2": "deployment-key-two-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "2"
+        }
+      }
+    },
+    {
+      "name": "rotation: signed with the old key",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "2": "deployment-key-two-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "rotation: old key already removed",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+      "keys": {
+        "2": "deployment-key-two-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "unknown_key"
+      }
+    },
+    {
+      "name": "application key next to the deployment key",
+      "kind": "verify",
+      "token": "v1.app_7Qm2.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.mB_CsDLdQ2zLLF1MjkC6BdlUBfvXRbfJUd0Fu8EE7YY",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "app_7Qm2": "application-own-key-cccccccccccccccccccccccccccccccc"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "app_7Qm2"
+        }
+      }
+    },
+    {
+      "name": "unicode reference",
+      "kind": "verify",
+      "token": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c19cdTAwZTl0XHUwMGU5X1x1NjVlNVx1NjcyYyIsInJpZCI6InJlcS0wMDAxIn0.FbZP30Tkasr2pauPgmb6t-inDRi0u4ktzczGXbsBnQs",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostname": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_été_日本",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "resolver: valid",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "customer",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c"
+      },
+      "host": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "resolver: lowercase header name",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "customer",
+      "headers": {
+        "x-custom-domain-assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c"
+      },
+      "host": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "resolver: Host with a port",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "customer",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c"
+      },
+      "host": "forms.customer.example:443",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "resolver: Host in capitals",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "customer",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c"
+      },
+      "host": "Forms.Customer.Example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "resolver: wrong Host",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "customer",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c"
+      },
+      "host": "app.saas.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "wrong_hostname"
+      }
+    },
+    {
+      "name": "resolver: no Host",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "customer",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c"
+      },
+      "host": null,
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "resolver: missing",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "customer",
+      "headers": {},
+      "host": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "missing"
+      }
+    },
+    {
+      "name": "resolver: X-Forwarded-Host is ignored in customer mode",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "customer",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+        "X-Forwarded-Host": "other.customer.example"
+      },
+      "host": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "origin mode: valid",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "origin",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+        "X-Forwarded-Host": "forms.customer.example"
+      },
+      "host": "app.saas.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "origin mode: a proxy appended to X-Forwarded-Host",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "origin",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+        "X-Forwarded-Host": "forms.customer.example, proxy.internal"
+      },
+      "host": "app.saas.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "origin mode: X-Forwarded-Host with a port",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "origin",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+        "x-forwarded-host": "forms.customer.example:443"
+      },
+      "host": "app.saas.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "1"
+        }
+      }
+    },
+    {
+      "name": "origin mode: no X-Forwarded-Host",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "origin",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c"
+      },
+      "host": "app.saas.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "wrong_hostname"
+      }
+    },
+    {
+      "name": "origin mode: wrong X-Forwarded-Host",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "origin",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+        "X-Forwarded-Host": "other.customer.example"
+      },
+      "host": "forms.customer.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "wrong_hostname"
+      }
+    },
+    {
+      "name": "origin mode: no assertion",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "origin",
+      "headers": {
+        "X-Forwarded-Host": "forms.customer.example"
+      },
+      "host": "app.saas.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "missing"
+      }
+    },
+    {
+      "name": "origin mode: expired",
+      "kind": "resolve",
+      "keys": {
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "origin",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.1.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.2mSO3tfd1CLUG1gFLzNCe926LMxvWBNqM5mIBt5v27c",
+        "X-Forwarded-Host": "forms.customer.example"
+      },
+      "host": "app.saas.example",
+      "now": 1800001000,
+      "skew": 30,
+      "expect": {
+        "ok": false,
+        "code": "expired"
+      }
+    },
+    {
+      "name": "origin mode: rotation",
+      "kind": "resolve",
+      "keys": {
+        "2": "deployment-key-two-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "1": "deployment-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+      "hostHeader": "origin",
+      "headers": {
+        "X-Custom-Domain-Assertion": "v1.2.eyJhcHAiOiIzZjBjOGE1Mi02ZDFlLTRiN2EtOWMyZi0wZTFkMmMzYjRhNTkiLCJkb20iOiI2ZjFjMmQzZS00YjVhLTRjNmQtOGU5Zi0wYTFiMmMzZDRlNWYiLCJleHAiOjE4MDAwMDAwNjAsImhvc3QiOiJmb3Jtcy5jdXN0b21lci5leGFtcGxlIiwiaWF0IjoxODAwMDAwMDAwLCJyZWYiOiJ3c184ZjNhMWMiLCJyaWQiOiJyZXEtMDAwMSJ9.aOHqj-o2nuW9jQ_e2aPZZkxAhr2Sa11qd2Db8C_Yzt0",
+        "X-Forwarded-Host": "forms.customer.example"
+      },
+      "host": "app.saas.example",
+      "now": 1800000000,
+      "skew": 30,
+      "expect": {
+        "ok": true,
+        "assertion": {
+          "applicationId": "3f0c8a52-6d1e-4b7a-9c2f-0e1d2c3b4a59",
+          "domainId": "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
+          "reference": "ws_8f3a1c",
+          "hostname": "forms.customer.example",
+          "issuedAt": 1800000000,
+          "expiresAt": 1800000060,
+          "requestId": "req-0001",
+          "keyId": "2"
+        }
+      }
+    }
+  ]
+}
