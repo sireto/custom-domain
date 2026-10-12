@@ -164,16 +164,17 @@ workflow and records a provenance statement, so no npm token is stored. The
 workflow is **off** until the repository variable `NPM_PUBLISH_ENABLED` is
 `true`; until then every release tag skips it. The one-time setup:
 
-1. On npmjs.com, create the organization `sireto` (free plan, public
-   packages), so the `@sireto` scope exists, and add the maintainers who may
-   publish. Turn on two-factor authentication for them.
+1. On npmjs.com, create the organization `customdomainapi` (free plan,
+   public packages), so the `@customdomainapi` scope exists, and add the
+   maintainers who may publish. Turn on two-factor authentication for them.
 2. Publish the first version by hand, because npm only lets a trusted
    publisher be configured on a package that already exists. From a clean
    checkout of the release tag:
    `cd sdk/typescript && npm ci && npm test && npm run build && npm publish --access public --provenance=false`
    (provenance needs CI, so the first upload goes without it).
 3. On the package's page, Settings, Trusted publishing, add a GitHub Actions
-   publisher: organization `sireto`, repository `custom-domain`, workflow
+   publisher: organization `sireto` (the repository's **GitHub** owner, not
+   the npm organization), repository `custom-domain`, workflow
    `publish-sdk-ts.yml`, environment `npm`. Then, under Publishing access,
    choose "Require two-factor authentication and disallow tokens", so only
    the workflow (and maintainers with 2FA) can publish.
