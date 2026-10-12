@@ -277,16 +277,22 @@ def _zone(hostname: str) -> str | None:
     return _PSL.privatesuffix(hostname)
 
 
-def _relative(name: str, hostname: str) -> str | None:
+def _domain_zone(domain: Domain) -> str | None:
+    """The zone the DNS worker found for the domain, else the registrable domain."""
+    return domain.zone or _zone(domain.hostname)
+
+
+def _relative(name: str, hostname: str, zone: str | None = None) -> str | None:
     """The record name relative to the customer's zone, or None when that is unclear.
 
     DNS providers ask for the part before the zone (``_custom-domain-challenge.forms``
     for ``forms.customer.example``). The zone is taken to be the registrable
     domain from the public suffix list (``customer.co.uk`` for
     ``forms.customer.co.uk``); a customer whose zone is delegated further down
-    still has the full name, which is always shown.
+    still has the full name, which is always shown. The DNS worker replaces
+    that guess with the zone it found (``zone``).
     """
-    zone = _zone(hostname)
+    zone = zone or _zone(hostname)
     if zone is None:
         return None
     if name == zone:
@@ -313,8 +319,8 @@ def record_views(domain: Domain) -> list[RecordView]:
             purpose="Proves ownership",
             type="TXT",
             name=claim.txt_record_name,
-            host_label=_relative(claim.txt_record_name, domain.hostname),
-            zone=_zone(domain.hostname),
+            host_label=_relative(claim.txt_record_name, domain.hostname, _domain_zone(domain)),
+            zone=_domain_zone(domain),
             value=claim.txt_record_value,
             state=ownership,
             detail=detail_txt,
@@ -325,14 +331,129 @@ def record_views(domain: Domain) -> list[RecordView]:
             purpose="Routes traffic to the edge",
             type="CNAME",
             name=domain.hostname,
-            host_label=_relative(domain.hostname, domain.hostname),
-            zone=_zone(domain.hostname),
+            host_label=_relative(domain.hostname, domain.hostname, _domain_zone(domain)),
+            zone=_domain_zone(domain),
             value=claim.cname_target,
             state=routing,
             detail=detail_cname,
             observed=observed_cname,
             help=CNAME_HELP.replace("`", ""),
         ),
+    ]
+
+
+# --- DNS provider and setup method -----------------------------------------------
+
+SETUP_METHODS: dict[str | None, State] = {
+    "domain_connect": State(
+        "One-step setup",
+        "ok",
+        "The customer's DNS provider supports this service's Domain Connect template: the "
+        "customer approves the records at their provider instead of typing them.",
+    ),
+    "guided": State(
+        "Provider guide",
+        "progress",
+        "The customer adds the records by hand, following the step-by-step guide for their "
+        "DNS provider.",
+    ),
+    "manual": State(
+        "Generic guide",
+        "pending",
+        "The DNS provider was not recognized or has no specific guide; the customer follows "
+        "the generic instructions.",
+    ),
+    None: State(
+        "Not looked up yet",
+        "muted",
+        "The DNS worker identifies the provider the next time it checks this hostname.",
+    ),
+}
+
+
+@dataclass(frozen=True)
+class SetupView:
+    state: State
+    provider_name: str | None
+    provider_id: str | None
+    zone: str
+    host: str
+    guide_url: str | None
+    guide_label: str
+    detected_at: datetime | None
+    nameservers: list[str]
+    domain_connect: str
+    problem: str | None
+
+
+def setup_method_state(method: str | None) -> State:
+    return SETUP_METHODS.get(method, SETUP_METHODS[None])
+
+
+def _domain_connect_text(zone, settings) -> tuple[str, str | None]:
+    """What Domain Connect discovery found, in words, and the problem if it failed."""
+    if zone is None:
+        return "Not checked yet", None
+    problem = None
+    if zone.error_code:
+        problem = f"{zone.message or 'Lookup failed'} ({zone.error_code})"
+    offered = zone.domain_connect is not None
+    if zone.template_supported:
+        if settings.signing_enabled:
+            return "Supported, including this service's template", problem
+        return (
+            "Supports this service's template; one-step setup needs request signing, "
+            "which this deployment does not have",
+            problem,
+        )
+    if offered and zone.template_supported is False:
+        return "Offered, but not for this service's template", problem
+    if offered and not zone.template:
+        return "Offered (no template configured: DOMAIN_CONNECT_PROVIDER_ID)", problem
+    if offered:
+        return "Offered; template support unknown", problem
+    if problem is not None:
+        return "Could not be checked", problem
+    return "Not offered by this provider", None
+
+
+def setup_view(domain: Domain) -> SetupView:
+    from app.dns.providers import get_provider
+    from app.services.dns_setup import domain_setup, setup_settings
+
+    settings = setup_settings()
+    setup = domain_setup(domain, settings)
+    zone = domain.dns_zone if domain.zone else None
+    dc_text, problem = _domain_connect_text(zone, settings)
+    return SetupView(
+        state=setup_method_state(setup.method),
+        provider_name=setup.provider_name,
+        provider_id=setup.provider_id,
+        zone=setup.zone,
+        host=setup.host,
+        guide_url=setup.guide_url,
+        guide_label=(
+            f"{get_provider(setup.provider_id).name} setup guide"
+            if get_provider(setup.provider_id).guide
+            else "Generic setup guide"
+        ),
+        detected_at=setup.detected_at,
+        nameservers=list(zone.nameservers or []) if zone is not None else [],
+        domain_connect=dc_text,
+        problem=problem,
+    )
+
+
+def setup_count_views(rows) -> list[tuple[str, State, int, int]]:
+    """Usage counts as (provider name, method state, domains, ready) for the overview."""
+    return [
+        (
+            row.provider_name or "Not looked up yet",
+            setup_method_state(row.method),
+            row.domains,
+            row.ready,
+        )
+        for row in rows
     ]
 
 

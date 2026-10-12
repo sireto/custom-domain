@@ -40,6 +40,22 @@ Show both records to the customer as returned; each carries `help` text for
 the usual DNS console mistakes. Nothing here requires knowing anything about
 the edge or Caddy.
 
+Once the service has looked up the customer's DNS zone (shortly after
+registration), `domain.setup` says which DNS provider hosts it and how the
+records get published:
+
+```python
+setup = domain.setup
+if setup and setup.method is not None:
+    print(setup.provider.name, setup.method)  # Cloudflare guided
+    print(setup.host, "in", setup.zone)  # forms in customer.example
+    print(setup.guide_url)  # the provider's step-by-step guide
+```
+
+`method` is `domain_connect` (one-step setup at the provider), `guided` (a
+provider-specific guide) or `manual` (the generic guide), and None until the
+lookup has run.
+
 Later:
 
 ```python

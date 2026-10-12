@@ -295,6 +295,15 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="domain_command"
     )
     domain.add_parser("purge-tombstones").set_defaults(func=_domain_purge)
+    setup_stats = domain.add_parser(
+        "setup-stats",
+        help="live domains per detected DNS provider and setup method (no hostnames)",
+    )
+    setup_stats.add_argument("--application", help="count one application, by slug")
+    setup_stats.add_argument(
+        "--days", type=int, help="only domains registered in the last DAYS days"
+    )
+    setup_stats.set_defaults(func=_domain_setup_stats)
 
     edge = sub.add_parser("edge", help="Caddy configuration derived from the database")
     edge_sub = edge.add_subparsers(dest="edge_command")
@@ -495,13 +504,17 @@ def _worker_run(args) -> int:
     reconciler = None
     if settings.reconcile_enabled:
         reconciler = Reconciler(get_session_factory(), CaddyClient(settings.admin_url), settings)
+    from app.services.dns_setup import ZoneDetector
+
+    resolver = _resolver()
     worker = ChecksWorker(
         get_session_factory(),
-        _resolver(),
+        resolver,
         prober=SystemEdgeProber(settings),
         settings=settings,
         batch_size=dns_settings.batch_size,
         on_status_change=reconciler.run_once if reconciler else None,
+        detector=ZoneDetector(get_session_factory(), resolver),
     )
     from app.webhooks.worker import WebhookWorker
 
@@ -1125,6 +1138,33 @@ def _domain_purge(args) -> int:
     return 0
 
 
+def _domain_setup_stats(args) -> int:
+    from datetime import timedelta
+
+    from app.models.types import utcnow
+    from app.services import dns_setup
+
+    if args.days is not None and args.days < 1:
+        print("error: --days must be at least 1", file=sys.stderr)
+        return 2
+    with get_session_factory()() as session:
+        application = (
+            app_service.get_application_by_slug(session, args.application)
+            if args.application
+            else None
+        )
+        since = utcnow() - timedelta(days=args.days) if args.days else None
+        rows = dns_setup.setup_counts(session, application=application, since=since)
+    print(f"{'PROVIDER':<20}{'METHOD':<16}{'DOMAINS':>9}{'READY':>9}")
+    for row in rows:
+        provider = row.provider_id or "(not looked up)"
+        print(f"{provider:<20}{row.method or '-':<16}{row.domains:>9,}{row.ready:>9,}")
+    domains = sum(row.domains for row in rows)
+    ready = sum(row.ready for row in rows)
+    print(f"{'total':<20}{'':<16}{domains:>9,}{ready:>9,}")
+    return 0
+
+
 def _edge_settings():
     from app.edge.settings import EdgeConfigurationError, EdgeSettings
 
@@ -1258,10 +1298,17 @@ def _edge_prober():
 
 def _checks_run(args) -> int:
     from app.dns.worker import run_due_checks
+    from app.services.dns_setup import ZoneDetector
 
     prober, settings = _edge_prober()
+    resolver = _resolver()
     result = run_due_checks(
-        get_session_factory(), _resolver(), prober=prober, settings=settings, limit=args.limit
+        get_session_factory(),
+        resolver,
+        prober=prober,
+        settings=settings,
+        limit=args.limit,
+        detector=ZoneDetector(get_session_factory(), resolver),
     )
     print(f"processed {result.processed} domain(s), {result.failed} failed")
     return 0 if result.failed == 0 else 3

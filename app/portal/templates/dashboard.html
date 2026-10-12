@@ -98,6 +98,23 @@
     <div class="panel-foot"><a href="/portal/edge">Edge names and DNS</a></div>
   </section>
 
+  {% if setup_counts %}
+  <section class="panel" aria-labelledby="dns-providers-h">
+    <div class="panel-head"><div><h2 id="dns-providers-h">DNS providers</h2><p>Live hostnames by the customer's DNS provider and how they set up their records.</p></div></div>
+    <div class="table-wrap"><table class="rows">
+      <thead><tr><th scope="col">Provider</th><th scope="col">Setup</th><th scope="col" class="num">Hostnames</th><th scope="col" class="num">Live</th></tr></thead>
+      <tbody>
+      {% for name, state, domains, ready in setup_counts %}<tr>
+        <td class="key">{{ name }}</td>
+        <td data-label="Setup">{{ ui.badge(state) }}</td>
+        <td data-label="Hostnames" class="num">{{ domains }}</td>
+        <td data-label="Live" class="num">{{ ready }}</td>
+      </tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+  {% endif %}
+
   <section class="panel" aria-labelledby="maint-h">
     <div class="panel-head"><div><h2 id="maint-h">Maintenance</h2></div></div>
     <div class="panel-body">

@@ -39,6 +39,9 @@ class Resolver(Protocol):
     def has_address(self, name: str) -> bool:
         """Whether ``name`` has A or AAAA records."""
 
+    def ns(self, name: str) -> list[str]:
+        """Nameservers delegated at exactly ``name`` (empty when it is no zone root)."""
+
 
 MAX_CNAME_HOPS = 8
 
@@ -122,6 +125,22 @@ class SystemResolver:
     def has_address(self, name: str) -> bool:
         return any(self._query(name, rdtype).rrset is not None for rdtype in ("A", "AAAA"))
 
+    def ns(self, name: str) -> list[str]:
+        import dns.name
+        import dns.rdatatype
+
+        answer = self._query(name, "NS")
+        rrset = answer.rrset
+        # A CNAME at ``name`` makes the answer the target's NS set; that is
+        # not a delegation of ``name`` itself.
+        if (
+            rrset is None
+            or rrset.rdtype != dns.rdatatype.NS
+            or rrset.name != dns.name.from_text(name)
+        ):
+            return []
+        return sorted({normalize_name(str(record.target)) for record in rrset})
+
 
 class IssuedRecordsResolver:
     """Answers the DNS checks from the records the service itself issued.
@@ -175,6 +194,9 @@ class IssuedRecordsResolver:
 
     def has_address(self, name: str) -> bool:
         return False
+
+    def ns(self, name: str) -> list[str]:
+        return []
 
 
 def make_resolver(

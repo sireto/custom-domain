@@ -92,6 +92,49 @@ class CheckResult(BaseModel):
     next_check_at: datetime | None = None
 
 
+class SetupProvider(BaseModel):
+    id: str = Field(
+        description="Stable provider id, such as `cloudflare`, `godaddy` or `route53`; "
+        "`unknown` when the provider was not recognized.",
+        examples=["cloudflare"],
+    )
+    name: str = Field(description="Display name.", examples=["Cloudflare"])
+
+
+SetupMethod = Literal["domain_connect", "guided", "manual"]
+
+
+class DomainSetup(BaseModel):
+    """How the customer will publish the DNS records, from the detected DNS provider."""
+
+    method: SetupMethod | None = Field(
+        description="`domain_connect`: the provider supports one-step setup through Domain "
+        "Connect and the service can use it. `guided`: follow the provider's guide at "
+        "`guide_url`. `manual`: the provider has no specific guide; `guide_url` is the "
+        "generic one. Null until the service has looked up the hostname's DNS zone."
+    )
+    provider: SetupProvider | None = Field(
+        description="The DNS provider hosting the zone, from its nameservers. Null until "
+        "the zone has been looked up."
+    )
+    zone: str = Field(
+        description="The DNS zone the records go in (the registrable domain until the zone "
+        "has been looked up).",
+        examples=["customer.example"],
+    )
+    host: str = Field(
+        description="The hostname relative to `zone`: what most DNS providers want in "
+        "the record's Name or Host field.",
+        examples=["forms"],
+    )
+    guide_url: str | None = Field(
+        description="Setup instructions for the provider. Null until the zone has been looked up."
+    )
+    detected_at: datetime | None = Field(
+        description="When the zone was last looked up. Null until then."
+    )
+
+
 class DomainResource(BaseModel):
     id: uuid.UUID
     hostname: str = Field(description="Canonical hostname (lowercase, punycode).")
@@ -100,6 +143,7 @@ class DomainResource(BaseModel):
     dns_records: list[DnsRecord] = Field(
         description="Records the customer must publish. Empty once the domain is deleted."
     )
+    setup: DomainSetup
     checks: list[CheckResult]
     metadata: dict[str, Any] | None = None
     created_at: datetime
@@ -166,6 +210,24 @@ def dns_records_for(domain: Domain) -> list[DnsRecord]:
     ]
 
 
+def setup_for(domain: Domain) -> DomainSetup:
+    from app.services.dns_setup import domain_setup
+
+    setup = domain_setup(domain)
+    return DomainSetup(
+        method=setup.method,
+        provider=(
+            SetupProvider(id=setup.provider_id, name=setup.provider_name)
+            if setup.provider_id is not None
+            else None
+        ),
+        zone=setup.zone,
+        host=setup.host,
+        guide_url=setup.guide_url,
+        detected_at=setup.detected_at,
+    )
+
+
 def domain_resource(domain: Domain) -> DomainResource:
     checks = sorted(domain.checks, key=lambda c: list(CheckType).index(c.check_type))
     return DomainResource(
@@ -174,6 +236,7 @@ def domain_resource(domain: Domain) -> DomainResource:
         reference=domain.reference,
         status=domain.status,
         dns_records=dns_records_for(domain),
+        setup=setup_for(domain),
         checks=[
             CheckResult(
                 type=c.check_type,

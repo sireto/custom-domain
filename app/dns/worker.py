@@ -24,6 +24,7 @@ from app.edge.settings import EdgeSettings
 from app.models import CheckType, Domain, DomainCheck, DomainStatus
 from app.models.types import utcnow
 from app.services.dns_checks import apply_dns_outcomes, ownership_outcome, routing_outcome
+from app.services.dns_setup import ZoneDetector
 from app.services.domains import _domain_query, lock_application
 from app.services.edge_checks import (
     EDGE_CHECK_TYPES,
@@ -117,8 +118,13 @@ def process_domain(
     settings: EdgeSettings | None = None,
     now: datetime | None = None,
     on_status_change: Callable[[], object] | None = None,
+    detector: ZoneDetector | None = None,
 ) -> Processed:
     """Run the domain's due checks. ``done`` is False if it was skipped.
+
+    With a ``detector``, the DNS phase also refreshes the domain's zone,
+    provider and Domain Connect support (cached per zone); its result never
+    changes the checks.
 
     ``on_status_change`` (the edge reconciler) is called between the DNS phase
     and the edge phase when the DNS phase changed the domain's status, so a
@@ -153,9 +159,11 @@ def process_domain(
             from app import observability
 
             queried = claim_version(domain)
+            hostname, known_zone = domain.hostname, domain.zone
             with observability.dns_check_seconds.time():
                 ownership = ownership_outcome(resolver, domain)
                 routing = routing_outcome(resolver, domain)
+            zone = detector.refresh(hostname, known_zone) if detector is not None else None
             lock_application(session, application_id)
             # Reload from the database, not from the identity map, so a claim
             # re-issued during the queries is visible here.
@@ -179,6 +187,8 @@ def process_domain(
                 session.commit()
                 return Processed(False)
             apply_dns_outcomes(session, domain, ownership, routing, now=utcnow())
+            if zone is not None and domain.zone != zone:
+                domain.zone = zone
             dns_changed = domain.status != status_before
             if dns_changed and not edge_due:
                 # A status change (a fresh verification) makes the certificate
@@ -249,6 +259,7 @@ def run_due_checks(
     now: datetime | None = None,
     limit: int = 50,
     on_status_change: Callable[[], object] | None = None,
+    detector: ZoneDetector | None = None,
 ) -> WorkerResult:
     # A fixed ``now`` (tests) is passed through; otherwise each domain takes
     # its own current time so leases and timestamps do not age with the batch.
@@ -266,6 +277,7 @@ def run_due_checks(
                 settings=settings,
                 now=now,
                 on_status_change=on_status_change,
+                detector=detector,
             )
             if outcome.done:
                 processed += 1
@@ -287,6 +299,7 @@ class ChecksWorker:
         settings: EdgeSettings | None = None,
         batch_size: int = 50,
         on_status_change: Callable[[], object] | None = None,
+        detector: ZoneDetector | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.resolver = resolver
@@ -297,6 +310,8 @@ class ChecksWorker:
         # configuration follows without waiting for the reconciler's timer.
         self.on_status_change = on_status_change
         self.last_result: WorkerResult | None = None
+        # Detects each domain's DNS provider and Domain Connect support.
+        self.detector = detector
 
     def run_once(self) -> WorkerResult:
         try:
@@ -307,6 +322,7 @@ class ChecksWorker:
                 settings=self.settings,
                 limit=self.batch_size,
                 on_status_change=self.on_status_change,
+                detector=self.detector,
             )
         except Exception as exc:  # database unavailable: report and retry next tick
             logger.error("checks worker run failed: %s", exc)

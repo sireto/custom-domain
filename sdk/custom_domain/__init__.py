@@ -27,6 +27,8 @@ from custom_domain.models import (
     DnsRecord,
     Domain,
     Page,
+    Setup,
+    SetupProvider,
     Webhook,
     WebhookEvent,
 )
@@ -48,6 +50,8 @@ __all__ = [
     "Page",
     "RateLimitedError",
     "ServerError",
+    "Setup",
+    "SetupProvider",
     "SignatureInvalid",
     "TransportError",
     "ValidationError",
