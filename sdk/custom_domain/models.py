@@ -82,6 +82,24 @@ class Setup:
 
 
 @dataclass(frozen=True)
+class ConnectUrl:
+    """A signed Domain Connect apply URL: send the customer to ``url``."""
+
+    url: str
+    provider: SetupProvider | None
+    expires_at: datetime | None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ConnectUrl:
+        provider = data.get("provider")
+        return cls(
+            url=data["url"],
+            provider=SetupProvider(provider["id"], provider["name"]) if provider else None,
+            expires_at=_dt(data.get("expires_at")),
+        )
+
+
+@dataclass(frozen=True)
 class Domain:
     id: str
     hostname: str

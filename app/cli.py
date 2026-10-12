@@ -271,6 +271,28 @@ def _build_parser() -> argparse.ArgumentParser:
         func=_operator_token_status
     )
 
+    dconnect = sub.add_parser(
+        "domain-connect", help="the Domain Connect signer (docs/domain-connect.md)"
+    ).add_subparsers(dest="domain_connect_command")
+    dconnect.add_parser(
+        "signer", help="show the signer in effect (never the key or the credential)"
+    ).set_defaults(func=_domain_connect_signer)
+    set_remote = dconnect.add_parser(
+        "set-remote",
+        help="sign with a remote signing service; the credential is read from standard input",
+    )
+    set_remote.add_argument("--url", required=True, help="the signing service, https")
+    set_remote.add_argument("--provider-id", required=True, help="the template's providerId")
+    set_remote.add_argument("--service-id", required=True, help="the template's serviceId")
+    set_remote.set_defaults(func=_domain_connect_set_remote)
+    dconnect.add_parser(
+        "reset", help="forget the signer set here, so the DOMAIN_CONNECT_SIGNER settings apply"
+    ).set_defaults(func=_domain_connect_reset)
+    dconnect.add_parser(
+        "public-key",
+        help="print the TXT records that publish the local key (DOMAIN_CONNECT_SIGNER=local)",
+    ).set_defaults(func=_domain_connect_public_key)
+
     legacy = sub.add_parser("legacy", help="import from the volume-based deployment")
     legacy_sub = legacy.add_subparsers(dest="legacy_command")
     imp = legacy_sub.add_parser("import")
@@ -1433,4 +1455,79 @@ def _operator_token_status(args) -> int:
         print(
             f"set through the API at {row.set_at.isoformat()}; OPERATOR_API_TOKEN is not accepted"
         )
+    return 0
+
+
+def _print_signer(view) -> None:
+    if view.signer is None:
+        print("signer: none (Domain Connect is off)")
+    else:
+        source = "the operator" if view.source == "operator" else "the settings"
+        print(f"signer: {view.signer} (from {source})")
+    if view.source == "operator":
+        print(f"url: {view.url}")
+        print(f"credential: {view.credential_prefix or 'not readable'}...")
+        print(f"template: {view.provider_id}/{view.service_id}")
+        print(f"updated: {view.updated_at.isoformat() if view.updated_at else '-'}")
+    print(f"signing: {'on' if view.enabled else 'off'}")
+    if view.problem:
+        print(f"problem: {view.problem}")
+
+
+def _domain_connect_signer(args) -> int:
+    from app.services import domain_connect
+
+    with get_session_factory()() as session:
+        _print_signer(domain_connect.signer_view(session))
+    return 0
+
+
+def _domain_connect_set_remote(args) -> int:
+    import getpass
+
+    from app.services import domain_connect
+
+    # Never an argument: arguments are visible to every user in the process list.
+    tty = sys.stdin.isatty()
+    credential = getpass.getpass("credential: ") if tty else sys.stdin.readline()
+    with get_session_factory()() as session:
+        domain_connect.set_remote_signer(
+            session,
+            url=args.url,
+            credential=credential.strip(),
+            provider_id=args.provider_id,
+            service_id=args.service_id,
+        )
+        session.commit()
+        _print_signer(domain_connect.signer_view(session))
+    return 0
+
+
+def _domain_connect_reset(args) -> int:
+    from app.services import domain_connect
+
+    with get_session_factory()() as session:
+        removed = domain_connect.reset_signer(session)
+        session.commit()
+        print(
+            "the signer set here is forgotten; the settings apply"
+            if removed
+            else "no signer was set here; the settings apply"
+        )
+        _print_signer(domain_connect.signer_view(session))
+    return 0
+
+
+def _domain_connect_public_key(args) -> int:
+    from app.dns import signing
+    from app.services import domain_connect
+
+    settings = domain_connect.signer_settings()
+    if settings.signer != "local" or not settings.private_key:
+        print("error: DOMAIN_CONNECT_SIGNER is not local", file=sys.stderr)
+        return 2
+    for key in signing.parse_private_keys(settings.private_key, settings.key_host):
+        print(f"# {key.host}.<the template's syncPubKeyDomain>")
+        for record in signing.public_key_records(key.private_key):
+            print(record)
     return 0

@@ -516,3 +516,44 @@ def test_resolver_in_origin_host_header_mode():
         WorkspaceResolver(KEYS, "app-1").resolve(headers, "app.saas.example")
     with pytest.raises(ValueError):
         WorkspaceResolver(KEYS, "app-1", host_header="sni")
+
+
+def test_connect_url_and_its_typed_error():
+    from custom_domain import ConflictError, ConnectUrl, DomainConnectUnavailableError
+
+    bodies = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append((request.url.path, json.loads(request.content or b"{}")))
+        if request.url.path == "/v1/domains/d1/connect":
+            return httpx.Response(
+                200,
+                json={
+                    "url": "https://dc.example/apply?domain=a&key=k&sig=s",
+                    "provider": {"id": "cloudflare", "name": "Cloudflare"},
+                    "expires_at": "2026-09-25T15:00:00Z",
+                },
+            )
+        return httpx.Response(
+            409,
+            json={
+                "error": {
+                    "code": "domain_connect_unavailable",
+                    "message": "use the guide",
+                    "details": {"method": "guided"},
+                }
+            },
+        )
+
+    client = Client("http://api", credential="cd_x", transport=httpx.MockTransport(handler))
+    link = client.connect_url("d1", redirect_uri="https://app.example/done", state="s")
+    assert isinstance(link, ConnectUrl) and link.url.endswith("&sig=s")
+    assert link.provider.id == "cloudflare" and link.expires_at.year == 2026
+    assert bodies[0] == (
+        "/v1/domains/d1/connect",
+        {"redirect_uri": "https://app.example/done", "state": "s"},
+    )
+    with pytest.raises(DomainConnectUnavailableError) as caught:
+        client.connect_url("d2")
+    assert isinstance(caught.value, ConflictError) and caught.value.details == {"method": "guided"}
+    assert bodies[1] == ("/v1/domains/d2/connect", {})

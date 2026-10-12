@@ -94,9 +94,13 @@ def render_metrics(session) -> bytes:
 _SECRET_PATTERNS = [
     re.compile(r"\bcd_[A-Za-z0-9_-]{8,}"),
     re.compile(r"\bwhsec_[A-Za-z0-9_-]{8,}"),
+    # The remote Domain Connect signer's credential.
+    re.compile(r"\bdcs_[A-Za-z0-9_-]{8,}"),
     re.compile(r"custom-domain-verify=[A-Za-z0-9_-]+"),
     re.compile(r"\bv1\.[^.\s]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"),
 ]
+# Domain Connect URLs: the signature, the sealed state and the challenge token.
+_QUERY_SECRET = re.compile(r"([?&](?:sig|state|token)=)[^&\s\"']+")
 _KEY_VALUE = re.compile(
     r"(?i)(password|secret|token|authorization)(=|:\s*)((?:bearer\s+)?[^\s,;\"']+)"
 )
@@ -111,6 +115,7 @@ def _mask(match: re.Match) -> str:
 def redact(text: str) -> str:
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub(_mask, text)
+    text = _QUERY_SECRET.sub(lambda m: f"{m.group(1)}***", text)
     return _KEY_VALUE.sub(lambda m: f"{m.group(1)}{m.group(2)}***", text)
 
 

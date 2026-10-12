@@ -260,6 +260,7 @@ PORTAL_ALLOWED_IPS=${PORTAL_ALLOWED_IPS:-}
 PUBLIC_API=${PUBLIC_API:-true}
 CADDY_REDIS_PASSWORD=$(secret 24)
 CADDY_REDIS_ENCRYPTION_KEY=$(secret 32)
+SERVICE_SECRET_KEY=$(secret 32)
 CUSTOM_DOMAIN_IMAGE=${IMAGE}
 EOF
     umask 022
@@ -267,6 +268,8 @@ else
     log "Keeping existing ${ENV_FILE}; adding what this release needs"
     # Settings introduced after the installation was made.
     env_add PORTAL_PASSWORD "$(secret 16)"
+    # Encrypts secrets the service stores (the Domain Connect signer's credential).
+    env_add SERVICE_SECRET_KEY "$(secret 32)"
     env_add PORTAL_ALLOWED_IPS "${PORTAL_ALLOWED_IPS:-}"
     env_add EDGE_HOSTNAME "${EDGE_HOSTNAME:-}"
     if [ -n "${EDGE_HOSTNAME:-}" ] && [ -z "$(env_get EDGE_HOSTNAME)" ]; then

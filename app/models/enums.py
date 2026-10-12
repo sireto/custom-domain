@@ -73,3 +73,4 @@ class EventType(StrEnum):
     STATUS_CHANGED = "domain.status_changed"
     DOMAIN_DELETED = "domain.deleted"
     RECHECK_REQUESTED = "domain.recheck_requested"
+    CONNECT_URL_ISSUED = "domain.connect_url_issued"

@@ -106,6 +106,29 @@ class CredentialInUse(ServiceError):
     code = "credential_in_use"
 
 
+class DomainConnectUnavailable(ServiceError):
+    """One-step setup cannot be offered for this domain (``setup.method`` is not
+    ``domain_connect``, the domain is not live, or the signer refused it)."""
+
+    code = "domain_connect_unavailable"
+
+
+class DomainConnectSignerUnavailable(ServiceError):
+    """The signer could not be reached or answered badly; try again shortly."""
+
+    code = "domain_connect_signer_unavailable"
+
+
+class InvalidConnectRequest(ServiceError):
+    """``redirect_uri`` or ``state`` of a connect request is not acceptable."""
+
+    code = "validation_error"
+
+
+class InvalidSignerConfig(ServiceError):
+    code = "invalid_signer_config"
+
+
 class RateLimited(ServiceError):
     code = "rate_limited"
 

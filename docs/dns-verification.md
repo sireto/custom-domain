@@ -40,6 +40,7 @@ Scheduling:
 | Situation | Next attempt |
 | --- | --- |
 | Check failing or pending | 1, 2, 5, 15, 30 minutes, then hourly (bounded backoff per check, `attempts` and `failing_since` kept in the check's details) |
+| Check failing within 30 minutes of a Domain Connect link or return | every 30 seconds ([domain-connect.md](domain-connect.md#the-return-and-the-recheck)) |
 | Check passing | every 6 hours (revalidation) |
 | Manual recheck (`POST /v1/domains/{id}/checks`) | now, subject to the API rate limit |
 

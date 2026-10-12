@@ -13,10 +13,13 @@ from app.services import idempotency
 from app.v1 import examples
 from app.v1.deps import CurrentApplication, DbSession
 from app.v1.schemas import (
+    ConnectRequest,
+    ConnectResource,
     DomainCreate,
     DomainPage,
     DomainResource,
     ErrorResponse,
+    SetupProvider,
     domain_resource,
 )
 
@@ -313,6 +316,104 @@ def request_recheck(
     domain = domain_service.request_recheck(db, application, domain_id)
     db.commit()
     return domain_resource(domain)
+
+
+@router.post(
+    "/domains/{domain_id}/connect",
+    response_model=ConnectResource,
+    summary="Get a one-step setup link (Domain Connect)",
+    description=(
+        "Returns a signed Domain Connect apply URL for a domain whose `setup.method` is "
+        "`domain_connect`. Send the customer to it: their DNS provider shows the two records "
+        "and applies them when the customer approves. Otherwise the response is "
+        "`409 domain_connect_unavailable`; follow `setup.guide_url` instead.\n\n"
+        "Never trust the return: whatever the provider redirects with, the service checks "
+        "DNS itself. For 30 minutes after the link is issued the DNS checks run every 30 "
+        "seconds; when the customer comes back through this service's return address they "
+        "run at once. The outcome arrives as usual, by polling the domain or by webhook. An "
+        "application that wants a check at a moment of its choosing calls "
+        "`POST /v1/domains/{domain_id}/checks`.\n\n"
+        "Limited to 10 links per domain and 120 per application per hour "
+        "(`429 rate_limited`). The signer may refuse a domain "
+        "(`409 domain_connect_unavailable` with `details.reason`) or be unreachable "
+        "(`503 domain_connect_signer_unavailable`; retry shortly)."
+    ),
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": examples.example(
+                        "return", examples.CONNECT_REQUEST, "Come back to the application"
+                    )
+                }
+            },
+            "required": False,
+        }
+    },
+    responses={
+        200: {"content": {"application/json": {"example": examples.CONNECT}}},
+        404: {"model": ErrorResponse},
+        409: {
+            "model": ErrorResponse,
+            "description": "One-step setup is not available for this domain.",
+            "content": {
+                "application/json": {"example": examples.ERRORS["domain_connect_unavailable"]}
+            },
+        },
+        429: {
+            "model": ErrorResponse,
+            "description": "Too many links; wait for `Retry-After` seconds.",
+            "headers": {"Retry-After": {"schema": {"type": "integer"}}},
+            "content": {"application/json": {"example": examples.ERRORS["rate_limited"]}},
+        },
+        503: {
+            "model": ErrorResponse,
+            "description": "The signer could not be reached; retry shortly.",
+            "content": {
+                "application/json": {
+                    "example": examples.ERRORS["domain_connect_signer_unavailable"]
+                }
+            },
+        },
+    },
+)
+def connect_domain(
+    domain_id: uuid.UUID,
+    application: CurrentApplication,
+    db: DbSession,
+    request: Request,
+    payload: ConnectRequest | None = None,
+) -> ConnectResource:
+    from app.services import domain_connect
+
+    payload = payload or ConnectRequest()
+    plan = domain_connect.prepare_connect(
+        db,
+        application,
+        domain_id,
+        redirect_uri=payload.redirect_uri,
+        state=payload.state,
+        return_url=domain_connect.default_return_url(
+            getattr(request.app.state, "edge_settings", None)
+        ),
+    )
+    # No transaction is open while signing: a remote signer reads this domain
+    # back through GET /v1/domains/{id} before it answers.
+    db.rollback()
+    url = domain_connect.sign_connect(
+        plan, transport=getattr(request.app.state, "domain_connect_transport", None)
+    )
+    issued = domain_connect.record_connect(db, application, plan, url)
+    db.commit()
+    return ConnectResource(
+        url=issued.url,
+        provider=(
+            SetupProvider(id=issued.provider_id, name=issued.provider_name)
+            if issued.provider_id is not None
+            else None
+        ),
+        expires_at=issued.expires_at,
+    )
 
 
 @router.delete(

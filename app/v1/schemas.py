@@ -160,6 +160,60 @@ class DomainPage(BaseModel):
     )
 
 
+class ConnectRequest(BaseModel):
+    """Ask for a signed Domain Connect apply URL for one domain."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    redirect_uri: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Where the DNS provider sends the customer when they are done: an https "
+        "URL with a host, no user name and no fragment, at most 512 bytes. It ends up in the "
+        "signed URL, so it is the application's responsibility; point it at a page of your "
+        "own. The customer arrives there with your `state` (and `error=access_denied` if "
+        "they declined).",
+        examples=["https://app.example/settings/domains?done=1"],
+    )
+    state: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Opaque value returned to `redirect_uri` unchanged, at most 512 bytes "
+        "without control characters.",
+        examples=["c2Vzc2lvbi00Mg"],
+    )
+
+    @field_validator("redirect_uri")
+    @classmethod
+    def _https(cls, value: str | None) -> str | None:
+        from app.services.domain_connect import redirect_uri_problem
+
+        if value is not None and (problem := redirect_uri_problem(value)):
+            raise ValueError(f"redirect_uri {problem}")
+        return value
+
+    @field_validator("state")
+    @classmethod
+    def _plain(cls, value: str | None) -> str | None:
+        from app.services.domain_connect import state_problem
+
+        if value is not None and (problem := state_problem(value)):
+            raise ValueError(f"state {problem}")
+        return value
+
+
+class ConnectResource(BaseModel):
+    url: str = Field(
+        description="The signed apply URL at the customer's DNS provider. Send the customer "
+        "there (a link or a redirect); they approve the two records in one step."
+    )
+    provider: SetupProvider | None = Field(description="The DNS provider the URL goes to.")
+    expires_at: datetime = Field(
+        description="Ask for a new URL after this time. The DNS records in it stay valid as "
+        "long as the domain's records do."
+    )
+
+
 class ErrorBody(BaseModel):
     code: str = Field(examples=["hostname_already_claimed"])
     message: str

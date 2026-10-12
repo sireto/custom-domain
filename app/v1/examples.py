@@ -198,6 +198,20 @@ ERRORS = {
             "details": {"retry_after_seconds": 42},
         }
     },
+    "domain_connect_unavailable": {
+        "error": {
+            "code": "domain_connect_unavailable",
+            "message": "One-step setup is not available for this domain; use setup.guide_url",
+            "details": {"method": "guided"},
+        }
+    },
+    "domain_connect_signer_unavailable": {
+        "error": {
+            "code": "domain_connect_signer_unavailable",
+            "message": "The Domain Connect signer is unavailable; try again shortly",
+            "details": {"reason": "signer_timeout"},
+        }
+    },
     "idempotency_key_reused": {
         "error": {
             "code": "idempotency_key_reused",
@@ -205,6 +219,21 @@ ERRORS = {
             "details": {},
         }
     },
+}
+
+CONNECT_REQUEST = {
+    "redirect_uri": "https://app.example/settings/domains?done=1",
+    "state": "c2Vzc2lvbi00Mg",
+}
+
+CONNECT = {
+    "url": "https://dash.cloudflare.com/domainconnect/v2/domainTemplates/providers/"
+    "provider.example/services/hostname/apply?domain=customer.example&host=forms"
+    "&target=edge.example.net&token=Qm9vayBvZiB0aGUgZGVhZA"
+    "&redirect_uri=https%3A%2F%2Fedge.example.net%2Fv1%2Fdomain-connect%2Freturn"
+    "&state=eyJkIjoi...&key=_dcpubkeyv1&sig=V2te9zWMU7G3plxBTsmYSJTvn2vz...%3D%3D",
+    "provider": {"id": "cloudflare", "name": "Cloudflare"},
+    "expires_at": "2026-09-25T15:00:00Z",
 }
 
 WEBHOOK_READY = {

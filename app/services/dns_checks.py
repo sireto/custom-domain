@@ -198,11 +198,18 @@ def apply_dns_outcomes(
     now: datetime | None = None,
 ) -> tuple[DomainCheck, DomainCheck]:
     """Record both outcomes, schedule the next attempt and apply the status rules."""
+    from app.services.domain_connect import FAST_RECHECK_INTERVAL, fast_recheck_due
+
     now = now or utcnow()
+    # Shortly after a Domain Connect link was issued or the customer came back
+    # from their provider, failing checks run often instead of backing off.
+    fast = fast_recheck_due(domain, now)
     recorded = []
     for check_type, outcome in ((CheckType.OWNERSHIP, ownership), (CheckType.ROUTING, routing)):
         existing = domain.check(check_type)
         next_at, details = schedule_next(existing, outcome, now)
+        if fast and not outcome.passing:
+            next_at = min(next_at, now + FAST_RECHECK_INTERVAL)
         recorded.append(
             record_check(
                 session,
