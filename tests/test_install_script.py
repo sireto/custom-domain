@@ -370,3 +370,51 @@ def test_operator_backup_is_written_only_when_given(tmp_path):
     assert env_of(tmp_path)["OPERATOR_BACKUP"] == "true"
     refused = run_install(tmp_path, None, OPERATOR_BACKUP="yes please")
     assert refused.returncode == 1 and "OPERATOR_BACKUP" in refused.stderr
+
+
+def test_compose_substitutions_come_from_dotenv_alone(tmp_path):
+    """The edge gets its settings through ${...}, api and worker through env_file.
+    A value left in the installer's shell (ACME_EMAIL from the install config)
+    must not reach the edge alone, or the gateway refuses every configuration."""
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    docker = stubs / "docker"
+    # Records what Compose would substitute from the shell for each invocation.
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        f'echo "docker $* ACME_EMAIL=${{ACME_EMAIL-unset}} EDGE_TOKEN=${{EDGE_TOKEN-unset}}"'
+        f' >> "{tmp_path}/docker.log"\nexit 0\n'
+    )
+    docker.chmod(0o755)
+    config = tmp_path / "install.env"
+    config.write_text("ACME_EMAIL=from-file@example.net\n")
+    first = run_install(tmp_path, "0.9.8", CUSTOM_DOMAIN_INSTALL_ENV=str(config))
+    assert first.returncode == 0, first.stderr
+    # The operator changes the address in .env later; an upgrade keeps reading the file.
+    upgraded = run_install(
+        tmp_path, None, CUSTOM_DOMAIN_INSTALL_ENV=str(config), EDGE_TOKEN="from-shell"
+    )
+    assert upgraded.returncode == 0, upgraded.stderr
+    compose_calls = [
+        line
+        for line in (tmp_path / "docker.log").read_text().splitlines()
+        if " pull " in line or " up " in line
+    ]
+    assert len(compose_calls) == 4
+    for line in compose_calls:
+        assert line.endswith("ACME_EMAIL=unset EDGE_TOKEN=unset"), line
+
+
+def test_installer_clears_every_name_the_compose_file_substitutes():
+    import re
+
+    compose = (ROOT / "deploy" / "compose.production.yml").read_text()
+    substituted = set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)", compose))
+    script = SCRIPT.read_text()
+    match = re.search(r'COMPOSE_SUBSTITUTED="([^"]*)"', script)
+    assert match, "install.sh must list the names it clears before running Compose"
+    cleared = set(match.group(1).replace("\\\n", " ").split())
+    assert substituted == cleared, (
+        f"missing: {sorted(substituted - cleared)}, extra: {sorted(cleared - substituted)}"
+    )
+    assert script.index("unset ${COMPOSE_SUBSTITUTED}") < script.index("${COMPOSE} pull")

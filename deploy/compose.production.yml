@@ -1,8 +1,12 @@
 # Production layout: separate database, certificate store, API, worker and
 # edge containers. Secrets live in deploy/.env (copied from
-# env.production.example, never committed). Compose reads that file both for
-# the ${...} substitutions below and, through env_file, for the containers.
-# See docs/deployment.md for the walkthrough, backups and rollback.
+# env.production.example, never committed). Compose reads that file for the
+# ${...} substitutions below; api and worker also load all of it through
+# env_file. The internet-facing edge does not: it gets only the settings
+# listed under it, so the database password, SERVICE_SECRET_KEY,
+# OPERATOR_API_TOKEN, the assertion keys and the Domain Connect settings
+# never reach it. See docs/deployment.md for the walkthrough, backups and
+# rollback.
 # Every service rotates its log: with INFO logging on (one line per v1 call and
 # per reconcile) Docker's default json-file driver would otherwise grow without
 # bound. At most 5 x 10 MB per container.
@@ -93,15 +97,31 @@ services:
     image: ${CUSTOM_DOMAIN_IMAGE:-ghcr.io/sireto/custom-domain:latest}
     restart: unless-stopped
     logging: *logging
-    env_file: .env
+    # No env_file: only what Caddy and the gateway read. Values come from
+    # deploy/.env, with the defaults the code itself uses when a setting is
+    # unset there, so the gateway checks against the same values the api and
+    # worker build the configuration from (tests/test_deploy_files.py).
     environment:
       CONTAINER_ROLE: edge
       ENABLE_LEGACY_API: "false"
+      # The edge never reconciles, so it needs no assertion keys.
+      EDGE_RECONCILE_ENABLED: "false"
       API_URL: http://api:9000
       EDGE_ASK_URL: http://api:9000/internal/tls/ask
       EDGE_ASSERT_UPSTREAM: api:9000
+      EDGE_TOKEN: ${EDGE_TOKEN:-}
+      DISABLE_HTTPS: ${DISABLE_HTTPS:-false}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      EDGE_TLS_ISSUER: ${EDGE_TLS_ISSUER:-acme}
+      EDGE_HTTPS_PORT: ${EDGE_HTTPS_PORT:-443}
+      EDGE_HTTP_PORT: ${EDGE_HTTP_PORT:-80}
       CADDY_STORAGE: redis
       CADDY_REDIS_ADDRESS: redis:6379
+      CADDY_REDIS_PASSWORD: ${CADDY_REDIS_PASSWORD:?set in deploy/.env}
+      CADDY_REDIS_ENCRYPTION_KEY: ${CADDY_REDIS_ENCRYPTION_KEY:-}
+      CADDY_REDIS_DB: ${CADDY_REDIS_DB:-0}
+      CADDY_REDIS_KEY_PREFIX: ${CADDY_REDIS_KEY_PREFIX:-caddy}
+      LOG_LEVEL: ${LOG_LEVEL:-}
     ports:
       - "80:80"
       - "443:443"
