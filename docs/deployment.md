@@ -78,13 +78,17 @@ in its summary; nothing is configured from the answer.
 A release is one version number, for example `0.3.1`, used everywhere: the
 git tag (no prefix), the image tag `ghcr.io/sireto/custom-domain:0.3.1`
 (also `0.3`), the SDK `custom-domain-sdk==0.3.1` and the MCP server
-`custom-domain-mcp==0.3.1` on PyPI. Developers
+`custom-domain-mcp==0.3.1` on PyPI, and the TypeScript SDK
+`@sireto/custom-domain@0.3.1` on npm. Developers
 run the SDK at the version of the service they integrate with, and
 upgrading is one number. To release:
 
-1. Set `version` in `pyproject.toml`, `sdk/pyproject.toml` and
-   `mcp-server/pyproject.toml`, and both versions in `mcp-server/server.json`,
-   to the same value, and set the same version as the default of the cloud templates:
+1. Set `version` in `pyproject.toml`, `sdk/pyproject.toml`,
+   `mcp-server/pyproject.toml` and `sdk-ts/package.json`, `VERSION` in
+   `sdk-ts/src/version.ts`, and both versions in `mcp-server/server.json`,
+   to the same value (then `npm install --package-lock-only` in `sdk-ts/`
+   so its lockfile names it too; `tests/test_mcp_server.py` fails until they
+   all agree), and set the same version as the default of the cloud templates:
    `CUSTOM_DOMAIN_VERSION` in `deploy/cloud-init.yaml`, `Version` in
    `deploy/aws/custom-domain.yaml`, `version` in `deploy/azure/main.bicep`
    (then rebuild `deploy/azure/azuredeploy.json` with
@@ -94,10 +98,11 @@ upgrading is one number. To release:
    every template names the release.
 2. Tag the merge commit with the bare version and push the tag:
    `git tag 0.3.1 <merge commit> && git push origin 0.3.1`.
-3. The tag runs both publish workflows. Each first checks that the tag
+3. The tag runs the publish workflows. Each first checks that the tag
    equals the versions it publishes and fails otherwise; the image
    workflow then publishes the image, and the SDK workflow both packages
-   (Trusted Publishing, see below) and the MCP Registry listing.
+   (Trusted Publishing, see below) and the MCP Registry listing. The
+   TypeScript SDK workflow publishes to npm once it is enabled (see below).
 
 `deploy/cloud-init.yaml` fetches the installer and the Compose file at the
 tag named by `CUSTOM_DOMAIN_VERSION`, so a user-data document only ever
@@ -148,6 +153,37 @@ the listing only if the package's README on PyPI contains
 `<!-- mcp-name: io.github.sireto/custom-domain -->`. The job pins
 `mcp-publisher` to a release and checks its SHA-256; to update it, change
 both values from the registry's release checksums file.
+
+### TypeScript SDK publishing setup
+
+`@sireto/custom-domain` (`sdk-ts/`) is published by
+`.github/workflows/publish-sdk-ts.yml` with npm's
+[trusted publishing](https://docs.npmjs.com/trusted-publishers): npm
+accepts a short-lived OpenID Connect token that GitHub mints for that
+workflow and records a provenance statement, so no npm token is stored. The
+workflow is **off** until the repository variable `NPM_PUBLISH_ENABLED` is
+`true`; until then every release tag skips it. The one-time setup:
+
+1. On npmjs.com, create the organization `sireto` (free plan, public
+   packages), so the `@sireto` scope exists, and add the maintainers who may
+   publish. Turn on two-factor authentication for them.
+2. Publish the first version by hand, because npm only lets a trusted
+   publisher be configured on a package that already exists. From a clean
+   checkout of the release tag:
+   `cd sdk-ts && npm ci && npm test && npm run build && npm publish --access public --provenance=false`
+   (provenance needs CI, so the first upload goes without it).
+3. On the package's page, Settings, Trusted publishing, add a GitHub Actions
+   publisher: organization `sireto`, repository `custom-domain`, workflow
+   `publish-sdk-ts.yml`, environment `npm`. Then, under Publishing access,
+   choose "Require two-factor authentication and disallow tokens", so only
+   the workflow (and maintainers with 2FA) can publish.
+4. In the GitHub repository settings, create the environment `npm`
+   (restrict it to tags, or to the releasing maintainers), and set the
+   repository variable `NPM_PUBLISH_ENABLED` to `true`.
+5. Rehearse with a manual run of the workflow ("Run workflow"): it builds,
+   tests and runs `npm publish --dry-run`. From then on, each release tag
+   publishes the package with provenance, after checking that the tag equals
+   `sdk-ts/package.json`.
 
 ## Upgrading
 

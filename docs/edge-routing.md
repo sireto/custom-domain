@@ -72,8 +72,10 @@ domain:
 7. Only then use `ref` to select the workspace. Never read the workspace
    from `Host`, a query parameter or any other header.
 
-`app.edge.assertion.verify()` implements exactly this and the Python SDK
-(#11) ships it for origins. Origins must also serve `GET /.well-known/custom-domain-workspace`
+`app.edge.assertion.verify()` implements exactly this; the Python SDK
+(`verify_assertion`, [sdk/README.md](../sdk/README.md)) and the TypeScript
+SDK (`verifyAssertion`, [sdk-ts/README.md](../sdk-ts/README.md)) ship it for
+origins, and fixtures made by the Python code keep the two identical. Origins must also serve `GET /.well-known/custom-domain-workspace`
 with the reference from the verified assertion; the lifecycle worker uses it to
 prove correct workspace selection before a domain becomes ready
 ([lifecycle.md](lifecycle.md)). Origins that receive requests on their own
@@ -119,7 +121,8 @@ origins switch with `origin set-host-header`):
   another host.
 - **The assertion is the same.** Its `host` is the customer's hostname; in
   `origin` mode, origins compare it with `X-Forwarded-Host`, not `Host`.
-  The SDK does this with `host_header="origin"`. Proxies between the edge
+  The SDKs do this with `host_header="origin"` (Python) and
+  `hostHeader: "origin"` (TypeScript). Proxies between the edge
   and the application must pass `X-Forwarded-Host` through unchanged.
 - **The checks follow the mode.** The workspace probe goes through the edge,
   so a domain goes live under the same conditions it is served under. The
@@ -150,7 +153,8 @@ them to that application's origin if it is reachable directly.
   deployment key, takes over, so make sure the origin holds it.
 
 Origins verify exactly as before, with the application's key in their
-keyring under its id (`keys={"app_…": "<secret>"}` in the SDK).
+keyring under its id (`keys={"app_…": "<secret>"}` in the Python SDK,
+`keys: { "app_…": "<secret>" }` in the TypeScript SDK).
 
 ## Replay and bypass
 

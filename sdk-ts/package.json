@@ -1,0 +1,70 @@
+{
+  "name": "@sireto/custom-domain",
+  "version": "0.11.1",
+  "description": "Client, assertion verification, middleware and webhook verification for the Custom Domain API.",
+  "license": "Apache-2.0",
+  "author": "Sireto",
+  "homepage": "https://github.com/sireto/custom-domain/tree/main/sdk-ts#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sireto/custom-domain.git",
+    "directory": "sdk-ts"
+  },
+  "bugs": {
+    "url": "https://github.com/sireto/custom-domain/issues"
+  },
+  "keywords": [
+    "custom-domain",
+    "custom-domains",
+    "saas",
+    "multi-tenant",
+    "white-label",
+    "webhooks",
+    "express",
+    "hono",
+    "nextjs",
+    "cloudflare-workers"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "node scripts/clean.mjs dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/check-readme.mjs",
+    "generate": "node scripts/generate-types.mjs",
+    "check:generated": "node scripts/generate-types.mjs --check",
+    "pretest": "node scripts/clean.mjs build && tsc -p tsconfig.test.json",
+    "test": "node scripts/generate-types.mjs --check && node --test build/test/*.test.js",
+    "test:integration": "bash scripts/integration-test.sh",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "20.19.43",
+    "express": "5.2.1",
+    "hono": "4.13.12",
+    "typescript": "6.0.3"
+  }
+}

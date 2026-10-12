@@ -1,0 +1,312 @@
+{
+  "generator": "sdk-ts/scripts/generate_fixtures.py (expected outcomes from the Python SDK)",
+  "cases": [
+    {
+      "name": "valid",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": true,
+        "timestamp": 1800000000
+      }
+    },
+    {
+      "name": "rotation: both signatures, consumer has the new secret",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc,v1=e0489e5b08be7f39470248703bea10364a561ae5ef02fcdb2397bee452773866",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": true,
+        "timestamp": 1800000000
+      }
+    },
+    {
+      "name": "rotation: both signatures, consumer has the old secret",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc,v1=e0489e5b08be7f39470248703bea10364a561ae5ef02fcdb2397bee452773866",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_previous_pppppppppppppppppppppppppppppppp"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": true,
+        "timestamp": 1800000000
+      }
+    },
+    {
+      "name": "rotation: consumer holds both secrets",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_previous_pppppppppppppppppppppppppppppppp",
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": true,
+        "timestamp": 1800000000
+      }
+    },
+    {
+      "name": "wrong secret",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_other_oooooooooooooooooooooooooooooooo"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "bad_signature"
+      }
+    },
+    {
+      "name": "no secrets",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "bad_signature"
+      }
+    },
+    {
+      "name": "tampered body",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.deleted\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "bad_signature"
+      }
+    },
+    {
+      "name": "body with a trailing newline",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}\n",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "bad_signature"
+      }
+    },
+    {
+      "name": "stale",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000301,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "stale"
+      }
+    },
+    {
+      "name": "at the tolerance",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000300,
+      "tolerance": 300,
+      "expect": {
+        "ok": true,
+        "timestamp": 1800000000
+      }
+    },
+    {
+      "name": "from the future",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1799999699,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "stale"
+      }
+    },
+    {
+      "name": "custom tolerance",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800003000,
+      "tolerance": 3600,
+      "expect": {
+        "ok": true,
+        "timestamp": 1800000000
+      }
+    },
+    {
+      "name": "missing",
+      "header": null,
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "missing"
+      }
+    },
+    {
+      "name": "empty",
+      "header": "",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "missing"
+      }
+    },
+    {
+      "name": "no timestamp",
+      "header": "v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "malformed"
+      }
+    },
+    {
+      "name": "no v1",
+      "header": "t=1800000000",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "malformed"
+      }
+    },
+    {
+      "name": "timestamp not an integer",
+      "header": "t=soon,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "malformed"
+      }
+    },
+    {
+      "name": "spaces around parts",
+      "header": " t=1800000000 , v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc ",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": true,
+        "timestamp": 1800000000
+      }
+    },
+    {
+      "name": "unknown parts are ignored",
+      "header": "t=1800000000,v0=abc,x,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": true,
+        "timestamp": 1800000000
+      }
+    },
+    {
+      "name": "uppercase hex",
+      "header": "t=1800000000,v1=77012DC7FCDD8FF08A7C87F4D2FB137AF1E64580DA36C846E5F064343B6B8DFC",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "bad_signature"
+      }
+    },
+    {
+      "name": "truncated signature",
+      "header": "t=1800000000,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8d",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000000,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "bad_signature"
+      }
+    },
+    {
+      "name": "signed for another timestamp",
+      "header": "t=1800000001,v1=77012dc7fcdd8ff08a7c87f4d2fb137af1e64580da36c846e5f064343b6b8dfc",
+      "body": "{\"id\":\"b7e2c1a0-9d8f-4e7a-b6c5-d4e3f2a1b0c9\",\"type\":\"domain.ready\",\"created_at\":\"2026-09-25T15:00:00+00:00\",\"data\":{\"domain\":{\"id\":\"6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f\",\"hostname\":\"forms.customer.example\",\"reference\":\"ws_8f3a1c — café\",\"status\":\"ready\",\"dns_records\":[],\"checks\":[],\"metadata\":null,\"created_at\":\"2026-09-25T14:00:00+00:00\",\"updated_at\":\"2026-09-25T15:00:00+00:00\",\"deleted_at\":null}}}",
+      "secrets": [
+        "whsec_current_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      ],
+      "now": 1800000001,
+      "tolerance": 300,
+      "expect": {
+        "ok": false,
+        "code": "bad_signature"
+      }
+    }
+  ]
+}

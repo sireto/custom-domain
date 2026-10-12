@@ -1,0 +1,67 @@
+# Publishes the TypeScript SDK (sdk-ts/, @sireto/custom-domain) to npm with
+# trusted publishing: GitHub mints a short-lived OIDC token for this workflow
+# and npm accepts it for the trusted publisher configured on the package
+# (organization sireto, repository custom-domain, this workflow file,
+# environment "npm"), and attaches a provenance statement. No npm token is
+# stored anywhere.
+#
+# OFF BY DEFAULT: every job is skipped until the repository variable
+# NPM_PUBLISH_ENABLED is "true". Set it only after the one-time setup in
+# docs/deployment.md, "TypeScript SDK publishing setup". One release tag
+# (a plain version such as 0.12.0) then releases this package with the image
+# and the Python packages at the same version.
+name: Publish TypeScript SDK
+
+on:
+  push:
+    tags: ["[0-9]*"]
+  # A manual run rehearses the release (`npm publish --dry-run`); only a tag publishes.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: vars.NPM_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # the OIDC token npm exchanges for a publish
+    defaults:
+      run:
+        working-directory: sdk-ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Use an npm that supports trusted publishing (11.5.1 or later)
+        run: npm install --global npm@11.6.2
+      - name: Check that the tag is the version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test "${GITHUB_REF_NAME}" = "${version}" \
+            || { echo "tag ${GITHUB_REF_NAME} must equal sdk-ts/package.json (${version})"; exit 1; }
+      - name: Install
+        run: npm ci
+      - name: Type-check, test and build
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Check that the built package reports the version
+        run: |
+          runtime=$(node --input-type=module -e "import('@sireto/custom-domain').then((m) => console.log(m.VERSION, m.USER_AGENT))")
+          version=$(node -p "require('./package.json').version")
+          test "${runtime}" = "${version} custom-domain-sdk-ts/${version}" \
+            || { echo "built package reports '${runtime}', package.json is ${version}"; exit 1; }
+      - name: Publish (dry run)
+        if: github.ref_type != 'tag'
+        run: npm publish --dry-run
+      - name: Publish
+        if: github.ref_type == 'tag'
+        run: npm publish --provenance --access public
