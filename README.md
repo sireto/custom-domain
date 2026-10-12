@@ -236,6 +236,7 @@ code and a message the application can show to the customer.
 - [docs/data-model.md](docs/data-model.md): applications, domains, claims, checks, events and their invariants.
 - [docs/api-v1.md](docs/api-v1.md): the v1 API with worked examples, error codes and the migration from the legacy `/domains` endpoint.
 - [docs/dns-verification.md](docs/dns-verification.md): ownership and routing checks, diagnostics, status rules.
+- [docs/dns-guides/](docs/dns-guides/README.md): step-by-step DNS setup for customers at Cloudflare, GoDaddy, Namecheap, Route 53, Google Cloud DNS, Squarespace, Porkbun, Hostinger, IONOS, DigitalOcean, Vercel and Netlify, plus a generic guide.
 - [docs/tls-readiness.md](docs/tls-readiness.md): on-demand certificates and the HTTPS readiness probe.
 - [docs/edge-routing.md](docs/edge-routing.md): request routing and the signed workspace assertion.
 - [docs/lifecycle.md](docs/lifecycle.md): the status machine, the workspace probe and the worker.

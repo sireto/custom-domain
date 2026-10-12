@@ -7,9 +7,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session
-from app.models import Application
+from app.models import Application, CredentialScope
 from app.services.applications import authenticate_credential
-from app.services.errors import InvalidCredential, RateLimited
+from app.services.errors import CredentialReadOnly, InvalidCredential, RateLimited
 from app.v1.errors import unauthorized
 from app.v1.throttle import limited_client
 
@@ -24,6 +24,10 @@ bearer_scheme = HTTPBearer(
 )
 
 DbSession = Annotated[Session, Depends(get_session)]
+
+# What a ``read`` credential may do. Checked here, in the one dependency every
+# v1 route takes, so a route added later is covered without any change to it.
+READ_ONLY_METHODS = frozenset({"GET", "HEAD"})
 
 
 def current_application(
@@ -66,6 +70,12 @@ def current_application(
     # Not the key prefix: it starts with cd_ and the log redactor masks it.
     request.state.credential_id = str(credential.id)
     request.state.application_slug = credential.application.slug
+    # Fail closed: only a full credential may do more than read.
+    if credential.scope != CredentialScope.FULL and request.method not in READ_ONLY_METHODS:
+        raise CredentialReadOnly(
+            "This credential is read-only; it can only make GET and HEAD requests",
+            details={"scope": credential.scope.value, "method": request.method},
+        )
     return credential.application
 
 

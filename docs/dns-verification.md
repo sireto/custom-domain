@@ -13,6 +13,9 @@ Status: implemented for issue #6. Builds on the claim model (#4) and the API
 | `ownership` | `TXT _custom-domain-challenge.<hostname>` = `custom-domain-verify=<token>` | The registrant controls the hostname's zone. The token is 256 bits from `secrets.token_urlsafe`, unique per registration, and never reused. |
 | `routing` | `CNAME <hostname>` = application CNAME target | Traffic for the hostname reaches this edge. The target is per application, so instructions stay stable for an application while the edge can move. |
 
+Step-by-step instructions for customers, per DNS provider, are in
+[dns-guides/](dns-guides/README.md).
+
 Ownership and routing are separate checks with separate diagnostics: a
 customer can prove ownership without routing yet (for example before a
 cutover), and routing without ownership never serves.

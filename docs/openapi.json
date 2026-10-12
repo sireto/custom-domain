@@ -498,6 +498,16 @@
             "maxLength": 100,
             "title": "Label",
             "type": "string"
+          },
+          "scope": {
+            "default": "full",
+            "description": "`full` allows every v1 operation; `read` allows GET and HEAD only and is refused anything else with `credential_read_only`. Fixed at issue; a rotation keeps it.",
+            "enum": [
+              "full",
+              "read"
+            ],
+            "title": "Scope",
+            "type": "string"
           }
         },
         "required": [
@@ -561,12 +571,21 @@
               }
             ],
             "title": "Revoked At"
+          },
+          "scope": {
+            "enum": [
+              "full",
+              "read"
+            ],
+            "title": "Scope",
+            "type": "string"
           }
         },
         "required": [
           "id",
           "label",
           "key_prefix",
+          "scope",
           "created_at",
           "last_used_at",
           "expires_at",
@@ -1389,6 +1408,14 @@
             ],
             "title": "Revoked At"
           },
+          "scope": {
+            "enum": [
+              "full",
+              "read"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
           "secret": {
             "description": "The API key. Shown once; only its hash is stored.",
             "title": "Secret",
@@ -1399,6 +1426,7 @@
           "id",
           "label",
           "key_prefix",
+          "scope",
           "created_at",
           "last_used_at",
           "expires_at",
@@ -4744,12 +4772,22 @@
           "403": {
             "content": {
               "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "The application is suspended."
+            "description": "The application is suspended, or a read-only credential (`credential_read_only`) made a request other than GET or HEAD."
           },
           "422": {
             "content": {
@@ -4930,12 +4968,22 @@
           "403": {
             "content": {
               "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "The application is suspended."
+            "description": "The application is suspended, or a read-only credential (`credential_read_only`) made a request other than GET or HEAD."
           },
           "409": {
             "content": {
@@ -5125,12 +5173,22 @@
           "403": {
             "content": {
               "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "The application is suspended."
+            "description": "The application is suspended, or a read-only credential (`credential_read_only`) made a request other than GET or HEAD."
           },
           "404": {
             "content": {
@@ -5434,12 +5492,22 @@
           "403": {
             "content": {
               "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "The application is suspended."
+            "description": "The application is suspended, or a read-only credential (`credential_read_only`) made a request other than GET or HEAD."
           },
           "404": {
             "content": {
@@ -5608,12 +5676,22 @@
           "403": {
             "content": {
               "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "The application is suspended."
+            "description": "The application is suspended, or a read-only credential (`credential_read_only`) made a request other than GET or HEAD."
           },
           "404": {
             "content": {
@@ -5719,6 +5797,26 @@
             },
             "description": "Unauthorized"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A read-only credential (`credential_read_only`) made a request other than GET or HEAD."
+          },
           "429": {
             "content": {
               "application/json": {
@@ -5780,6 +5878,26 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A read-only credential (`credential_read_only`) made a request other than GET or HEAD."
           },
           "422": {
             "content": {
@@ -5856,6 +5974,26 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A read-only credential (`credential_read_only`) made a request other than GET or HEAD."
           },
           "404": {
             "content": {
@@ -5990,6 +6128,26 @@
             },
             "description": "Unauthorized"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A read-only credential (`credential_read_only`) made a request other than GET or HEAD."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -6085,6 +6243,26 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A read-only credential (`credential_read_only`) made a request other than GET or HEAD."
           },
           "404": {
             "content": {
@@ -6184,6 +6362,26 @@
             },
             "description": "Unauthorized"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A read-only credential (`credential_read_only`) made a request other than GET or HEAD."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -6269,6 +6467,26 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A read-only credential (`credential_read_only`) made a request other than GET or HEAD."
           },
           "404": {
             "content": {
