@@ -5,10 +5,12 @@ import {
   ApiError,
   AuthenticationError,
   ConflictError,
+  CredentialReadOnlyError,
   CustomDomainClient,
   findCheck,
   isReady,
   NotFoundError,
+  PermissionDeniedError,
   RateLimitedError,
   renderDnsInstructions,
   ServerError,
@@ -227,7 +229,8 @@ describe("CustomDomainClient", () => {
       [404, "domain_not_found", NotFoundError],
       [409, "hostname_already_claimed", ConflictError],
       [422, "apex_not_supported", ValidationError],
-      [403, "application_suspended", ApiError],
+      [403, "application_suspended", PermissionDeniedError],
+      [403, "credential_read_only", CredentialReadOnlyError],
       [400, "bad_request", ApiError],
     ];
     for (const [status, code, type] of cases) {
@@ -401,4 +404,28 @@ describe("CustomDomainClient", () => {
     });
     assert.equal(seen.length, 1);
   });
+});
+
+test("a read-only key's refusal is a CredentialReadOnlyError, which is a PermissionDeniedError and isn't retried", async () => {
+  let calls = 0;
+  const client = new CustomDomainClient({
+    baseUrl: "https://edge.example.net",
+    apiKey: "cd_test_key",
+    fetch: async () => {
+      calls += 1;
+      return new Response(
+        JSON.stringify({
+          error: { code: "credential_read_only", message: "This API key is read-only.", details: { scope: "read", method: "DELETE" } },
+        }),
+        { status: 403 },
+      );
+    },
+  });
+  await assert.rejects(client.deleteDomain("d"), (error) => {
+    assert.ok(error instanceof CredentialReadOnlyError);
+    assert.ok(error instanceof PermissionDeniedError);
+    assert.deepEqual((error as CredentialReadOnlyError).details, { scope: "read", method: "DELETE" });
+    return true;
+  });
+  assert.equal(calls, 1);
 });

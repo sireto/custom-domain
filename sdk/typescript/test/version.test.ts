@@ -12,7 +12,7 @@ test("VERSION, the user agent and package.json name the same release", () => {
 });
 
 test("released with the service: package.json equals pyproject.toml", () => {
-  const pyproject = readFileSync(new URL("../pyproject.toml", ROOT), "utf8");
+  const pyproject = readFileSync(new URL("../../pyproject.toml", ROOT), "utf8");
   const match = /^version\s*=\s*"([^"]+)"/m.exec(pyproject);
   assert.ok(match, "no version in pyproject.toml");
   assert.equal(readJson<{ version: string }>("package.json").version, match[1]);

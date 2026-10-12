@@ -6,7 +6,7 @@ Status: implemented for issue #1. The machine-readable contract is
 document is served at `/v1/openapi.json` with Swagger UI at `/v1/docs`.
 
 The Python SDK ([sdk/README.md](../sdk/README.md)) and the TypeScript SDK
-([sdk-ts/README.md](../sdk-ts/README.md)) wrap everything below.
+([sdk/typescript/README.md](../sdk/typescript/README.md)) wrap everything below.
 
 **Base URL.** On a deployment with `PUBLIC_API=true` (the installer's default)
 the API is served through the edge at `https://<edge name>/v1`, for example

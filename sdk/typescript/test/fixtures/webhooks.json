@@ -1,5 +1,5 @@
 {
-  "generator": "sdk-ts/scripts/generate_fixtures.py (expected outcomes from the Python SDK)",
+  "generator": "sdk/typescript/scripts/generate_fixtures.py (expected outcomes from the Python SDK)",
   "cases": [
     {
       "name": "valid",

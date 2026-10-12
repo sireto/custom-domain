@@ -78,7 +78,7 @@ credentials and from the edge assertion key.
 
 `app.webhooks.signature.verify()` implements this; the Python SDK ships it as
 `verify_webhook` and the TypeScript SDK as `verifyWebhook`
-([sdk-ts/README.md](../sdk-ts/README.md#webhooks)).
+([sdk/typescript/README.md](../sdk/typescript/README.md#webhooks)).
 
 ## Delivery guarantees
 

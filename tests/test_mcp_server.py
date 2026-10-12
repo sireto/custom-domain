@@ -186,19 +186,20 @@ def test_released_with_the_service_and_the_sdk():
         for name in (".", "sdk", "mcp-server")
     }
     # The TypeScript SDK: package.json, its lockfile and the version it reports at runtime.
-    version["sdk-ts/package.json"] = json.loads((root / "sdk-ts" / "package.json").read_text())[
+    typescript = root / "sdk" / "typescript"
+    version["sdk/typescript/package.json"] = json.loads((typescript / "package.json").read_text())[
         "version"
     ]
-    lock = json.loads((root / "sdk-ts" / "package-lock.json").read_text())
-    version["sdk-ts/package-lock.json"] = lock["version"]
-    version["sdk-ts/package-lock.json packages"] = lock["packages"][""]["version"]
+    lock = json.loads((typescript / "package-lock.json").read_text())
+    version["sdk/typescript/package-lock.json"] = lock["version"]
+    version["sdk/typescript/package-lock.json packages"] = lock["packages"][""]["version"]
     runtime = re.search(
         r'^export const VERSION = "([^"]+)";$',
-        (root / "sdk-ts" / "src" / "version.ts").read_text(),
+        (typescript / "src" / "version.ts").read_text(),
         re.MULTILINE,
     )
-    assert runtime, "sdk-ts/src/version.ts must export VERSION"
-    version["sdk-ts/src/version.ts"] = runtime.group(1)
+    assert runtime, "sdk/typescript/src/version.ts must export VERSION"
+    version["sdk/typescript/src/version.ts"] = runtime.group(1)
     assert len(set(version.values())) == 1, version
 
 

@@ -1,4 +1,4 @@
-# Publishes the TypeScript SDK (sdk-ts/, @sireto/custom-domain) to npm with
+# Publishes the TypeScript SDK (sdk/typescript/, @customdomainapi/sdk) to npm with
 # trusted publishing: GitHub mints a short-lived OIDC token for this workflow
 # and npm accepts it for the trusted publisher configured on the package
 # (organization sireto, repository custom-domain, this workflow file,
@@ -31,10 +31,10 @@ jobs:
       id-token: write # the OIDC token npm exchanges for a publish
     defaults:
       run:
-        working-directory: sdk-ts
+        working-directory: sdk/typescript
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
@@ -45,7 +45,7 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           test "${GITHUB_REF_NAME}" = "${version}" \
-            || { echo "tag ${GITHUB_REF_NAME} must equal sdk-ts/package.json (${version})"; exit 1; }
+            || { echo "tag ${GITHUB_REF_NAME} must equal sdk/typescript/package.json (${version})"; exit 1; }
       - name: Install
         run: npm ci
       - name: Type-check, test and build
@@ -55,7 +55,7 @@ jobs:
           npm run build
       - name: Check that the built package reports the version
         run: |
-          runtime=$(node --input-type=module -e "import('@sireto/custom-domain').then((m) => console.log(m.VERSION, m.USER_AGENT))")
+          runtime=$(node --input-type=module -e "import('@customdomainapi/sdk').then((m) => console.log(m.VERSION, m.USER_AGENT))")
           version=$(node -p "require('./package.json').version")
           test "${runtime}" = "${version} custom-domain-sdk-ts/${version}" \
             || { echo "built package reports '${runtime}', package.json is ${version}"; exit 1; }

@@ -1,5 +1,5 @@
 // Generates src/generated/openapi.ts from the committed API contract
-// (../docs/openapi.json). Run `npm run generate` after the contract changes;
+// (../../docs/openapi.json). Run `npm run generate` after the contract changes;
 // `npm run check:generated` (also part of `npm test`) fails when the committed
 // file differs from what the contract produces.
 //
@@ -8,7 +8,7 @@
 // the API always serializes every field of a response model.
 import { readFileSync, writeFileSync } from "node:fs";
 
-const CONTRACT = new URL("../../docs/openapi.json", import.meta.url);
+const CONTRACT = new URL("../../../docs/openapi.json", import.meta.url);
 const OUTPUT = new URL("../src/generated/openapi.ts", import.meta.url);
 
 /** Schema name -> "input" (request body) or "output" (response). */
@@ -18,6 +18,8 @@ const SCHEMAS = {
   CheckStatus: "output",
   DnsRecord: "output",
   CheckResult: "output",
+  SetupProvider: "output",
+  DomainSetup: "output",
   DomainResource: "output",
   DomainPage: "output",
   DomainCreate: "input",
@@ -125,7 +127,7 @@ function main() {
     }
     if (committed !== generated) {
       console.error(
-        "src/generated/openapi.ts does not match docs/openapi.json; run `npm run generate` in sdk-ts/",
+        "src/generated/openapi.ts does not match docs/openapi.json; run `npm run generate` in sdk/typescript/",
       );
       process.exit(1);
     }

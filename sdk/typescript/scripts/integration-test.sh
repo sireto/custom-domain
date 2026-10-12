@@ -6,11 +6,11 @@
 # credential with the `custom-domain` CLI, then runs test/integration.test.ts.
 # Needs uv and the repository's Python environment (`uv sync --all-packages`).
 #
-#   cd sdk-ts && npm run test:integration
+#   cd sdk/typescript && npm run test:integration
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-repo="$(cd "${here}/.." && pwd)"
+repo="$(cd "${here}/../.." && pwd)"
 work="$(mktemp -d)"
 server_pid=""
 

@@ -28,6 +28,29 @@ export interface CheckResult {
   type: CheckType;
 }
 
+export interface SetupProvider {
+  /** Stable provider id, such as `cloudflare`, `godaddy` or `route53`; `unknown` when the provider was not recognized. */
+  id: string;
+  /** Display name. */
+  name: string;
+}
+
+/** How the customer will publish the DNS records, from the detected DNS provider. */
+export interface DomainSetup {
+  /** When the zone was last looked up. Null until then. */
+  detected_at: string | null;
+  /** Setup instructions for the provider. Null until the zone has been looked up. */
+  guide_url: string | null;
+  /** The hostname relative to `zone`: what most DNS providers want in the record's Name or Host field. */
+  host: string;
+  /** `domain_connect`: the provider supports one-step setup through Domain Connect and the service can use it. `guided`: follow the provider's guide at `guide_url`. `manual`: the provider has no specific guide; `guide_url` is the generic one. Null until the service has looked up the hostname's DNS zone. */
+  method: "domain_connect" | "guided" | "manual" | null;
+  /** The DNS provider hosting the zone, from its nameservers. Null until the zone has been looked up. */
+  provider: SetupProvider | null;
+  /** The DNS zone the records go in (the registrable domain until the zone has been looked up). */
+  zone: string;
+}
+
 export interface DomainResource {
   checks: CheckResult[];
   created_at: string;
@@ -39,6 +62,7 @@ export interface DomainResource {
   id: string;
   metadata: Record<string, unknown> | null;
   reference: string;
+  setup: DomainSetup;
   status: DomainStatus;
   updated_at: string;
 }

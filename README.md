@@ -210,14 +210,14 @@ app.add_middleware(
 The middleware also answers the workspace probe the lifecycle worker uses and
 lets the origin verification probe through.
 
-The TypeScript SDK in [sdk-ts/](sdk-ts/README.md) (`@sireto/custom-domain`
+The TypeScript SDK in [sdk/typescript/](sdk/typescript/README.md) (`@customdomainapi/sdk`
 on npm, released at the same version) has the same client, assertion
 verifier and webhook verifier with no runtime dependencies, middleware for
 Fetch API frameworks (Hono, Next.js, Cloudflare Workers, Deno, Bun) and for
 Express, and runs in Node 20+ and edge runtimes:
 
 ```ts
-import { CustomDomainClient, customDomainMiddleware } from "@sireto/custom-domain";
+import { CustomDomainClient, customDomainMiddleware } from "@customdomainapi/sdk";
 
 const client = new CustomDomainClient({ baseUrl: "https://edge.example.net", apiKey: "cd_..." });
 const domain = await client.createDomain({ hostname: "forms.customer.example", reference: "ws_8f3a1c" });
@@ -269,7 +269,7 @@ code and a message the application can show to the customer.
 - [docs/operator-api.md](docs/operator-api.md): the operator actions over HTTP, for control planes and provisioning scripts.
 - [docs/hosting-aws.md](docs/hosting-aws.md), [docs/hosting-azure.md](docs/hosting-azure.md), [docs/hosting-gcp.md](docs/hosting-gcp.md), [docs/hosting-hetzner.md](docs/hosting-hetzner.md) and [docs/hosting-digitalocean.md](docs/hosting-digitalocean.md): one-server installs on each provider.
 - [docs/bettercollected-integration.md](docs/bettercollected-integration.md): a worked integration of a SaaS product.
-- [sdk/README.md](sdk/README.md) and [sdk-ts/README.md](sdk-ts/README.md): the Python and TypeScript SDKs.
+- [sdk/README.md](sdk/README.md) and [sdk/typescript/README.md](sdk/typescript/README.md): the Python and TypeScript SDKs.
 - [docs/operations.md](docs/operations.md) and [docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md): certificate storage, multi-instance coordination, trust boundaries.
 - [AGENTS.md](AGENTS.md): how to work on this repository, for people and coding agents alike.
 
@@ -287,8 +287,8 @@ uv run ruff check app tests sdk
 uv run custom-domain --help
 ```
 
-The TypeScript SDK is an npm package in `sdk-ts/`: `cd sdk-ts && npm ci &&
-npm run typecheck && npm test` (see [sdk-ts/README.md](sdk-ts/README.md#development)).
+The TypeScript SDK is an npm package in `sdk/typescript/`: `cd sdk/typescript && npm ci &&
+npm run typecheck && npm test` (see [sdk/typescript/README.md](sdk/typescript/README.md#development)).
 
 Set `TEST_DATABASE_URL` to a PostgreSQL URL to run the suite against
 PostgreSQL. Tests that drive a real edge need the `caddy` binary (2.11) on the

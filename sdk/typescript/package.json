@@ -1,14 +1,14 @@
 {
-  "name": "@sireto/custom-domain",
+  "name": "@customdomainapi/sdk",
   "version": "0.11.1",
   "description": "Client, assertion verification, middleware and webhook verification for the Custom Domain API.",
   "license": "Apache-2.0",
   "author": "Sireto",
-  "homepage": "https://github.com/sireto/custom-domain/tree/main/sdk-ts#readme",
+  "homepage": "https://github.com/sireto/custom-domain/tree/main/sdk/typescript#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sireto/custom-domain.git",
-    "directory": "sdk-ts"
+    "directory": "sdk/typescript"
   },
   "bugs": {
     "url": "https://github.com/sireto/custom-domain/issues"

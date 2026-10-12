@@ -6,9 +6,9 @@ expected outcome is what the Python SDK (``custom_domain``) returns for the
 case, so the TypeScript tests check the TypeScript verifiers against the
 Python ones. Nothing here is hand-written: change a case, rerun, commit.
 
-    uv run python sdk-ts/scripts/generate_fixtures.py
+    uv run python sdk/typescript/scripts/generate_fixtures.py
 
-writes ``sdk-ts/test/fixtures/assertions.json`` and ``webhooks.json``. The
+writes ``sdk/typescript/test/fixtures/assertions.json`` and ``webhooks.json``. The
 output is deterministic (fixed clocks and secrets), so a rerun without
 changes leaves the files as they are.
 """
@@ -424,7 +424,9 @@ def webhook_cases() -> list[dict]:
 def write(name: str, cases: list[dict]) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     document = {
-        "generator": "sdk-ts/scripts/generate_fixtures.py (expected outcomes from the Python SDK)",
+        "generator": (
+            "sdk/typescript/scripts/generate_fixtures.py (expected outcomes from the Python SDK)"
+        ),
         "cases": cases,
     }
     (OUT / name).write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n")

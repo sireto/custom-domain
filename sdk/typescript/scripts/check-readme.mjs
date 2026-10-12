@@ -1,7 +1,7 @@
 // Type-check every ```ts example in README.md against the sources.
 //
 // Each block becomes its own module under build/readme/, importing
-// "@sireto/custom-domain" from src/. The application functions the examples
+// "@customdomainapi/sdk" from src/. The application functions the examples
 // call (loadWorkspace, storeSecret) are declared once in a shared prelude.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -41,7 +41,7 @@ writeFileSync(
         rootDir: "../..",
         // The parent config's outDir (build/) would exclude these files.
         outDir: "unused",
-        paths: { "@sireto/custom-domain": ["../../src/index.ts"] },
+        paths: { "@customdomainapi/sdk": ["../../src/index.ts"] },
         allowImportingTsExtensions: true,
       },
       include: ["*.ts"],

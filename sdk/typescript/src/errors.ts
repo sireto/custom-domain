@@ -31,6 +31,12 @@ export class ApiError extends Error {
 /** 401: missing, invalid, revoked or expired credential, or a suspended application. */
 export class AuthenticationError extends ApiError {}
 
+/** 403: the credential isn't allowed to do this. */
+export class PermissionDeniedError extends ApiError {}
+
+/** 403 `credential_read_only`: a read-only key tried to change something (only GET and HEAD are allowed). */
+export class CredentialReadOnlyError extends PermissionDeniedError {}
+
 /** 404: no such resource in this application. */
 export class NotFoundError extends ApiError {}
 
@@ -65,6 +71,11 @@ export class TransportError extends Error {
 export function errorFor(init: ApiErrorInit & { retryAfter?: number | undefined }): ApiError {
   const { status } = init;
   if (status === 401) return new AuthenticationError(init);
+  if (status === 403) {
+    return init.code === "credential_read_only"
+      ? new CredentialReadOnlyError(init)
+      : new PermissionDeniedError(init);
+  }
   if (status === 404) return new NotFoundError(init);
   if (status === 409) return new ConflictError(init);
   if (status === 422) return new ValidationError(init);

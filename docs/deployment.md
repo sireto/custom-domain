@@ -79,14 +79,14 @@ A release is one version number, for example `0.3.1`, used everywhere: the
 git tag (no prefix), the image tag `ghcr.io/sireto/custom-domain:0.3.1`
 (also `0.3`), the SDK `custom-domain-sdk==0.3.1` and the MCP server
 `custom-domain-mcp==0.3.1` on PyPI, and the TypeScript SDK
-`@sireto/custom-domain@0.3.1` on npm. Developers
+`@customdomainapi/sdk@0.3.1` on npm. Developers
 run the SDK at the version of the service they integrate with, and
 upgrading is one number. To release:
 
 1. Set `version` in `pyproject.toml`, `sdk/pyproject.toml`,
-   `mcp-server/pyproject.toml` and `sdk-ts/package.json`, `VERSION` in
-   `sdk-ts/src/version.ts`, and both versions in `mcp-server/server.json`,
-   to the same value (then `npm install --package-lock-only` in `sdk-ts/`
+   `mcp-server/pyproject.toml` and `sdk/typescript/package.json`, `VERSION` in
+   `sdk/typescript/src/version.ts`, and both versions in `mcp-server/server.json`,
+   to the same value (then `npm install --package-lock-only` in `sdk/typescript/`
    so its lockfile names it too; `tests/test_mcp_server.py` fails until they
    all agree), and set the same version as the default of the cloud templates:
    `CUSTOM_DOMAIN_VERSION` in `deploy/cloud-init.yaml`, `Version` in
@@ -156,7 +156,7 @@ both values from the registry's release checksums file.
 
 ### TypeScript SDK publishing setup
 
-`@sireto/custom-domain` (`sdk-ts/`) is published by
+`@customdomainapi/sdk` (`sdk/typescript/`) is published by
 `.github/workflows/publish-sdk-ts.yml` with npm's
 [trusted publishing](https://docs.npmjs.com/trusted-publishers): npm
 accepts a short-lived OpenID Connect token that GitHub mints for that
@@ -170,7 +170,7 @@ workflow is **off** until the repository variable `NPM_PUBLISH_ENABLED` is
 2. Publish the first version by hand, because npm only lets a trusted
    publisher be configured on a package that already exists. From a clean
    checkout of the release tag:
-   `cd sdk-ts && npm ci && npm test && npm run build && npm publish --access public --provenance=false`
+   `cd sdk/typescript && npm ci && npm test && npm run build && npm publish --access public --provenance=false`
    (provenance needs CI, so the first upload goes without it).
 3. On the package's page, Settings, Trusted publishing, add a GitHub Actions
    publisher: organization `sireto`, repository `custom-domain`, workflow
@@ -183,7 +183,7 @@ workflow is **off** until the repository variable `NPM_PUBLISH_ENABLED` is
 5. Rehearse with a manual run of the workflow ("Run workflow"): it builds,
    tests and runs `npm publish --dry-run`. From then on, each release tag
    publishes the package with provenance, after checking that the tag equals
-   `sdk-ts/package.json`.
+   `sdk/typescript/package.json`.
 
 ## Upgrading
 

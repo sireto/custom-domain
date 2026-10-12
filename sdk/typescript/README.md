@@ -1,4 +1,4 @@
-# @sireto/custom-domain
+# @customdomainapi/sdk
 
 TypeScript and JavaScript SDK for the Custom Domain API: a typed client,
 verification of the edge's signed workspace assertion, middleware for Fetch
@@ -12,7 +12,7 @@ API frameworks and Express, and webhook verification.
 - ESM with type declarations. The version is the service's release version.
 
 ```
-npm install @sireto/custom-domain
+npm install @customdomainapi/sdk
 ```
 
 ## Quick start: register a workspace domain
@@ -21,7 +21,7 @@ The client holds your application's API key. Use it on your server only,
 never in a browser.
 
 ```ts
-import { CustomDomainClient, renderDnsInstructions } from "@sireto/custom-domain";
+import { CustomDomainClient, renderDnsInstructions } from "@customdomainapi/sdk";
 
 const client = new CustomDomainClient({
   baseUrl: "https://edge.example.net", // the API's address, from the operator
@@ -56,7 +56,7 @@ carries `help` text for the usual DNS console mistakes.
 Later:
 
 ```ts
-import { CustomDomainClient, isReady } from "@sireto/custom-domain";
+import { CustomDomainClient, isReady } from "@customdomainapi/sdk";
 
 declare const client: CustomDomainClient;
 declare const domainId: string;
@@ -108,7 +108,7 @@ seconds) and `ServerError` (5xx). `TransportError` means no HTTP response
 was received.
 
 ```ts
-import { ConflictError, CustomDomainClient, ValidationError } from "@sireto/custom-domain";
+import { ConflictError, CustomDomainClient, ValidationError } from "@customdomainapi/sdk";
 
 declare const client: CustomDomainClient;
 
@@ -142,7 +142,7 @@ carries `User-Agent: custom-domain-sdk-ts/<version>`.
 `fetch` can be replaced, for example to add tracing or for tests:
 
 ```ts
-import { CustomDomainClient } from "@sireto/custom-domain";
+import { CustomDomainClient } from "@customdomainapi/sdk";
 
 const client = new CustomDomainClient({
   baseUrl: "https://edge.example.net",
@@ -192,7 +192,7 @@ an assertion.
 
 ```ts
 import express from "express";
-import { type Assertion, customDomainMiddleware } from "@sireto/custom-domain";
+import { type Assertion, customDomainMiddleware } from "@customdomainapi/sdk";
 
 declare global {
   namespace Express {
@@ -224,7 +224,7 @@ The verified assertion is on `req.customDomain` (`null` only with
 
 ```ts
 import { Hono } from "hono";
-import { type Assertion, createRequestVerifier } from "@sireto/custom-domain";
+import { type Assertion, createRequestVerifier } from "@customdomainapi/sdk";
 
 const verify = createRequestVerifier({
   keys: { "1": process.env.EDGE_ASSERTION_KEY! },
@@ -253,7 +253,7 @@ assertion as its second argument:
 
 ```ts
 // app/api/forms/route.ts
-import { withCustomDomain } from "@sireto/custom-domain";
+import { withCustomDomain } from "@customdomainapi/sdk";
 
 const options = {
   keys: { "1": process.env.EDGE_ASSERTION_KEY! },
@@ -274,7 +274,7 @@ workspace from a verified assertion (wrap them with `withCustomDomain`).
 
 ```ts
 // middleware.ts
-import { createRequestVerifier } from "@sireto/custom-domain";
+import { createRequestVerifier } from "@customdomainapi/sdk";
 
 const verify = createRequestVerifier({
   keys: { "1": process.env.EDGE_ASSERTION_KEY! },
@@ -292,7 +292,7 @@ export async function middleware(request: Request) {
 ### Cloudflare Workers, Deno, Bun
 
 ```ts
-import { withCustomDomain } from "@sireto/custom-domain";
+import { withCustomDomain } from "@customdomainapi/sdk";
 
 interface Env {
   EDGE_ASSERTION_KEY: string;
@@ -317,7 +317,7 @@ export default {
 ### Any framework
 
 ```ts
-import { AssertionInvalid, WorkspaceResolver } from "@sireto/custom-domain";
+import { AssertionInvalid, WorkspaceResolver } from "@customdomainapi/sdk";
 
 declare const headers: Headers | Record<string, string | string[] | undefined>;
 declare const host: string | undefined;
@@ -354,7 +354,7 @@ the origin's own name as `Host` and the customer's hostname as
 `X-Forwarded-Host`:
 
 ```ts
-import { createRequestVerifier, WorkspaceResolver } from "@sireto/custom-domain";
+import { createRequestVerifier, WorkspaceResolver } from "@customdomainapi/sdk";
 
 const verify = createRequestVerifier({
   keys: { "1": process.env.EDGE_ASSERTION_KEY! },
@@ -375,7 +375,7 @@ through unchanged.
 ## Webhooks
 
 ```ts
-import { CustomDomainClient } from "@sireto/custom-domain";
+import { CustomDomainClient } from "@customdomainapi/sdk";
 
 declare const client: CustomDomainClient;
 
@@ -390,7 +390,7 @@ Verify every delivery against the **raw** body, before parsing it:
 
 ```ts
 import express from "express";
-import { parseEvent, SignatureInvalid, verifyWebhook } from "@sireto/custom-domain";
+import { parseEvent, SignatureInvalid, verifyWebhook } from "@customdomainapi/sdk";
 
 const app = express();
 app.post("/hooks/custom-domain", express.raw({ type: "application/json" }), async (req, res) => {
@@ -412,7 +412,7 @@ app.post("/hooks/custom-domain", express.raw({ type: "application/json" }), asyn
 With the Fetch API (Hono, Next.js, Workers), read the body once as text:
 
 ```ts
-import { parseEvent, verifyWebhook } from "@sireto/custom-domain";
+import { parseEvent, verifyWebhook } from "@customdomainapi/sdk";
 
 export async function POST(request: Request) {
   const body = await request.text();
@@ -449,7 +449,7 @@ npm run test:integration  # against the real service (needs uv; see below)
   the Python verifiers, and commit the result:
 
   ```
-  uv run python sdk-ts/scripts/generate_fixtures.py
+  uv run python sdk/typescript/scripts/generate_fixtures.py
   ```
 
 - **Integration test**: `npm run test:integration` starts the API on a

@@ -74,7 +74,7 @@ domain:
 
 `app.edge.assertion.verify()` implements exactly this; the Python SDK
 (`verify_assertion`, [sdk/README.md](../sdk/README.md)) and the TypeScript
-SDK (`verifyAssertion`, [sdk-ts/README.md](../sdk-ts/README.md)) ship it for
+SDK (`verifyAssertion`, [sdk/typescript/README.md](../sdk/typescript/README.md)) ship it for
 origins, and fixtures made by the Python code keep the two identical. Origins must also serve `GET /.well-known/custom-domain-workspace`
 with the reference from the verified assertion; the lifecycle worker uses it to
 prove correct workspace selection before a domain becomes ready
