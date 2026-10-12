@@ -954,8 +954,9 @@ def _credential_list(args) -> int:
         for credential in app_service.list_credentials(session, application):
             state = "revoked" if credential.revoked_at else "active"
             print(
-                f"{credential.key_prefix}\t{state}\t{credential.scope.value}"
-                f"\t{credential.label}\t{credential.id}"
+                # The scope is last so the earlier columns keep their positions.
+                f"{credential.key_prefix}\t{state}\t{credential.label}"
+                f"\t{credential.id}\t{credential.scope.value}"
             )
     return 0
 
