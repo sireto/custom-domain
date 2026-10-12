@@ -110,12 +110,32 @@ All paths are under `/operator/v1`; errors use the v1 envelope
 | `GET /applications/{slug}/assertion-keys` | the application id, the key signing now (`null` while the deployment key signs) and its keys, never their secrets | `assertion-key list` |
 | `POST /applications/{slug}/assertion-keys` `{activate_in_hours?}` | issue the application's next assertion key; it signs from `activate_in_hours` (default 24) from now; the response carries `secret` once | `assertion-key issue` |
 | `POST /applications/{slug}/assertion-keys/{key_id}/revoke` | stop signing with it now; the previous key, or the deployment key, takes over | `assertion-key revoke` |
-| `GET /applications/{slug}/credentials` | list (never the keys) | `credential list` |
-| `POST /applications/{slug}/credentials` `{label, expires_in_days?}` | issue; the response carries `secret` once | `credential issue` |
-| `POST /applications/{slug}/credentials/{id}/rotate` `{grace_hours?}` | replace, the old one expiring after the overlap | `credential rotate` |
+| `GET /applications/{slug}/credentials` | list (never the keys); each has its `scope` | `credential list` |
+| `POST /applications/{slug}/credentials` `{label, expires_in_days?, scope?}` | issue; the response carries `secret` once. `scope` is `full` (default) or `read`; see [Read-only credentials](#read-only-credentials) | `credential issue --scope read` |
+| `POST /applications/{slug}/credentials/{id}/rotate` `{grace_hours?}` | replace, the old one expiring after the overlap; the new one has the old one's `scope` | `credential rotate` |
 | `POST /applications/{slug}/credentials/{id}/revoke` | revoke | `credential revoke` |
 | `DELETE /applications/{slug}/credentials/{id}` | delete a revoked or expired one | `credential delete` |
+| `GET /dns-setup?application={slug}&days=30` | live domains per detected DNS provider and setup method, each with how many are ready; both filters optional; counts only, never hostnames | `domain setup-stats` |
 | `GET /doctor` | the doctor's findings, for monitoring | `doctor` |
+
+### Read-only credentials
+
+A credential's `scope` is set when it is issued and never changes; rotating
+keeps it.
+
+- **`full`** (the default): everything the v1 API allows for the
+  application. Every credential issued before scopes existed is `full`.
+- **`read`**: `GET` and `HEAD` on the v1 API only, for a dashboard, a
+  monitoring job or a support tool. Any other method is refused with
+  `403 credential_read_only` ([api-v1.md](api-v1.md#errors)). The per-key
+  rate limit applies as to any key.
+
+`custom-domain credential list` prints one tab-separated line per
+credential: prefix, state, label, id and scope. The scope is the last
+column, so scripts reading the earlier columns are unaffected.
+
+The audit log records the scope of an issued or rotated credential, as
+`target=credential:<id> scope=<scope>`.
 
 ### Not found
 

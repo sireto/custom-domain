@@ -32,6 +32,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.dns.zones import default_zone
 from app.hostname import canonicalize
 from app.models import (
     Application,
@@ -159,6 +160,7 @@ def claim_domain(
         reference=reference.strip(),
         status=DomainStatus.PENDING_DNS,
         extra=metadata,
+        zone=default_zone(canonical),
         created_at=now,
         updated_at=now,
     )
@@ -331,6 +333,7 @@ def _domain_query(include_deleted: bool):
         joinedload(Domain.application),
         selectinload(Domain.claims),
         selectinload(Domain.checks),
+        selectinload(Domain.dns_zone),
     )
     if not include_deleted:
         query = query.where(Domain.deleted_at.is_(None))
@@ -713,6 +716,9 @@ def purge_tombstones(session: Session, *, now: datetime | None = None) -> int:
         )
         .execution_options(synchronize_session=False)
     )
+    from app.services.dns_setup import purge_zones
+
+    purge_zones(session, now=now)
     session.flush()
     return result.rowcount or 0
 

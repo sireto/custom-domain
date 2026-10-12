@@ -33,6 +33,23 @@
 </section>
 {% endif %}
 
+{% if setup and not domain.is_deleted %}
+<section class="panel" aria-labelledby="setup-h">
+  <div class="panel-head"><div><h2 id="setup-h">DNS provider</h2><p>Where the customer's records live, and how they will add them.</p></div>{{ ui.badge(setup.state) }}</div>
+  <div class="panel-body">
+    <p class="hint">{{ setup.state.help }}</p>
+    <dl class="kv">
+      <dt>Provider</dt><dd>{% if setup.provider_name %}{{ setup.provider_name }} <span class="muted small"><code>{{ setup.provider_id }}</code></span>{% else %}<span class="muted">Not looked up yet</span>{% endif %}</dd>
+      <dt>Zone</dt><dd><code>{{ setup.zone }}</code> <span class="muted small">host <code>{{ setup.host }}</code></span></dd>
+      {% if setup.nameservers %}<dt>Nameservers</dt><dd>{% for ns in setup.nameservers %}<code>{{ ns }}</code>{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
+      <dt>Domain Connect</dt><dd>{{ setup.domain_connect }}{% if setup.problem %}<span class="sub">{{ setup.problem }}</span>{% endif %}</dd>
+      {% if setup.guide_url %}<dt>Guide for the customer</dt><dd><a href="{{ setup.guide_url }}" rel="noopener noreferrer">{{ setup.guide_label }}</a></dd>{% endif %}
+      <dt>Looked up</dt><dd>{% if setup.detected_at %}{{ ui.when(setup.detected_at) }}{% else %}<span class="muted">not yet</span>{% endif %}</dd>
+    </dl>
+  </div>
+</section>
+{% endif %}
+
 <section class="panel" aria-labelledby="checks-h">
   <div class="panel-head"><div><h2 id="checks-h">Checks</h2><p>A hostname is served only while all four pass. The worker re-runs them on a schedule; <b>Check now</b> asks for the next run immediately.</p></div></div>
   <div class="table-wrap"><table class="rows">

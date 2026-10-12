@@ -48,6 +48,40 @@ class Check:
 
 
 @dataclass(frozen=True)
+class SetupProvider:
+    id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class Setup:
+    """How the customer will publish the records, from the detected DNS provider.
+
+    ``method`` is ``domain_connect``, ``guided``, ``manual`` or None until the
+    service has looked up the hostname's zone.
+    """
+
+    method: str | None
+    provider: SetupProvider | None
+    zone: str
+    host: str
+    guide_url: str | None
+    detected_at: datetime | None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Setup:
+        provider = data.get("provider")
+        return cls(
+            method=data.get("method"),
+            provider=SetupProvider(provider["id"], provider["name"]) if provider else None,
+            zone=data["zone"],
+            host=data["host"],
+            guide_url=data.get("guide_url"),
+            detected_at=_dt(data.get("detected_at")),
+        )
+
+
+@dataclass(frozen=True)
 class Domain:
     id: str
     hostname: str
@@ -59,6 +93,8 @@ class Domain:
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None
+    # None when the service predates DNS provider detection.
+    setup: Setup | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Domain:
@@ -73,6 +109,7 @@ class Domain:
             created_at=_dt(data["created_at"]),
             updated_at=_dt(data["updated_at"]),
             deleted_at=_dt(data.get("deleted_at")),
+            setup=Setup.from_dict(data["setup"]) if data.get("setup") else None,
         )
 
     @property

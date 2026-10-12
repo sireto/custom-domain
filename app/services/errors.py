@@ -66,6 +66,10 @@ class InvalidCredential(ServiceError):
     code = "invalid_credential"
 
 
+class CredentialReadOnly(ServiceError):
+    code = "credential_read_only"
+
+
 class CredentialNotFound(ServiceError):
     code = "credential_not_found"
 

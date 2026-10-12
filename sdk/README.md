@@ -40,6 +40,22 @@ Show both records to the customer as returned; each carries `help` text for
 the usual DNS console mistakes. Nothing here requires knowing anything about
 the edge or Caddy.
 
+Once the service has looked up the customer's DNS zone (shortly after
+registration), `domain.setup` says which DNS provider hosts it and how the
+records get published:
+
+```python
+setup = domain.setup
+if setup and setup.method is not None:
+    print(setup.provider.name, setup.method)  # Cloudflare guided
+    print(setup.host, "in", setup.zone)  # forms in customer.example
+    print(setup.guide_url)  # the provider's step-by-step guide
+```
+
+`method` is `domain_connect` (one-step setup at the provider), `guided` (a
+provider-specific guide) or `manual` (the generic guide), and None until the
+lookup has run.
+
 Later:
 
 ```python
@@ -57,10 +73,33 @@ client.delete_domain(domain.id)
 
 Every API error raises a subclass of `custom_domain.ApiError` with `status`,
 the stable `code` from the API, `message` and `details`:
-`AuthenticationError` (401), `NotFoundError` (404), `ConflictError` (409, for
-example `hostname_already_claimed`), `ValidationError` (422, for example
-`apex_not_supported`), `RateLimitedError` (429, with `retry_after`),
-`ServerError` (5xx). `TransportError` means no HTTP response was received.
+`AuthenticationError` (401), `PermissionDeniedError` (403), `NotFoundError`
+(404), `ConflictError` (409, for example `hostname_already_claimed`),
+`ValidationError` (422, for example `apex_not_supported`), `RateLimitedError`
+(429, with `retry_after`), `ServerError` (5xx). `TransportError` means no HTTP
+response was received.
+
+## Read-only credentials
+
+The operator can issue a credential with the `read` scope
+(`custom-domain credential issue --scope read`) for a dashboard, a monitoring
+job or a support tool that only needs to look. With it the client can list and
+get domains and webhooks; any call that changes something (`create_domain`,
+`delete_domain`, `request_recheck`, creating or deleting a webhook, ...) raises
+`CredentialReadOnlyError`, a `PermissionDeniedError` with the code
+`credential_read_only`. It is not retried.
+
+```python
+from custom_domain import Client, CredentialReadOnlyError
+
+client = Client("https://edge.example.net", credential="cd_...")  # a read key
+for d in client.iter_domains():
+    print(d.hostname, d.status)
+try:
+    client.request_recheck(d.id)
+except CredentialReadOnlyError:
+    ...  # changes go through the backend that holds a full key
+```
 
 ## Timeouts and retries
 

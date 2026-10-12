@@ -32,6 +32,24 @@ DNS_RECORDS = [
 ]
 
 
+SETUP_PENDING = {
+    "method": None,
+    "provider": None,
+    "zone": "customer.example",
+    "host": "forms",
+    "guide_url": None,
+    "detected_at": None,
+}
+SETUP_DETECTED = {
+    "method": "guided",
+    "provider": {"id": "cloudflare", "name": "Cloudflare"},
+    "zone": "customer.example",
+    "host": "forms",
+    "guide_url": "https://github.com/sireto/custom-domain/blob/main/docs/dns-guides/cloudflare.md",
+    "detected_at": "2026-09-25T14:05:00Z",
+}
+
+
 def _checks(**overrides: dict[str, Any]) -> list[dict[str, Any]]:
     checks = []
     for check_type in ("ownership", "routing", "certificate", "origin"):
@@ -55,6 +73,7 @@ def _domain(**overrides: Any) -> dict[str, Any]:
         "reference": "ws_8f3a1c",
         "status": "pending_dns",
         "dns_records": copy.deepcopy(DNS_RECORDS),
+        "setup": copy.deepcopy(SETUP_DETECTED),
         "checks": _checks(),
         "metadata": {"plan": "pro"},
         "created_at": "2026-09-25T14:00:00Z",
@@ -65,7 +84,7 @@ def _domain(**overrides: Any) -> dict[str, Any]:
     return base
 
 
-REGISTRATION = _domain()
+REGISTRATION = _domain(setup=copy.deepcopy(SETUP_PENDING))
 
 WAITING_FOR_DNS = _domain(
     updated_at="2026-09-25T14:05:00Z",
@@ -131,6 +150,13 @@ ERRORS = {
             "code": "unauthorized",
             "message": "A valid application credential is required",
             "details": {},
+        }
+    },
+    "credential_read_only": {
+        "error": {
+            "code": "credential_read_only",
+            "message": "This credential is read-only; it can only make GET and HEAD requests",
+            "details": {"scope": "read", "method": "POST"},
         }
     },
     "hostname_already_claimed": {

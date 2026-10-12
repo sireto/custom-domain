@@ -13,6 +13,18 @@ class OriginStatus(StrEnum):
     RETIRED = "retired"
 
 
+class CredentialScope(StrEnum):
+    """What an application credential may do on the v1 API (docs/api-v1.md).
+
+    Set when the credential is issued and never changed; rotation keeps it.
+    """
+
+    # Every v1 operation: today's behaviour and the default.
+    FULL = "full"
+    # GET and HEAD only; anything else is refused with credential_read_only.
+    READ = "read"
+
+
 class OriginHostHeader(StrEnum):
     """The ``Host`` the edge sends to the origin (docs/edge-routing.md)."""
 

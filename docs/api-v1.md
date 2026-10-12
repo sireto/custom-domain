@@ -43,6 +43,25 @@ one immediately. Traffic for the application's domains goes to its single
 verified origin, enrolled and proven with `custom-domain origin register` and
 `origin verify` (see [operations.md](operations.md#application-onboarding)).
 
+### Read-only credentials
+
+A credential has a scope, set when it is issued and never changed:
+
+- **`full`** (the default) allows everything below.
+- **`read`** allows `GET` and `HEAD` only: listing and reading domains, their
+  checks and DNS records, webhooks and their deliveries. Give one to a
+  dashboard, a monitoring job or a support tool, so a leaked key can disclose
+  but not delete. Every other method, on every v1 path including
+  `/v1/webhooks`, is refused with `403 credential_read_only` before the
+  request is acted on.
+
+```
+uv run custom-domain credential issue --application acme --label dashboard --scope read
+```
+
+Rotating a credential keeps its scope. The per-credential rate limit applies
+to read-only credentials as to any other.
+
 ## Resources
 
 ### Domain
@@ -54,6 +73,7 @@ verified origin, enrolled and proven with `custom-domain origin register` and
 | `reference` | Opaque workspace identifier supplied by the application; returned verbatim and delivered to the origin inside the signed assertion on every request ([edge-routing.md](edge-routing.md)). |
 | `status` | `pending_dns`, `provisioning`, `ready`, `attention_required`, `suspended`, `deleting`. |
 | `dns_records` | Records the customer must publish: one `TXT` (`purpose: ownership`) and one `CNAME` (`purpose: routing`), each with `name`, `type`, `value` and `help`. Empty once the domain is deleted. |
+| `setup` | How the customer will publish the records, from the DNS provider hosting the hostname's zone; see [Setup](#setup). |
 | `checks` | One entry per check: `ownership`, `routing`, `certificate`, `origin`, each `pending`, `passing` or `failing` with `error_code`, `message`, `observed_at` and `next_check_at`. |
 | `metadata` | Up to 32 scalar values supplied at creation. |
 | `created_at`, `updated_at`, `deleted_at` | UTC timestamps. |
@@ -61,6 +81,40 @@ verified origin, enrolled and proven with `custom-domain origin register` and
 A domain is `ready` only when all four checks pass and the ownership claim is
 verified; readiness is never inferred from DNS alone. The status model and its
 transitions are specified in [data-model.md](data-model.md).
+
+### Setup
+
+Shortly after registration the DNS worker looks up the zone holding the
+hostname, identifies its DNS provider from the zone's nameservers, and checks
+whether the provider supports Domain Connect. `setup` reports the result, so
+the application can show the customer the right instructions:
+
+```json
+"setup": {
+  "method": "guided",
+  "provider": {"id": "cloudflare", "name": "Cloudflare"},
+  "zone": "customer.example",
+  "host": "forms",
+  "guide_url": "https://github.com/sireto/custom-domain/blob/main/docs/dns-guides/cloudflare.md",
+  "detected_at": "2026-09-25T14:05:00Z"
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `method` | `domain_connect`: the provider supports the deployment's Domain Connect template and the deployment can sign Domain Connect requests, so the customer approves the records at their provider in one step. `guided`: the customer adds the records by hand with the provider's own guide at `guide_url`. `manual`: the provider was not recognized or has no specific guide; `guide_url` is the generic one. `null` until the lookup has run. |
+| `provider` | `id` and `name` of the DNS provider. Ids are stable: `cloudflare`, `godaddy`, `namecheap`, `route53`, `google-cloud-dns`, `squarespace`, `porkbun`, `hostinger`, `ionos`, `digitalocean`, `vercel`, `netlify`, `namesilo`, `wordpress-com`, `azure-dns`, `gandi`, `ovh`, `hetzner`, `dnsimple`, `name-com`, `linode`, `wix`, and `unknown`. New ids may be added. `null` until the lookup has run. |
+| `zone` | The DNS zone the records go in. Until the lookup it is the registrable domain from the Public Suffix List (`acme.co.uk` for `forms.acme.co.uk`); the lookup replaces it with a delegated subzone when there is one. |
+| `host` | The hostname relative to `zone` (`forms`, or `forms.eu` for `forms.eu.acme.co.uk`): what most DNS providers want in the record's Name or Host field. |
+| `guide_url` | Setup instructions for the provider (`DNS_GUIDE_URL`). `null` until the lookup has run. |
+| `detected_at` | When the zone was last looked up. Lookups are cached per zone for 24 hours (an hour after a temporary failure). |
+
+`setup` never affects the checks or the status: it only says how the records
+are likely to be published. The lookup runs in the DNS worker, never while
+answering a request, and a failed lookup leaves the previous answer (or
+`null`) in place. `method` is `domain_connect` only on deployments that can
+sign Domain Connect requests; on others, a provider that supports the
+template is reported as `guided`.
 
 ## Endpoints
 
@@ -94,6 +148,8 @@ Response `201`:
     {"name": "forms.customer.example", "type": "CNAME",
      "value": "acme.edge.example.net", "purpose": "routing", "help": "..."}
   ],
+  "setup": {"method": null, "provider": null, "zone": "customer.example", "host": "forms",
+            "guide_url": null, "detected_at": null},
   "checks": [
     {"type": "ownership", "status": "pending", "error_code": null, "message": null,
      "observed_at": null, "next_check_at": null},
@@ -236,6 +292,7 @@ Every error has the same body:
 | 422 | `idempotency_key_reused` | The key was used with a different body within the last 24 hours. |
 | 429 | `rate_limited` | Too many manual rechecks for this domain or application, too many requests with an invalid credential from the client's address (`V1_AUTH_FAILURES_PER_MINUTE`, default 30 a minute), or more requests with this credential than the deployment allows (`V1_REQUESTS_PER_MINUTE`, off by default; counted per credential in any 60 seconds). `Retry-After` says how long to wait. |
 | 403 | `application_suspended` | The application was suspended while the request ran. |
+| 403 | `credential_read_only` | The credential has the `read` scope and the request is not a `GET` or `HEAD`. Nothing was changed. `details` gives `scope` and `method`. Use a `full` credential for changes. |
 
 ## Webhooks
 

@@ -416,10 +416,11 @@ def issue_credential(
 ) -> schemas.NewCredential:
     expires_at = utcnow() + timedelta(days=body.expires_in_days) if body.expires_in_days else None
     credential, secret = app_service.issue_credential(
-        db, _application(db, slug), label=body.label, expires_at=expires_at
+        db, _application(db, slug), label=body.label, expires_at=expires_at, scope=body.scope
     )
     db.commit()
-    request.state.operator_target = f"credential:{credential.id}"  # the id, never the secret
+    # The id and scope, never the secret.
+    request.state.operator_target = f"credential:{credential.id} scope={credential.scope.value}"
     return schemas.NewCredential(
         **schemas.CredentialResource.of(credential).model_dump(), secret=secret
     )
@@ -442,9 +443,8 @@ def rotate_credential(
         db, _application(db, slug), credential_id, grace=grace
     )
     db.commit()
-    request.state.operator_target = (
-        f"credential:{credential.id}"  # the new one; the path names the old
-    )
+    # The new one; the path names the old. The scope is the old one's.
+    request.state.operator_target = f"credential:{credential.id} scope={credential.scope.value}"
     return schemas.NewCredential(
         **schemas.CredentialResource.of(credential).model_dump(), secret=secret
     )
@@ -529,6 +529,47 @@ def backup(request: Request, db: DbSession):
             "Content-Disposition": f'attachment; filename="{name}"',
             "Cache-Control": "no-store",
         },
+    )
+
+
+@router.get("/dns-setup", dependencies=[Operator])
+def dns_setup_counts(
+    db: DbSession,
+    application: Annotated[
+        str | None, Query(max_length=64, description="Count one application, by slug.")
+    ] = None,
+    days: Annotated[
+        int | None,
+        Query(ge=1, le=3650, description="Only domains registered in the last `days` days."),
+    ] = None,
+) -> schemas.DnsSetupCountsResource:
+    """Live domains per detected DNS provider and setup method, with how many are ready.
+
+    Counts only: no hostnames or workspaces.
+    """
+    from app.services import dns_setup
+
+    scoped = _application(db, application) if application else None
+    since = utcnow() - timedelta(days=days) if days else None
+    rows = dns_setup.setup_counts(db, application=scoped, since=since)
+    return schemas.DnsSetupCountsResource(
+        application=scoped.slug if scoped is not None else None,
+        since=since,
+        items=[
+            schemas.DnsSetupCountResource(
+                provider=(
+                    schemas.SetupProviderResource(id=row.provider_id, name=row.provider_name)
+                    if row.provider_id is not None
+                    else None
+                ),
+                method=row.method,
+                domains=row.domains,
+                ready=row.ready,
+            )
+            for row in rows
+        ],
+        domains=sum(row.domains for row in rows),
+        ready=sum(row.ready for row in rows),
     )
 
 

@@ -20,6 +20,14 @@ class AuthenticationError(ApiError):
     """401: missing, invalid, revoked or expired credential."""
 
 
+class PermissionDeniedError(ApiError):
+    """403: the request is not allowed for this credential or application."""
+
+
+class CredentialReadOnlyError(PermissionDeniedError):
+    """403 ``credential_read_only``: a read-only credential asked for more than GET or HEAD."""
+
+
 class NotFoundError(ApiError):
     """404: no such resource in this application."""
 
@@ -51,6 +59,10 @@ class TransportError(Exception):
 def error_for(status: int, code: str, message: str, details=None, retry_after: int | None = None):
     if status == 401:
         return AuthenticationError(status, code, message, details)
+    if status == 403:
+        if code == "credential_read_only":
+            return CredentialReadOnlyError(status, code, message, details)
+        return PermissionDeniedError(status, code, message, details)
     if status == 404:
         return NotFoundError(status, code, message, details)
     if status == 409:

@@ -231,7 +231,8 @@ def test_every_operator_call_is_audited_without_secrets(operator, caplog):
     lines = [r.getMessage() for r in caplog.records if r.name == "app.operator.audit"]
     assert lines == [
         f"POST {base} 201 target=application:acme client=10.0.0.5",
-        f"POST {base}/acme/credentials 201 target=credential:{credential_id} client=10.0.0.5",
+        f"POST {base}/acme/credentials 201 target=credential:{credential_id} scope=full"
+        " client=10.0.0.5",
         f"GET {base} 401 target=- client=10.0.0.5",  # refused attempts are recorded too
         f"DELETE {base}/acme 200 target=- client=10.0.0.5",  # the path names the slug
     ], lines

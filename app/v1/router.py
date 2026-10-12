@@ -29,7 +29,12 @@ router = APIRouter(
             "description": "Missing, invalid, revoked or expired credential.",
             "content": {"application/json": {"example": examples.ERRORS["unauthorized"]}},
         },
-        403: {"model": ErrorResponse, "description": "The application is suspended."},
+        403: {
+            "model": ErrorResponse,
+            "description": "The application is suspended, or a read-only credential "
+            "(`credential_read_only`) made a request other than GET or HEAD.",
+            "content": {"application/json": {"example": examples.ERRORS["credential_read_only"]}},
+        },
         422: {"model": ErrorResponse, "description": "The request is not valid."},
         429: {
             "model": ErrorResponse,

@@ -27,8 +27,8 @@ from app.models import ApplicationStatus, DomainStatus
 from app.portal import presenters
 from app.portal.auth import LoginLimiter, PortalSettings, Sessions, safe_next
 from app.services import applications as app_service
+from app.services import dns_setup, limits
 from app.services import domains as domain_service
-from app.services import limits
 from app.services.errors import InvalidApplication, ServiceError
 from app.services.origin_verification import (
     OriginVerificationFailed,
@@ -363,6 +363,7 @@ def dashboard(request: Request, session: dict = Operator, db: Session = DbSessio
         lock=lock,
         edge_settings=_edge_settings(request),
         last_reconcile=reconciler.last_result if reconciler else None,
+        setup_counts=presenters.setup_count_views(dns_setup.setup_counts(db)),
         notice=_notice(ok),
         p=presenters,
     )
@@ -1068,6 +1069,7 @@ def issue_credential(
     csrf: str = Form(""),
     label: str = Form(""),
     expires_in_days: str = Form(""),
+    scope: str = Form("full"),
 ):
     def act(application):
         from app.models.types import utcnow
@@ -1079,9 +1081,13 @@ def issue_credential(
             )
         expires_at = utcnow() + timedelta(days=days) if days else None
         credential, secret = app_service.issue_credential(
-            db, application, label=label, expires_at=expires_at
+            db, application, label=label, expires_at=expires_at, scope=scope
         )
-        return {"credential_secret": secret, "credential_label": credential.label}
+        return {
+            "credential_secret": secret,
+            "credential_label": credential.label,
+            "credential_scope": credential.scope.value,
+        }
 
     return _action(request, session, db, slug, csrf, act, tab="credentials", ok="")
 
@@ -1122,6 +1128,7 @@ def rotate_credential(
         return {
             "credential_secret": secret,
             "credential_label": credential.label,
+            "credential_scope": credential.scope.value,
             "rotated_from": old,
         }
 
@@ -1326,6 +1333,7 @@ def _domain_page(request, session, db, application, domain_id, *, status=200, **
         domain=row,
         state=presenters.domain_state(row),
         records=presenters.record_views(row),
+        setup=presenters.setup_view(row),
         checks=presenters.check_views(row),
         events=[(e, *presenters.describe_event(e)) for e in reversed(events)],
         **_app_context(db, application),

@@ -18,7 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import ApplicationStatus, OriginHostHeader, OriginStatus
+from app.models.enums import ApplicationStatus, CredentialScope, OriginHostHeader, OriginStatus
 from app.models.types import TimestampMixin, UTCDateTime, UUIDPrimaryKeyMixin, enum_type
 
 if TYPE_CHECKING:
@@ -145,6 +145,13 @@ class ApiCredential(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Non-secret identifier for support and audit logs.
     key_prefix: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     key_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    # Set at issue and never changed; a rotation copies it (docs/api-v1.md).
+    scope: Mapped[CredentialScope] = mapped_column(
+        enum_type(CredentialScope, "credential_scope"),
+        nullable=False,
+        default=CredentialScope.FULL,
+        server_default=CredentialScope.FULL.value,
+    )
     last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

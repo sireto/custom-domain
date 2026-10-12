@@ -18,12 +18,14 @@ Failures carry a stable ``code`` and a message an operator can act on.
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 import http.client
 import ipaddress
 import os
 import socket
 import ssl
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -91,13 +93,34 @@ def fetch_token(
     allow_private: bool = False,
     path: str = WELL_KNOWN_PATH,
     timeout: float = DEFAULT_TIMEOUT,
+    max_bytes: int = MAX_BODY_BYTES,
+    accept: str = "text/plain",
+    user_agent: str = USER_AGENT,
+    total_timeout: float | None = None,
 ) -> Probe:
-    """GET the well-known path from the origin, pinned to a resolved address."""
+    """GET ``path`` from ``host``, pinned to a resolved address.
+
+    Origin verification uses the defaults. Other probes of hosts named by
+    someone else (Domain Connect discovery) pass their own body limit and a
+    ``total_timeout``, which aborts a server that answers too slowly overall
+    even if each read stays within ``timeout``.
+    """
     addresses = resolve(host, port, allow_private=allow_private)
     last_error: OriginVerificationFailed | None = None
     for address in addresses:
         try:
-            return _probe(address, host, port, scheme, path, timeout)
+            return _probe(
+                address,
+                host,
+                port,
+                scheme,
+                path,
+                timeout,
+                max_bytes=max_bytes,
+                accept=accept,
+                user_agent=user_agent,
+                total_timeout=total_timeout,
+            )
         except OriginVerificationFailed as exc:
             if exc.code in ("connection_failed", "timeout"):
                 last_error = exc
@@ -107,7 +130,19 @@ def fetch_token(
     raise last_error
 
 
-def _probe(address: str, host: str, port: int, scheme: str, path: str, timeout: float) -> Probe:
+def _probe(
+    address: str,
+    host: str,
+    port: int,
+    scheme: str,
+    path: str,
+    timeout: float,
+    *,
+    max_bytes: int = MAX_BODY_BYTES,
+    accept: str = "text/plain",
+    user_agent: str = USER_AGENT,
+    total_timeout: float | None = None,
+) -> Probe:
     try:
         sock = socket.create_connection((address, port), timeout=timeout)
     except TimeoutError as exc:
@@ -119,6 +154,18 @@ def _probe(address: str, host: str, port: int, scheme: str, path: str, timeout: 
             "connection_failed", f"Cannot connect to {host} ({address}:{port}): {exc}"
         ) from exc
 
+    watchdog: threading.Timer | None = None
+    expired = threading.Event()
+    if total_timeout is not None:
+
+        def _abort(raw: socket.socket = sock) -> None:
+            expired.set()
+            with contextlib.suppress(OSError):
+                raw.shutdown(socket.SHUT_RDWR)
+
+        watchdog = threading.Timer(total_timeout, _abort)
+        watchdog.daemon = True
+        watchdog.start()
     try:
         if scheme == "https":
             context = ssl.create_default_context()
@@ -143,15 +190,18 @@ def _probe(address: str, host: str, port: int, scheme: str, path: str, timeout: 
         connection.request(
             "GET",
             path,
-            headers={"Host": host_header, "User-Agent": USER_AGENT, "Accept": "text/plain"},
+            headers={"Host": host_header, "User-Agent": user_agent, "Accept": accept},
         )
         response = connection.getresponse()
-        body = response.read(MAX_BODY_BYTES + 1)
-        if len(body) > MAX_BODY_BYTES:
+        body = response.read(max_bytes + 1)
+        if len(body) > max_bytes:
             raise OriginVerificationFailed(
                 "response_too_large",
-                f"{path} returned more than {MAX_BODY_BYTES} bytes; serve only the token",
+                f"{path} returned more than {max_bytes} bytes"
+                + ("; serve only the token" if path == WELL_KNOWN_PATH else ""),
             )
+        if expired.is_set():
+            raise TimeoutError
         return Probe(address, response.status, body.decode("utf-8", "replace").strip())
     except OriginVerificationFailed:
         raise
@@ -160,10 +210,16 @@ def _probe(address: str, host: str, port: int, scheme: str, path: str, timeout: 
             "timeout", f"{host} did not answer within {timeout:g}s"
         ) from exc
     except (http.client.HTTPException, OSError) as exc:
+        if expired.is_set():
+            raise OriginVerificationFailed(
+                "timeout", f"{host} did not finish answering within {total_timeout:g}s"
+            ) from exc
         raise OriginVerificationFailed(
             "connection_failed", f"Request to {host} ({address}:{port}) failed: {exc}"
         ) from exc
     finally:
+        if watchdog is not None:
+            watchdog.cancel()
         sock.close()
 
 

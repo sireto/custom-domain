@@ -44,7 +44,8 @@ Payload:
   "type": "domain.ready",
   "created_at": "2026-09-25T15:00:00+00:00",
   "data": {"domain": {"id": "...", "hostname": "...", "reference": "...", "status": "ready",
-                      "dns_records": [...], "checks": [...], "created_at": "...", "updated_at": "...",
+                      "dns_records": [...], "setup": {...}, "checks": [...], "created_at": "...",
+                      "updated_at": "...",
                       "deleted_at": null}}
 }
 ```

@@ -1,13 +1,14 @@
 """ORM models. Importing this package registers every table on ``Base.metadata``."""
 
 from app.models.application import ApiCredential, Application, AssertionKey, VerifiedOrigin
-from app.models.domain import Domain, DomainCheck, DomainEvent, OwnershipClaim
+from app.models.domain import DnsZone, Domain, DomainCheck, DomainEvent, OwnershipClaim
 from app.models.edge import EdgeLock
 from app.models.enums import (
     ApplicationStatus,
     CheckStatus,
     CheckType,
     ClaimStatus,
+    CredentialScope,
     DomainStatus,
     EventType,
     OriginHostHeader,
@@ -27,6 +28,8 @@ __all__ = [
     "CheckStatus",
     "CheckType",
     "ClaimStatus",
+    "CredentialScope",
+    "DnsZone",
     "Domain",
     "DomainCheck",
     "DomainEvent",
