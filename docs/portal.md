@@ -93,11 +93,11 @@ following the browser's setting, and use no JavaScript.
 
 | Page | What it is for | Command-line equivalent |
 |---|---|---|
-| Overview | counts of live, waiting and failing hostnames; what needs attention; recent activity; purging deleted hostnames and applications past retention | `domain purge-tombstones` |
+| Overview | counts of live, waiting and failing hostnames; what needs attention; recent activity; live hostnames per DNS provider and setup method; purging deleted hostnames and applications past retention | `domain purge-tombstones`, `domain setup-stats` |
 | Applications | every application with its origin and hostname counts; creating one | `application list`, `application create` |
 | Application → Overview | the setup checklist (CNAME target in DNS, origin, verification, API key, first hostname, first live hostname), with the next step highlighted | |
 | Application → Domains | customer hostnames, filtered by status and searched by hostname or workspace; registering one; usage against the domain limits, when set | |
-| Domain | the two DNS records for the customer, each marked found, not found or wrong (with what DNS returns); the four checks; the history; check now, issue new records, delete | |
+| Domain | the two DNS records for the customer, each marked found, not found or wrong (with what DNS returns); the DNS provider, its nameservers, the zone and host, what Domain Connect discovery found and the setup method with its guide; the four checks; the history; check now, issue new records, delete | |
 | Application → Origins | the backend traffic goes to; the token to serve and the exact URL while it is unverified; verify, activate, retire, delete; which `Host` the edge sends it (the customer's hostname, or its own name behind a CDN or proxy). The application's assertion keys: issue one (shown once; signing now or in 24 hours), see which signs, revoke | `origin register`, `origin verify --activate`, `origin activate`, `origin retire`, `origin delete`, `origin set-host-header`, `assertion-key issue`, `assertion-key list`, `assertion-key revoke` |
 | Application → API keys | issue (shown once) with full or read-only access, rotate with a 24-hour overlap (keeping the access), revoke, delete revoked or expired keys; the list shows each key's access | `credential issue [--scope read]`, `credential list`, `credential rotate`, `credential revoke`, `credential delete` |
 | Application → Webhooks | endpoints with their events, signing secrets (shown once), rotation, revocation, deletion, and each endpoint's deliveries with replay | the v1 API's webhook endpoints |

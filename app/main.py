@@ -23,11 +23,12 @@ from starlette.responses import JSONResponse, RedirectResponse
 
 from app.db.session import get_session_factory
 from app.dns.resolver import make_resolver
-from app.dns.settings import DnsSettings
+from app.dns.settings import DnsSettings, SetupSettings
 from app.dns.worker import ChecksWorker
 from app.edge.caddy_client import CaddyClient
 from app.edge.reconcile import Reconciler
 from app.edge.settings import EdgeSettings
+from app.services.dns_setup import ZoneDetector
 from app.services.edge_checks import SystemEdgeProber
 from app.v1.errors import install_error_handlers
 from app.v1.internal import router as internal_router
@@ -94,18 +95,23 @@ async def lifespan(app: FastAPI):
         logger.info("edge reconciler disabled; the legacy API owns the Caddy config")
 
     dns_settings = DnsSettings.from_env()
+    # Refuse to start on unusable DOMAIN_CONNECT_* or DNS_GUIDE_URL values
+    # rather than failing on the first domain response.
+    SetupSettings.from_env()
     dns_thread: threading.Thread | None = None
     app.state.dns_worker = None
     if dns_settings.worker_enabled:
+        resolver = make_resolver(dns_settings, settings, get_session_factory())
         worker = ChecksWorker(
             get_session_factory(),
-            make_resolver(dns_settings, settings, get_session_factory()),
+            resolver,
             prober=SystemEdgeProber(settings),
             settings=settings,
             batch_size=dns_settings.batch_size,
             on_status_change=(
                 app.state.reconciler.run_once if app.state.reconciler is not None else None
             ),
+            detector=ZoneDetector(get_session_factory(), resolver),
         )
         app.state.dns_worker = worker
         dns_thread = threading.Thread(

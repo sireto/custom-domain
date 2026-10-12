@@ -532,6 +532,47 @@ def backup(request: Request, db: DbSession):
     )
 
 
+@router.get("/dns-setup", dependencies=[Operator])
+def dns_setup_counts(
+    db: DbSession,
+    application: Annotated[
+        str | None, Query(max_length=64, description="Count one application, by slug.")
+    ] = None,
+    days: Annotated[
+        int | None,
+        Query(ge=1, le=3650, description="Only domains registered in the last `days` days."),
+    ] = None,
+) -> schemas.DnsSetupCountsResource:
+    """Live domains per detected DNS provider and setup method, with how many are ready.
+
+    Counts only: no hostnames or workspaces.
+    """
+    from app.services import dns_setup
+
+    scoped = _application(db, application) if application else None
+    since = utcnow() - timedelta(days=days) if days else None
+    rows = dns_setup.setup_counts(db, application=scoped, since=since)
+    return schemas.DnsSetupCountsResource(
+        application=scoped.slug if scoped is not None else None,
+        since=since,
+        items=[
+            schemas.DnsSetupCountResource(
+                provider=(
+                    schemas.SetupProviderResource(id=row.provider_id, name=row.provider_name)
+                    if row.provider_id is not None
+                    else None
+                ),
+                method=row.method,
+                domains=row.domains,
+                ready=row.ready,
+            )
+            for row in rows
+        ],
+        domains=sum(row.domains for row in rows),
+        ready=sum(row.ready for row in rows),
+    )
+
+
 @router.get("/doctor", dependencies=[Operator])
 def doctor(request: Request) -> schemas.DoctorReport:
     """The same checks as `custom-domain doctor`, for monitoring a deployment."""

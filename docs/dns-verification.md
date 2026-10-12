@@ -43,6 +43,47 @@ Scheduling:
 | Check passing | every 6 hours (revalidation) |
 | Manual recheck (`POST /v1/domains/{id}/checks`) | now, subject to the API rate limit |
 
+## DNS provider and Domain Connect
+
+Each time it checks a domain's DNS, the worker also refreshes what it knows
+about the zone holding the hostname, cached per zone in `dns_zones` for 24
+hours (an hour after a temporary failure). The result is the domain's
+`setup` in the v1 API ([api-v1.md](api-v1.md#setup)); it never changes the
+checks or the status, and a failed lookup is recorded on the zone (shown on
+the portal's domain page) without affecting anything else.
+
+1. **The zone.** The registrable domain from the Public Suffix List (the
+   copy bundled with the pinned `publicsuffixlist` dependency, updated
+   with it) is the starting point. The worker walks from the hostname's
+   parent up to it and takes the first name with its own NS records, so a
+   delegated subzone such as `eu.acme.co.uk` is found. It never goes above
+   the registrable domain.
+2. **The provider,** from the zone's nameservers, matched against the
+   patterns in `app/dns/providers.py` (for example `*.ns.cloudflare.com` is
+   `cloudflare`, `ns-*.awsdns-*` is `route53`). When the nameservers match
+   nothing, the `providerId` from Domain Connect discovery is used if it
+   names a known provider; otherwise the provider is `unknown`.
+3. **Domain Connect discovery:** `TXT _domainconnect.<zone>`, then
+   `GET https://<that value>/v2/<zone>/settings`, then, when
+   `DOMAIN_CONNECT_PROVIDER_ID` is set, `GET
+   <urlAPI>/v2/domainTemplates/providers/<id>/services/<service>`, where a
+   2xx answer means the template is supported and a 404 means it is not.
+
+The discovery URLs come from DNS the customer controls, so every request is
+made the way origin verification makes its probe: https on port 443 only;
+the host resolved on every request and refused unless every address is
+public (loopback, private, link-local and metadata addresses are refused,
+and `ORIGIN_ALLOW_PRIVATE` does not apply); the connection pinned to the
+checked address with TLS verified; redirects not followed; 5 seconds per
+read and 10 seconds overall; the settings answer capped at 16 KiB. Requests
+are plain GETs and never carry a credential. Values kept from the answers
+are length limited and stripped of control characters, and the portal
+escapes them.
+
+`custom-domain domain setup-stats`, `GET /operator/v1/dns-setup` and the
+portal's overview count live domains per provider and setup method, with
+how many are ready; they never list hostnames.
+
 `custom-domain checks run` processes due checks once; `custom-domain checks
 dns --application acme --hostname forms.customer.example` runs both checks
 for one domain immediately and prints the diagnostics.
@@ -98,6 +139,9 @@ pass both checks again before it can return to service.
 | `DNS_RESOLVERS` | system | Nameserver IPs to query. |
 | `DNS_TIMEOUT` | `5` | Seconds per lookup. |
 | `DNS_VERIFICATION_MODE` | `public` | `local` answers the ownership and routing checks from the records the service issued (see below). |
+| `DOMAIN_CONNECT_PROVIDER_ID` | unset | The `providerId` of the deployment's Domain Connect template. Unset, discovery still identifies providers but never reports the template as supported. |
+| `DOMAIN_CONNECT_SERVICE_ID` | `hostname` | The template's `serviceId`. |
+| `DNS_GUIDE_URL` | this repository's `docs/dns-guides/{provider}.md` | Where `setup.guide_url` points; `{provider}` becomes the provider id, or `generic` for providers without their own guide. |
 
 ### Local mode
 

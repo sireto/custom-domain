@@ -115,6 +115,7 @@ All paths are under `/operator/v1`; errors use the v1 envelope
 | `POST /applications/{slug}/credentials/{id}/rotate` `{grace_hours?}` | replace, the old one expiring after the overlap; the new one has the old one's `scope` | `credential rotate` |
 | `POST /applications/{slug}/credentials/{id}/revoke` | revoke | `credential revoke` |
 | `DELETE /applications/{slug}/credentials/{id}` | delete a revoked or expired one | `credential delete` |
+| `GET /dns-setup?application={slug}&days=30` | live domains per detected DNS provider and setup method, each with how many are ready; both filters optional; counts only, never hostnames | `domain setup-stats` |
 | `GET /doctor` | the doctor's findings, for monitoring | `doctor` |
 
 ### Read-only credentials

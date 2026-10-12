@@ -787,6 +787,110 @@
         "title": "DnsRecord",
         "type": "object"
       },
+      "DnsSetupCountResource": {
+        "properties": {
+          "domains": {
+            "description": "Live domains.",
+            "title": "Domains",
+            "type": "integer"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "domain_connect",
+                  "guided",
+                  "manual"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The setup method these domains are offered (see `setup.method` in v1).",
+            "title": "Method"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SetupProviderResource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The detected DNS provider; null for domains whose zone has not been looked up yet."
+          },
+          "ready": {
+            "description": "Of those, how many are `ready`.",
+            "title": "Ready",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider",
+          "method",
+          "domains",
+          "ready"
+        ],
+        "title": "DnsSetupCountResource",
+        "type": "object"
+      },
+      "DnsSetupCountsResource": {
+        "properties": {
+          "application": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The application counted, or null for all.",
+            "title": "Application"
+          },
+          "domains": {
+            "title": "Domains",
+            "type": "integer"
+          },
+          "items": {
+            "description": "Largest group first.",
+            "items": {
+              "$ref": "#/components/schemas/DnsSetupCountResource"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "integer"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only domains registered at or after this time; null for all.",
+            "title": "Since"
+          }
+        },
+        "required": [
+          "application",
+          "since",
+          "items",
+          "domains",
+          "ready"
+        ],
+        "title": "DnsSetupCountsResource",
+        "type": "object"
+      },
       "DoctorReport": {
         "properties": {
           "fail": {
@@ -985,6 +1089,9 @@
             "title": "Reference",
             "type": "string"
           },
+          "setup": {
+            "$ref": "#/components/schemas/DomainSetup"
+          },
           "status": {
             "$ref": "#/components/schemas/DomainStatus"
           },
@@ -1000,11 +1107,96 @@
           "reference",
           "status",
           "dns_records",
+          "setup",
           "checks",
           "created_at",
           "updated_at"
         ],
         "title": "DomainResource",
+        "type": "object"
+      },
+      "DomainSetup": {
+        "description": "How the customer will publish the DNS records, from the detected DNS provider.",
+        "properties": {
+          "detected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the zone was last looked up. Null until then.",
+            "title": "Detected At"
+          },
+          "guide_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Setup instructions for the provider. Null until the zone has been looked up.",
+            "title": "Guide Url"
+          },
+          "host": {
+            "description": "The hostname relative to `zone`: what most DNS providers want in the record's Name or Host field.",
+            "examples": [
+              "forms"
+            ],
+            "title": "Host",
+            "type": "string"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "domain_connect",
+                  "guided",
+                  "manual"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`domain_connect`: the provider supports one-step setup through Domain Connect and the service can use it. `guided`: follow the provider's guide at `guide_url`. `manual`: the provider has no specific guide; `guide_url` is the generic one. Null until the service has looked up the hostname's DNS zone.",
+            "title": "Method"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SetupProvider"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The DNS provider hosting the zone, from its nameservers. Null until the zone has been looked up."
+          },
+          "zone": {
+            "description": "The DNS zone the records go in (the registrable domain until the zone has been looked up).",
+            "examples": [
+              "customer.example"
+            ],
+            "title": "Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "provider",
+          "zone",
+          "host",
+          "guide_url",
+          "detected_at"
+        ],
+        "title": "DomainSetup",
         "type": "object"
       },
       "DomainStatus": {
@@ -1447,6 +1639,56 @@
           "requeued"
         ],
         "title": "ReplayResult",
+        "type": "object"
+      },
+      "SetupProvider": {
+        "properties": {
+          "id": {
+            "description": "Stable provider id, such as `cloudflare`, `godaddy` or `route53`; `unknown` when the provider was not recognized.",
+            "examples": [
+              "cloudflare"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name.",
+            "examples": [
+              "Cloudflare"
+            ],
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "SetupProvider",
+        "type": "object"
+      },
+      "SetupProviderResource": {
+        "properties": {
+          "id": {
+            "examples": [
+              "cloudflare"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "examples": [
+              "Cloudflare"
+            ],
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "SetupProviderResource",
         "type": "object"
       },
       "TrafficDayResource": {
@@ -4017,6 +4259,124 @@
         ]
       }
     },
+    "/operator/v1/dns-setup": {
+      "get": {
+        "description": "Live domains per detected DNS provider and setup method, with how many are ready.\n\nCounts only: no hostnames or workspaces.",
+        "operationId": "dns_setup_counts_operator_v1_dns_setup_get",
+        "parameters": [
+          {
+            "description": "Count one application, by slug.",
+            "in": "query",
+            "name": "application",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Count one application, by slug.",
+              "title": "Application"
+            }
+          },
+          {
+            "description": "Only domains registered in the last `days` days.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 3650,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only domains registered in the last `days` days.",
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsSetupCountsResource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or wrong operator token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client address may not use it."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or the operator API is off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many failed tokens from this client."
+          }
+        },
+        "security": [
+          {
+            "OperatorToken": []
+          }
+        ],
+        "summary": "Dns Setup Counts",
+        "tags": [
+          "Operator"
+        ]
+      }
+    },
     "/operator/v1/doctor": {
       "get": {
         "description": "The same checks as `custom-domain doctor`, for monitoring a deployment.",
@@ -4301,6 +4661,17 @@
                             "plan": "pro"
                           },
                           "reference": "ws_8f3a1c",
+                          "setup": {
+                            "detected_at": "2026-09-25T14:05:00Z",
+                            "guide_url": "https://github.com/sireto/custom-domain/blob/main/docs/dns-guides/cloudflare.md",
+                            "host": "forms",
+                            "method": "guided",
+                            "provider": {
+                              "id": "cloudflare",
+                              "name": "Cloudflare"
+                            },
+                            "zone": "customer.example"
+                          },
                           "status": "ready",
                           "updated_at": "2026-09-25T15:00:00Z"
                         },
@@ -4354,6 +4725,17 @@
                             "plan": "pro"
                           },
                           "reference": "ws_8f3a1c",
+                          "setup": {
+                            "detected_at": "2026-09-25T14:05:00Z",
+                            "guide_url": "https://github.com/sireto/custom-domain/blob/main/docs/dns-guides/cloudflare.md",
+                            "host": "forms",
+                            "method": "guided",
+                            "provider": {
+                              "id": "cloudflare",
+                              "name": "Cloudflare"
+                            },
+                            "zone": "customer.example"
+                          },
                           "status": "pending_dns",
                           "updated_at": "2026-09-25T14:05:00Z"
                         }
@@ -4550,6 +4932,10 @@
                         "plan": "pro"
                       },
                       "reference": "ws_8f3a1c",
+                      "setup": {
+                        "host": "forms",
+                        "zone": "customer.example"
+                      },
                       "status": "pending_dns",
                       "updated_at": "2026-09-25T14:00:00Z"
                     }
@@ -4746,6 +5132,17 @@
                     "plan": "pro"
                   },
                   "reference": "ws_8f3a1c",
+                  "setup": {
+                    "detected_at": "2026-09-25T14:05:00Z",
+                    "guide_url": "https://github.com/sireto/custom-domain/blob/main/docs/dns-guides/cloudflare.md",
+                    "host": "forms",
+                    "method": "guided",
+                    "provider": {
+                      "id": "cloudflare",
+                      "name": "Cloudflare"
+                    },
+                    "zone": "customer.example"
+                  },
                   "status": "deleting",
                   "updated_at": "2026-10-10T08:00:00Z"
                 },
@@ -4922,6 +5319,17 @@
                         "plan": "pro"
                       },
                       "reference": "ws_8f3a1c",
+                      "setup": {
+                        "detected_at": "2026-09-25T14:05:00Z",
+                        "guide_url": "https://github.com/sireto/custom-domain/blob/main/docs/dns-guides/cloudflare.md",
+                        "host": "forms",
+                        "method": "guided",
+                        "provider": {
+                          "id": "cloudflare",
+                          "name": "Cloudflare"
+                        },
+                        "zone": "customer.example"
+                      },
                       "status": "attention_required",
                       "updated_at": "2026-10-02T09:30:00Z"
                     }
@@ -4974,6 +5382,17 @@
                         "plan": "pro"
                       },
                       "reference": "ws_8f3a1c",
+                      "setup": {
+                        "detected_at": "2026-09-25T14:05:00Z",
+                        "guide_url": "https://github.com/sireto/custom-domain/blob/main/docs/dns-guides/cloudflare.md",
+                        "host": "forms",
+                        "method": "guided",
+                        "provider": {
+                          "id": "cloudflare",
+                          "name": "Cloudflare"
+                        },
+                        "zone": "customer.example"
+                      },
                       "status": "ready",
                       "updated_at": "2026-09-25T15:00:00Z"
                     }
@@ -5030,6 +5449,17 @@
                         "plan": "pro"
                       },
                       "reference": "ws_8f3a1c",
+                      "setup": {
+                        "detected_at": "2026-09-25T14:05:00Z",
+                        "guide_url": "https://github.com/sireto/custom-domain/blob/main/docs/dns-guides/cloudflare.md",
+                        "host": "forms",
+                        "method": "guided",
+                        "provider": {
+                          "id": "cloudflare",
+                          "name": "Cloudflare"
+                        },
+                        "zone": "customer.example"
+                      },
                       "status": "pending_dns",
                       "updated_at": "2026-09-25T14:05:00Z"
                     }
@@ -5205,6 +5635,17 @@
                     "plan": "pro"
                   },
                   "reference": "ws_8f3a1c",
+                  "setup": {
+                    "detected_at": "2026-09-25T14:05:00Z",
+                    "guide_url": "https://github.com/sireto/custom-domain/blob/main/docs/dns-guides/cloudflare.md",
+                    "host": "forms",
+                    "method": "guided",
+                    "provider": {
+                      "id": "cloudflare",
+                      "name": "Cloudflare"
+                    },
+                    "zone": "customer.example"
+                  },
                   "status": "pending_dns",
                   "updated_at": "2026-09-25T14:05:00Z"
                 },
@@ -6228,6 +6669,17 @@
                       "plan": "pro"
                     },
                     "reference": "ws_8f3a1c",
+                    "setup": {
+                      "detected_at": "2026-09-25T14:05:00Z",
+                      "guide_url": "https://github.com/sireto/custom-domain/blob/main/docs/dns-guides/cloudflare.md",
+                      "host": "forms",
+                      "method": "guided",
+                      "provider": {
+                        "id": "cloudflare",
+                        "name": "Cloudflare"
+                      },
+                      "zone": "customer.example"
+                    },
                     "status": "ready",
                     "updated_at": "2026-09-25T15:00:00Z"
                   }

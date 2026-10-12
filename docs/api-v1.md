@@ -72,6 +72,7 @@ to read-only credentials as to any other.
 | `reference` | Opaque workspace identifier supplied by the application; returned verbatim and delivered to the origin inside the signed assertion on every request ([edge-routing.md](edge-routing.md)). |
 | `status` | `pending_dns`, `provisioning`, `ready`, `attention_required`, `suspended`, `deleting`. |
 | `dns_records` | Records the customer must publish: one `TXT` (`purpose: ownership`) and one `CNAME` (`purpose: routing`), each with `name`, `type`, `value` and `help`. Empty once the domain is deleted. |
+| `setup` | How the customer will publish the records, from the DNS provider hosting the hostname's zone; see [Setup](#setup). |
 | `checks` | One entry per check: `ownership`, `routing`, `certificate`, `origin`, each `pending`, `passing` or `failing` with `error_code`, `message`, `observed_at` and `next_check_at`. |
 | `metadata` | Up to 32 scalar values supplied at creation. |
 | `created_at`, `updated_at`, `deleted_at` | UTC timestamps. |
@@ -79,6 +80,40 @@ to read-only credentials as to any other.
 A domain is `ready` only when all four checks pass and the ownership claim is
 verified; readiness is never inferred from DNS alone. The status model and its
 transitions are specified in [data-model.md](data-model.md).
+
+### Setup
+
+Shortly after registration the DNS worker looks up the zone holding the
+hostname, identifies its DNS provider from the zone's nameservers, and checks
+whether the provider supports Domain Connect. `setup` reports the result, so
+the application can show the customer the right instructions:
+
+```json
+"setup": {
+  "method": "guided",
+  "provider": {"id": "cloudflare", "name": "Cloudflare"},
+  "zone": "customer.example",
+  "host": "forms",
+  "guide_url": "https://github.com/sireto/custom-domain/blob/main/docs/dns-guides/cloudflare.md",
+  "detected_at": "2026-09-25T14:05:00Z"
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `method` | `domain_connect`: the provider supports the deployment's Domain Connect template and the deployment can sign Domain Connect requests, so the customer approves the records at their provider in one step. `guided`: the customer adds the records by hand with the provider's own guide at `guide_url`. `manual`: the provider was not recognized or has no specific guide; `guide_url` is the generic one. `null` until the lookup has run. |
+| `provider` | `id` and `name` of the DNS provider. Ids are stable: `cloudflare`, `godaddy`, `namecheap`, `route53`, `google-cloud-dns`, `squarespace`, `porkbun`, `hostinger`, `ionos`, `digitalocean`, `vercel`, `netlify`, `namesilo`, `wordpress-com`, `azure-dns`, `gandi`, `ovh`, `hetzner`, `dnsimple`, `name-com`, `linode`, `wix`, and `unknown`. New ids may be added. `null` until the lookup has run. |
+| `zone` | The DNS zone the records go in. Until the lookup it is the registrable domain from the Public Suffix List (`acme.co.uk` for `forms.acme.co.uk`); the lookup replaces it with a delegated subzone when there is one. |
+| `host` | The hostname relative to `zone` (`forms`, or `forms.eu` for `forms.eu.acme.co.uk`): what most DNS providers want in the record's Name or Host field. |
+| `guide_url` | Setup instructions for the provider (`DNS_GUIDE_URL`). `null` until the lookup has run. |
+| `detected_at` | When the zone was last looked up. Lookups are cached per zone for 24 hours (an hour after a temporary failure). |
+
+`setup` never affects the checks or the status: it only says how the records
+are likely to be published. The lookup runs in the DNS worker, never while
+answering a request, and a failed lookup leaves the previous answer (or
+`null`) in place. `method` is `domain_connect` only on deployments that can
+sign Domain Connect requests; on others, a provider that supports the
+template is reported as `guided`.
 
 ## Endpoints
 
@@ -112,6 +147,8 @@ Response `201`:
     {"name": "forms.customer.example", "type": "CNAME",
      "value": "acme.edge.example.net", "purpose": "routing", "help": "..."}
   ],
+  "setup": {"method": null, "provider": null, "zone": "customer.example", "host": "forms",
+            "guide_url": null, "detected_at": null},
   "checks": [
     {"type": "ownership", "status": "pending", "error_code": null, "message": null,
      "observed_at": null, "next_check_at": null},

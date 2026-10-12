@@ -101,6 +101,33 @@ class ApplicationTrafficResource(BaseModel):
     response_bytes: int = Field(description="Total over the days listed.")
 
 
+class SetupProviderResource(BaseModel):
+    id: str = Field(examples=["cloudflare"])
+    name: str = Field(examples=["Cloudflare"])
+
+
+class DnsSetupCountResource(BaseModel):
+    provider: SetupProviderResource | None = Field(
+        description="The detected DNS provider; null for domains whose zone has not been "
+        "looked up yet."
+    )
+    method: Literal["domain_connect", "guided", "manual"] | None = Field(
+        description="The setup method these domains are offered (see `setup.method` in v1)."
+    )
+    domains: int = Field(description="Live domains.")
+    ready: int = Field(description="Of those, how many are `ready`.")
+
+
+class DnsSetupCountsResource(BaseModel):
+    application: str | None = Field(description="The application counted, or null for all.")
+    since: datetime | None = Field(
+        description="Only domains registered at or after this time; null for all."
+    )
+    items: list[DnsSetupCountResource] = Field(description="Largest group first.")
+    domains: int
+    ready: int
+
+
 class ApplicationDeleted(BaseModel):
     deleted: str = Field(description="The slug the application had.")
     live_domains_deleted: int

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, ForeignKey, Index, String, Text, UniqueConstraint, text
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -43,6 +43,7 @@ class Domain(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_domains_application_status", "application_id", "status"),
         Index("ix_domains_application_reference", "application_id", "reference"),
         Index("ix_domains_purge_after", "purge_after"),
+        Index("ix_domains_zone", "zone"),
     )
 
     application_id: Mapped[uuid.UUID] = mapped_column(
@@ -59,8 +60,16 @@ class Domain(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     extra: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
     deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     purge_after: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    # The DNS zone holding the hostname's records, as the DNS worker last
+    # found it (the registrable domain until then). Public DNS data; see DnsZone.
+    zone: Mapped[str | None] = mapped_column(String(253))
 
     application: Mapped[Application] = relationship(back_populates="domains")
+    dns_zone: Mapped[DnsZone | None] = relationship(
+        primaryjoin="foreign(Domain.zone) == DnsZone.zone",
+        viewonly=True,
+        uselist=False,
+    )
     claims: Mapped[list[OwnershipClaim]] = relationship(
         back_populates="domain",
         cascade="all, delete-orphan",
@@ -176,3 +185,31 @@ class DomainEvent(UUIDPrimaryKeyMixin, Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
 
     domain: Mapped[Domain] = relationship(back_populates="events")
+
+
+class DnsZone(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """What the DNS worker learned about one DNS zone, cached until ``expires_at``.
+
+    Shared by every domain in the zone, whatever its application: it holds
+    only what anyone can read from public DNS and the provider's public
+    Domain Connect settings (no hostnames, no tenant data). It is a cache:
+    rows are refreshed in place, and ``purge_tombstones`` removes expired
+    rows no domain refers to.
+    """
+
+    __tablename__ = "dns_zones"
+
+    zone: Mapped[str] = mapped_column(String(253), nullable=False, unique=True)
+    # Stable provider id from app/dns/providers.py ("unknown" when unidentified).
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="unknown")
+    nameservers: Mapped[list[str] | None] = mapped_column(JSON)
+    # Domain Connect settings: provider_id, provider_name, provider_display_name,
+    # url_api, url_sync_ux. None when the zone has none.
+    domain_connect: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    # The template ("providerId/serviceId") support was checked for, and the answer.
+    template: Mapped[str | None] = mapped_column(String(160))
+    template_supported: Mapped[bool | None] = mapped_column(Boolean)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    message: Mapped[str | None] = mapped_column(Text)
+    checked_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
