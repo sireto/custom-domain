@@ -1,6 +1,6 @@
 {
   "name": "@customdomainapi/sdk",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Client, assertion verification, middleware and webhook verification for the Custom Domain API.",
   "license": "Apache-2.0",
   "author": "Sireto",
