@@ -129,6 +129,10 @@ keeps it.
   `403 credential_read_only` ([api-v1.md](api-v1.md#errors)). The per-key
   rate limit applies as to any key.
 
+`custom-domain credential list` prints one tab-separated line per
+credential: prefix, state, label, id and scope. The scope is the last
+column, so scripts reading the earlier columns are unaffected.
+
 The audit log records the scope of an issued or rotated credential, as
 `target=credential:<id> scope=<scope>`.
 

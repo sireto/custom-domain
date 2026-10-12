@@ -283,7 +283,9 @@ def test_cli_issues_lists_and_rotates_with_scope(cli_env, capsys):
 
     assert _run("credential", "list", "--application", "acme") == 0
     rows = [line.split("\t") for line in capsys.readouterr().out.strip().splitlines()]
-    assert {row[3]: row[2] for row in rows} == {"dash": "read", "backend": "full"}
+    # prefix, state, label, id, scope: the scope is appended, earlier columns unchanged.
+    assert all(len(row) == 5 for row in rows)
+    assert {row[2]: row[4] for row in rows} == {"dash": "read", "backend": "full"}
 
     assert _run("credential", "rotate", "--application", "acme", "--id", credential_id) == 0
     assert "scope:             read" in capsys.readouterr().out
