@@ -186,6 +186,25 @@ def credential_state(credential: ApiCredential, now: datetime | None = None) -> 
     return State("Active", "ok")
 
 
+CREDENTIAL_SCOPES = {
+    "full": (
+        "Full access",
+        "Can do everything the API allows for this application: register, recheck and "
+        "delete hostnames, and manage webhooks.",
+    ),
+    "read": (
+        "Read only",
+        "Can list and look at hostnames, their checks and webhooks, and nothing else. "
+        "Any request that would change something is refused (credential_read_only).",
+    ),
+}
+
+
+def credential_scope(credential: ApiCredential) -> tuple[str, str]:
+    """What a credential may do, as a label and an explanation."""
+    return CREDENTIAL_SCOPES[credential.scope.value]
+
+
 # --- checks and DNS records ---------------------------------------------------------
 
 

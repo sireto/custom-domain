@@ -42,6 +42,25 @@ one immediately. Traffic for the application's domains goes to its single
 verified origin, enrolled and proven with `custom-domain origin register` and
 `origin verify` (see [operations.md](operations.md#application-onboarding)).
 
+### Read-only credentials
+
+A credential has a scope, set when it is issued and never changed:
+
+- **`full`** (the default) allows everything below.
+- **`read`** allows `GET` and `HEAD` only: listing and reading domains, their
+  checks and DNS records, webhooks and their deliveries. Give one to a
+  dashboard, a monitoring job or a support tool, so a leaked key can disclose
+  but not delete. Every other method, on every v1 path including
+  `/v1/webhooks`, is refused with `403 credential_read_only` before the
+  request is acted on.
+
+```
+uv run custom-domain credential issue --application acme --label dashboard --scope read
+```
+
+Rotating a credential keeps its scope. The per-credential rate limit applies
+to read-only credentials as to any other.
+
 ## Resources
 
 ### Domain
@@ -235,6 +254,7 @@ Every error has the same body:
 | 422 | `idempotency_key_reused` | The key was used with a different body within the last 24 hours. |
 | 429 | `rate_limited` | Too many manual rechecks for this domain or application, too many requests with an invalid credential from the client's address (`V1_AUTH_FAILURES_PER_MINUTE`, default 30 a minute), or more requests with this credential than the deployment allows (`V1_REQUESTS_PER_MINUTE`, off by default; counted per credential in any 60 seconds). `Retry-After` says how long to wait. |
 | 403 | `application_suspended` | The application was suspended while the request ran. |
+| 403 | `credential_read_only` | The credential has the `read` scope and the request is not a `GET` or `HEAD`. Nothing was changed. `details` gives `scope` and `method`. Use a `full` credential for changes. |
 
 ## Webhooks
 

@@ -57,10 +57,33 @@ client.delete_domain(domain.id)
 
 Every API error raises a subclass of `custom_domain.ApiError` with `status`,
 the stable `code` from the API, `message` and `details`:
-`AuthenticationError` (401), `NotFoundError` (404), `ConflictError` (409, for
-example `hostname_already_claimed`), `ValidationError` (422, for example
-`apex_not_supported`), `RateLimitedError` (429, with `retry_after`),
-`ServerError` (5xx). `TransportError` means no HTTP response was received.
+`AuthenticationError` (401), `PermissionDeniedError` (403), `NotFoundError`
+(404), `ConflictError` (409, for example `hostname_already_claimed`),
+`ValidationError` (422, for example `apex_not_supported`), `RateLimitedError`
+(429, with `retry_after`), `ServerError` (5xx). `TransportError` means no HTTP
+response was received.
+
+## Read-only credentials
+
+The operator can issue a credential with the `read` scope
+(`custom-domain credential issue --scope read`) for a dashboard, a monitoring
+job or a support tool that only needs to look. With it the client can list and
+get domains and webhooks; any call that changes something (`create_domain`,
+`delete_domain`, `request_recheck`, creating or deleting a webhook, ...) raises
+`CredentialReadOnlyError`, a `PermissionDeniedError` with the code
+`credential_read_only`. It is not retried.
+
+```python
+from custom_domain import Client, CredentialReadOnlyError
+
+client = Client("https://edge.example.net", credential="cd_...")  # a read key
+for d in client.iter_domains():
+    print(d.hostname, d.status)
+try:
+    client.request_recheck(d.id)
+except CredentialReadOnlyError:
+    ...  # changes go through the backend that holds a full key
+```
 
 ## Timeouts and retries
 

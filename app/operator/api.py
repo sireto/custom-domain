@@ -416,10 +416,11 @@ def issue_credential(
 ) -> schemas.NewCredential:
     expires_at = utcnow() + timedelta(days=body.expires_in_days) if body.expires_in_days else None
     credential, secret = app_service.issue_credential(
-        db, _application(db, slug), label=body.label, expires_at=expires_at
+        db, _application(db, slug), label=body.label, expires_at=expires_at, scope=body.scope
     )
     db.commit()
-    request.state.operator_target = f"credential:{credential.id}"  # the id, never the secret
+    # The id and scope, never the secret.
+    request.state.operator_target = f"credential:{credential.id} scope={credential.scope.value}"
     return schemas.NewCredential(
         **schemas.CredentialResource.of(credential).model_dump(), secret=secret
     )
@@ -442,9 +443,8 @@ def rotate_credential(
         db, _application(db, slug), credential_id, grace=grace
     )
     db.commit()
-    request.state.operator_target = (
-        f"credential:{credential.id}"  # the new one; the path names the old
-    )
+    # The new one; the path names the old. The scope is the old one's.
+    request.state.operator_target = f"credential:{credential.id} scope={credential.scope.value}"
     return schemas.NewCredential(
         **schemas.CredentialResource.of(credential).model_dump(), secret=secret
     )

@@ -158,6 +158,12 @@ def _build_parser() -> argparse.ArgumentParser:
     issue.add_argument("--application", required=True, help="application slug")
     issue.add_argument("--label", required=True)
     issue.add_argument("--expires-in-days", type=int)
+    issue.add_argument(
+        "--scope",
+        choices=["full", "read"],
+        default="full",
+        help="full: every v1 operation (default); read: GET and HEAD only. Fixed at issue",
+    )
     issue.set_defaults(func=_credential_issue)
     revoke = credential.add_parser("revoke")
     revoke.add_argument("--application", required=True)
@@ -922,11 +928,12 @@ def _credential_issue(args) -> int:
     with get_session_factory()() as session:
         application = app_service.get_application_by_slug(session, args.application)
         credential, secret = app_service.issue_credential(
-            session, application, label=args.label, expires_at=expires_at
+            session, application, label=args.label, expires_at=expires_at, scope=args.scope
         )
         session.commit()
         print(f"credential id: {credential.id}")
         print(f"prefix:        {credential.key_prefix}")
+        print(f"scope:         {credential.scope.value}")
         print("secret (shown once, store it now):")
         print(secret)
     return 0
@@ -946,7 +953,10 @@ def _credential_list(args) -> int:
         application = app_service.get_application_by_slug(session, args.application)
         for credential in app_service.list_credentials(session, application):
             state = "revoked" if credential.revoked_at else "active"
-            print(f"{credential.key_prefix}\t{state}\t{credential.label}\t{credential.id}")
+            print(
+                f"{credential.key_prefix}\t{state}\t{credential.scope.value}"
+                f"\t{credential.label}\t{credential.id}"
+            )
     return 0
 
 
@@ -965,6 +975,7 @@ def _credential_rotate(args) -> int:
         session.commit()
         print(f"new credential id: {new.id}")
         print(f"prefix:            {new.key_prefix}")
+        print(f"scope:             {new.scope.value}")
         print("secret (shown once, store it now):")
         print(secret)
         print(f"old credential {old.key_prefix} expires at {old.expires_at.isoformat()}")
