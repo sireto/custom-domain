@@ -76,7 +76,9 @@ the new and the previous secret, so switch the consumer to the new secret
 any time within 24 hours. The webhook secret is separate from API
 credentials and from the edge assertion key.
 
-`app.webhooks.signature.verify()` implements this and the SDK (#11) ships it.
+`app.webhooks.signature.verify()` implements this; the Python SDK ships it as
+`verify_webhook` and the TypeScript SDK as `verifyWebhook`
+([sdk/typescript/README.md](../sdk/typescript/README.md#webhooks)).
 
 ## Delivery guarantees
 

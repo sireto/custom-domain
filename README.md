@@ -208,13 +208,36 @@ app.add_middleware(
 ```
 
 The middleware also answers the workspace probe the lifecycle worker uses and
-lets the origin verification probe through. A complete second SaaS origin is
+lets the origin verification probe through.
+
+The TypeScript SDK in [sdk/typescript/](sdk/typescript/README.md) (`@customdomainapi/sdk`
+on npm, released at the same version) has the same client, assertion
+verifier and webhook verifier with no runtime dependencies, middleware for
+Fetch API frameworks (Hono, Next.js, Cloudflare Workers, Deno, Bun) and for
+Express, and runs in Node 20+ and edge runtimes:
+
+```ts
+import { CustomDomainClient, customDomainMiddleware } from "@customdomainapi/sdk";
+
+const client = new CustomDomainClient({ baseUrl: "https://edge.example.net", apiKey: "cd_..." });
+const domain = await client.createDomain({ hostname: "forms.customer.example", reference: "ws_8f3a1c" });
+
+app.use(customDomainMiddleware({
+  keys: { "1": "<the EDGE_ASSERTION_KEYS secret>" },
+  applicationId: "<application id>",
+  workspaceLookup: (reference) => workspaces.get(reference),
+}));
+// req.customDomain.reference is the workspace for this request
+```
+
+Whatever the language, select the workspace from the verified assertion's
+reference, never from `Host`. A complete second SaaS origin is
 in [examples/sample_saas/](examples/sample_saas/README.md), a webhook consumer
 in [examples/webhook_consumer.py](examples/webhook_consumer.py), and the
 BetterCollected integration plan in
 [docs/bettercollected-integration.md](docs/bettercollected-integration.md).
 
-Any language can integrate without the SDK: the API contract is in
+Any language can integrate without an SDK: the API contract is in
 [docs/api-v1.md](docs/api-v1.md), the assertion format in
 [docs/edge-routing.md](docs/edge-routing.md) and the webhook signature in
 [docs/webhooks.md](docs/webhooks.md).
@@ -246,6 +269,7 @@ code and a message the application can show to the customer.
 - [docs/operator-api.md](docs/operator-api.md): the operator actions over HTTP, for control planes and provisioning scripts.
 - [docs/hosting-aws.md](docs/hosting-aws.md), [docs/hosting-azure.md](docs/hosting-azure.md), [docs/hosting-gcp.md](docs/hosting-gcp.md), [docs/hosting-hetzner.md](docs/hosting-hetzner.md) and [docs/hosting-digitalocean.md](docs/hosting-digitalocean.md): one-server installs on each provider.
 - [docs/bettercollected-integration.md](docs/bettercollected-integration.md): a worked integration of a SaaS product.
+- [sdk/README.md](sdk/README.md) and [sdk/typescript/README.md](sdk/typescript/README.md): the Python and TypeScript SDKs.
 - [docs/operations.md](docs/operations.md) and [docs/decisions/0001-certificate-storage.md](docs/decisions/0001-certificate-storage.md): certificate storage, multi-instance coordination, trust boundaries.
 - [AGENTS.md](AGENTS.md): how to work on this repository, for people and coding agents alike.
 
@@ -262,6 +286,9 @@ uv run pytest                # test suite on a temporary SQLite database
 uv run ruff check app tests sdk
 uv run custom-domain --help
 ```
+
+The TypeScript SDK is an npm package in `sdk/typescript/`: `cd sdk/typescript && npm ci &&
+npm run typecheck && npm test` (see [sdk/typescript/README.md](sdk/typescript/README.md#development)).
 
 Set `TEST_DATABASE_URL` to a PostgreSQL URL to run the suite against
 PostgreSQL. Tests that drive a real edge need the `caddy` binary (2.11) on the

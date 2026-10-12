@@ -1,0 +1,66 @@
+# The TypeScript SDK (sdk/typescript/): type-check, tests, build, and the client
+# against the real service. Publishing to npm is a separate workflow
+# (publish-sdk-ts.yml), off until the owner enables it.
+name: TypeScript SDK
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [ "20", "22" ]
+    defaults:
+      run:
+        working-directory: sdk/typescript
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Type-check (sources, tests and README examples)
+        run: npm run typecheck
+      - name: Test (unit, cross-language fixtures, generated types)
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Check the package contents
+        run: npm pack --dry-run
+
+  service:
+    # The Python side: the fixtures must be what the Python code produces
+    # today, and the client must work against the real API.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Install
+        run: |
+          uv sync --frozen
+          npm ci --prefix sdk/typescript
+      - name: Fixtures match the Python SDK
+        run: |
+          uv run python sdk/typescript/scripts/generate_fixtures.py
+          git diff --exit-code -- sdk/typescript/test/fixtures \
+            || { echo "sdk/typescript/test/fixtures is stale: run 'uv run python sdk/typescript/scripts/generate_fixtures.py' and commit"; exit 1; }
+      - name: Client against the real API
+        run: npm run test:integration --prefix sdk/typescript
