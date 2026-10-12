@@ -30,6 +30,7 @@ from app.edge.reconcile import Reconciler
 from app.edge.settings import EdgeSettings
 from app.services.dns_setup import ZoneDetector
 from app.services.edge_checks import SystemEdgeProber
+from app.v1.domain_connect_return import router as domain_connect_return_router
 from app.v1.errors import install_error_handlers
 from app.v1.internal import router as internal_router
 from app.v1.router import router as v1_router
@@ -96,7 +97,8 @@ async def lifespan(app: FastAPI):
 
     dns_settings = DnsSettings.from_env()
     # Refuse to start on unusable DOMAIN_CONNECT_* or DNS_GUIDE_URL values
-    # rather than failing on the first domain response.
+    # (a signing key that does not parse included) rather than failing on the
+    # first domain response.
     SetupSettings.from_env()
     dns_thread: threading.Thread | None = None
     app.state.dns_worker = None
@@ -164,6 +166,7 @@ def create_app() -> FastAPI:
     app.state.v1_auth_limiter = FailedAuthLimiter.from_env()
     app.state.v1_rate_limiter = CredentialRateLimiter.from_env()
     app.include_router(v1_router)
+    app.include_router(domain_connect_return_router)
     app.include_router(internal_router)
     app.include_router(webhooks_router)
     import os

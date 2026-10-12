@@ -251,6 +251,8 @@ NOTICES = {
     "purged": "Deleted hostnames and applications past the 90-day retention purged.",
     "reconcile_applied": "Edge configuration applied.",
     "reconcile_unchanged": "The edge already runs the desired configuration.",
+    "signer_set": "Domain Connect signer saved. Links are signed with it from now on.",
+    "signer_reset": "Domain Connect signer forgotten. The DOMAIN_CONNECT_SIGNER settings apply.",
 }
 
 
@@ -1416,6 +1418,9 @@ def _edge_page(request, session, db, *, verify=False, status=200, **extra):
             view.reachability = _reachability(request, view.name, dns_settings, fresh=verify)
     apps = build_apps(db, settings)
     reconciler = getattr(request.app.state, "reconciler", None)
+    from app.services import domain_connect
+
+    signer = domain_connect.signer_view(db)
     return render(
         request,
         "edge.html",
@@ -1430,6 +1435,8 @@ def _edge_page(request, session, db, *, verify=False, status=200, **extra):
         lock=db.scalar(select(EdgeLock).where(EdgeLock.name == "reconcile")),
         last_result=reconciler.last_result if reconciler else None,
         in_process=reconciler is not None,
+        signer=signer,
+        signer_state=presenters.signer_state(signer),
         **extra,
     )
 
@@ -1463,6 +1470,49 @@ def reconcile(
     return redirect(
         "/portal/edge?ok=" + ("reconcile_applied" if result.changed else "reconcile_unchanged")
     )
+
+
+@router.post("/edge/domain-connect")
+def set_domain_connect_signer(
+    request: Request,
+    session: dict = Operator,
+    db: Session = DbSession,
+    csrf: str = Form(""),
+    url: str = Form(""),
+    credential: str = Form(""),
+    provider_id: str = Form(""),
+    service_id: str = Form(""),
+):
+    from app.services import domain_connect
+    from app.services.errors import ServiceError
+
+    _csrf(request, session, csrf)
+    try:
+        domain_connect.set_remote_signer(
+            db,
+            url=url,
+            credential=credential.strip(),
+            provider_id=provider_id.strip(),
+            service_id=service_id.strip(),
+        )
+        db.commit()
+    except ServiceError as exc:
+        db.rollback()
+        message = presenters.DOMAIN_CONNECT_ERRORS.get(exc.code, exc.message)
+        return _edge_page(request, session, db, status=400, error=message)
+    return redirect("/portal/edge?ok=signer_set")
+
+
+@router.post("/edge/domain-connect/reset")
+def reset_domain_connect_signer(
+    request: Request, session: dict = Operator, db: Session = DbSession, csrf: str = Form("")
+):
+    from app.services import domain_connect
+
+    _csrf(request, session, csrf)
+    domain_connect.reset_signer(db)
+    db.commit()
+    return redirect("/portal/edge?ok=signer_reset")
 
 
 @router.get("/doctor")

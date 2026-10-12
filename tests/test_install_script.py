@@ -91,7 +91,13 @@ def test_fresh_install_writes_everything_and_starts_the_stack(tmp_path):
     assert env["PORTAL_ALLOWED_IPS"] == "203.0.113.9" and env["ACME_EMAIL"] == "ops@example.net"
     assert env["PUBLIC_API"] == "true"  # new installs serve the API through the edge
     assert "https://Edge.Example.Net/v1" in result.stdout
-    for key in ("POSTGRES_PASSWORD", "EDGE_TOKEN", "PORTAL_PASSWORD", "CADDY_REDIS_PASSWORD"):
+    for key in (
+        "POSTGRES_PASSWORD",
+        "EDGE_TOKEN",
+        "PORTAL_PASSWORD",
+        "CADDY_REDIS_PASSWORD",
+        "SERVICE_SECRET_KEY",
+    ):
         assert len(env[key]) >= 32
     assert env["EDGE_ASSERTION_KEYS"].startswith("1:") and len(env["EDGE_ASSERTION_KEYS"]) > 40
     assert oct((deploy / ".env").stat().st_mode & 0o777) == "0o600"
@@ -117,7 +123,9 @@ def test_upgrade_refreshes_compose_adds_settings_and_moves_the_image(tmp_path):
     (deploy / ".compose.production.yml.upstream").write_text(old_sum + "\n")
     env_text = (deploy / ".env").read_text()
     env_text = "\n".join(
-        line for line in env_text.splitlines() if not line.startswith(("PORTAL_", "EDGE_HOSTNAME="))
+        line
+        for line in env_text.splitlines()
+        if not line.startswith(("PORTAL_", "EDGE_HOSTNAME=", "SERVICE_SECRET_KEY="))
     )
     (deploy / ".env").write_text(env_text + "\n")
     secrets_before = {
@@ -135,6 +143,7 @@ def test_upgrade_refreshes_compose_adds_settings_and_moves_the_image(tmp_path):
     assert env["CUSTOM_DOMAIN_IMAGE"] == "ghcr.io/sireto/custom-domain:0.9.8"
     assert len(env["PORTAL_PASSWORD"]) >= 32 and env["EDGE_HOSTNAME"] == "edge.example.net"
     assert "PORTAL_ALLOWED_IPS" in env
+    assert len(env["SERVICE_SECRET_KEY"]) >= 32  # added for releases that predate it
     assert {k: env[k] for k in secrets_before} == secrets_before  # secrets untouched
     assert "Keeping image" in again.stdout
 

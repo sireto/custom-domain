@@ -63,6 +63,9 @@ class Domain(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # The DNS zone holding the hostname's records, as the DNS worker last
     # found it (the registrable domain until then). Public DNS data; see DnsZone.
     zone: Mapped[str | None] = mapped_column(String(253))
+    # When the last Domain Connect apply URL was issued or the customer came
+    # back from their provider: the DNS checks run often for a while after it.
+    connect_started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     application: Mapped[Application] = relationship(back_populates="domains")
     dns_zone: Mapped[DnsZone | None] = relationship(

@@ -116,7 +116,34 @@ All paths are under `/operator/v1`; errors use the v1 envelope
 | `POST /applications/{slug}/credentials/{id}/revoke` | revoke | `credential revoke` |
 | `DELETE /applications/{slug}/credentials/{id}` | delete a revoked or expired one | `credential delete` |
 | `GET /dns-setup?application={slug}&days=30` | live domains per detected DNS provider and setup method, each with how many are ready; both filters optional; counts only, never hostnames | `domain setup-stats` |
+| `GET /domain-connect/signer` | the Domain Connect signer in effect, never its credential ([below](#domain-connect-signer)) | `domain-connect signer` |
+| `PUT /domain-connect/signer` `{signer: "remote", url, credential, provider_id, service_id}` | sign apply URLs with a remote signing service, overriding the `DOMAIN_CONNECT_SIGNER*` settings | `domain-connect set-remote` |
+| `DELETE /domain-connect/signer` | forget it; the settings apply again | `domain-connect reset` |
 | `GET /doctor` | the doctor's findings, for monitoring | `doctor` |
+
+### Domain Connect signer
+
+`GET /operator/v1/domain-connect/signer` answers the signer in effect:
+
+```json
+{"signer": "remote", "url": "https://signer.example/sign", "credential_prefix": "dcs_Ab3dE6gH",
+ "provider_id": "example.com", "service_id": "hostname", "updated_at": "2026-10-12T09:30:00Z"}
+```
+
+With nothing set here, `signer` is the deployment's own setting (`local`,
+`remote` or `null`) and the other fields are `null`. `credential_prefix` is
+the first 12 characters of the credential, so a caller can tell which one
+the deployment holds; it is `null` when the stored credential can no longer
+be decrypted (`SERVICE_SECRET_KEY` changed), so the caller sets it again.
+
+`PUT` takes `{"signer": "remote", "url", "credential", "provider_id",
+"service_id"}` and answers the same body. `url` must be `https` with a host;
+`credential` is `dcs_` and 43 letters, digits, `-` or `_`; the ids are the
+template's. The credential is stored encrypted with a key derived from
+`SERVICE_SECRET_KEY` (`503 service_secret_key_missing` without it), never
+logged and never returned. The row is replaced in one transaction, so every
+signing request after the answer uses the new values. A release without
+these endpoints answers `404`. Details: [domain-connect.md](domain-connect.md).
 
 ### Read-only credentials
 

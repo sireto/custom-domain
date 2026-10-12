@@ -277,6 +277,35 @@ class OperatorTokenSet(_Strict):
     )
 
 
+class DomainConnectSignerSet(_Strict):
+    signer: Literal["remote"] = Field(
+        description="Only `remote` can be set here; a local key is a setting "
+        "(`DOMAIN_CONNECT_SIGNER=local`)."
+    )
+    url: str = Field(max_length=512, description="The signing service: an https URL.")
+    credential: str = Field(
+        max_length=64,
+        description="The credential the signing service issued, `dcs_` and 43 letters, digits, "
+        "`-` or `_`. Stored encrypted and never returned.",
+    )
+    provider_id: str = Field(max_length=64, description="The template's `providerId`.")
+    service_id: str = Field(max_length=64, description="The template's `serviceId`.")
+
+
+class DomainConnectSignerResource(BaseModel):
+    signer: Literal["local", "remote"] | None = Field(
+        description="The signer in effect; null when Domain Connect is off."
+    )
+    url: str | None = Field(description="The remote signer set here; null otherwise.")
+    credential_prefix: str | None = Field(
+        description="The first 12 characters of the credential set here; null when none is "
+        "set here or it can no longer be decrypted."
+    )
+    provider_id: str | None
+    service_id: str | None
+    updated_at: datetime | None
+
+
 class DoctorReport(BaseModel):
     ok: int
     warn: int

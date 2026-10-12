@@ -573,6 +573,83 @@ def dns_setup_counts(
     )
 
 
+# --- Domain Connect signer ----------------------------------------------------------
+
+
+def _signer_resource(db: Session) -> schemas.DomainConnectSignerResource:
+    from app.services import domain_connect
+
+    view = domain_connect.signer_view(db)
+    return schemas.DomainConnectSignerResource(
+        signer=view.signer,
+        url=view.url,
+        credential_prefix=view.credential_prefix,
+        provider_id=view.provider_id,
+        service_id=view.service_id,
+        updated_at=view.updated_at,
+    )
+
+
+@router.get(
+    "/domain-connect/signer",
+    dependencies=[Operator],
+    summary="Show the Domain Connect signer",
+    description=(
+        "The signer that signs Domain Connect apply URLs. Without one set here, `signer` is "
+        "the deployment's own setting (`local`, `remote` or null) and the other fields are "
+        "null. Never includes the credential: `credential_prefix` is its first 12 characters."
+    ),
+)
+def get_domain_connect_signer(db: DbSession) -> schemas.DomainConnectSignerResource:
+    return _signer_resource(db)
+
+
+@router.put(
+    "/domain-connect/signer",
+    dependencies=[Operator],
+    summary="Set a remote Domain Connect signer",
+    description=(
+        "Signs apply URLs with the signing service at `url`, overriding the "
+        "`DOMAIN_CONNECT_SIGNER*` settings and the template ids until it is replaced or "
+        "removed. The credential is stored encrypted with `SERVICE_SECRET_KEY` "
+        "(`503 service_secret_key_missing` without it), never logged and never returned. "
+        "The switch is atomic: every signing request after this answer uses the new values."
+    ),
+)
+def put_domain_connect_signer(
+    request: Request, body: schemas.DomainConnectSignerSet, db: DbSession
+) -> schemas.DomainConnectSignerResource:
+    from app.services import domain_connect
+
+    request.state.operator_target = "domain-connect-signer"
+    domain_connect.set_remote_signer(
+        db,
+        url=body.url,
+        credential=body.credential,
+        provider_id=body.provider_id,
+        service_id=body.service_id,
+    )
+    db.commit()
+    return _signer_resource(db)
+
+
+@router.delete(
+    "/domain-connect/signer",
+    dependencies=[Operator],
+    summary="Remove the Domain Connect signer set here",
+    description="The `DOMAIN_CONNECT_SIGNER*` settings apply again. Answers the new state.",
+)
+def delete_domain_connect_signer(
+    request: Request, db: DbSession
+) -> schemas.DomainConnectSignerResource:
+    from app.services import domain_connect
+
+    request.state.operator_target = "domain-connect-signer"
+    domain_connect.reset_signer(db)
+    db.commit()
+    return _signer_resource(db)
+
+
 @router.get("/doctor", dependencies=[Operator])
 def doctor(request: Request) -> schemas.DoctorReport:
     """The same checks as `custom-domain doctor`, for monitoring a deployment."""

@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 
 from custom_domain.errors import RateLimitedError, TransportError, error_for
-from custom_domain.models import Delivery, Domain, Page, Webhook
+from custom_domain.models import ConnectUrl, Delivery, Domain, Page, Webhook
 
 DEFAULT_TIMEOUT = 10.0
 DEFAULT_MAX_RETRIES = 2
@@ -191,6 +191,28 @@ class Client:
         """Ask for all checks to run again. Not retried: rate limited server side."""
         response = self._request("POST", f"/v1/domains/{domain_id}/checks", retryable=False)
         return Domain.from_dict(response.json())
+
+    def connect_url(
+        self,
+        domain_id: str | uuid.UUID,
+        *,
+        redirect_uri: str | None = None,
+        state: str | None = None,
+    ) -> ConnectUrl:
+        """A signed Domain Connect apply URL for a domain whose ``setup.method`` is
+        ``domain_connect``; raises ``DomainConnectUnavailableError`` otherwise.
+
+        Not retried: links are rate limited server side.
+        """
+        body: dict[str, Any] = {}
+        if redirect_uri is not None:
+            body["redirect_uri"] = redirect_uri
+        if state is not None:
+            body["state"] = state
+        response = self._request(
+            "POST", f"/v1/domains/{domain_id}/connect", json=body, retryable=False
+        )
+        return ConnectUrl.from_dict(response.json())
 
     def delete_domain(self, domain_id: str | uuid.UUID) -> Domain:
         response = self._request("DELETE", f"/v1/domains/{domain_id}", retryable=True)

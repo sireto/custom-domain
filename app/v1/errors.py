@@ -25,14 +25,18 @@ from app.services.errors import (
     CredentialInUse,
     CredentialNotFound,
     CredentialReadOnly,
+    DomainConnectSignerUnavailable,
+    DomainConnectUnavailable,
     DomainLimitReached,
     DomainNotFound,
     HostnameAlreadyClaimed,
     InvalidApplication,
     InvalidAssertionKey,
+    InvalidConnectRequest,
     InvalidCredential,
     InvalidOrigin,
     InvalidReference,
+    InvalidSignerConfig,
     InvalidStatusTransition,
     OriginConflict,
     OriginInUse,
@@ -43,6 +47,7 @@ from app.services.errors import (
 )
 from app.services.idempotency import IdempotencyInProgress, IdempotencyKeyReused
 from app.services.operator_token import InvalidOperatorToken
+from app.services.secret_box import SecretKeyMissing
 from app.services.webhooks import DeliveryNotFound, InvalidWebhook, WebhookNotFound
 
 
@@ -80,6 +85,9 @@ SERVICE_ERROR_STATUS: list[tuple[type[ServiceError], int]] = [
     (IdempotencyKeyReused, 422),
     (InvalidReference, 422),
     (RateLimited, 429),
+    (DomainConnectUnavailable, 409),
+    (DomainConnectSignerUnavailable, 503),
+    (InvalidConnectRequest, 422),
     (WebhookNotFound, 404),
     (DeliveryNotFound, 404),
     (InvalidWebhook, 422),
@@ -100,6 +108,8 @@ SERVICE_ERROR_STATUS: list[tuple[type[ServiceError], int]] = [
     (OriginConflict, 409),
     (OriginNotVerified, 409),
     (OriginInUse, 409),
+    (InvalidSignerConfig, 422),
+    (SecretKeyMissing, 503),
 ]
 
 

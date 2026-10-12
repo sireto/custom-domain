@@ -308,8 +308,12 @@ the services load the same file through `env_file`, so no variable has to be
 exported in the shell; run every command from the `deploy` directory (or
 pass `--project-directory deploy`).
 It holds the database password, `EDGE_ASSERTION_KEYS` (signs assertions),
-`EDGE_TOKEN` (edge to API), `CADDY_REDIS_PASSWORD` and
-`CADDY_REDIS_ENCRYPTION_KEY`. Only the edge containers need the Redis
+`EDGE_TOKEN` (edge to API), `SERVICE_SECRET_KEY` (encrypts secrets the
+service stores, such as the Domain Connect signer's credential, and signs
+the Domain Connect return state; the installer generates it, and changing it
+means setting the signer again), `CADDY_REDIS_PASSWORD` and
+`CADDY_REDIS_ENCRYPTION_KEY`. With `DOMAIN_CONNECT_SIGNER=local` it also
+holds the Domain Connect private key ([domain-connect.md](domain-connect.md)). Only the edge containers need the Redis
 values; the entrypoint scrubs them from the Python processes' environment.
 Application credentials and webhook secrets are issued by the CLI and shown
 once. Logs never carry any of these: the code does not log them, and a
@@ -359,6 +363,7 @@ Caddy's own logs (JSON on the edge container's stdout) carry ACME details;
 | --- | --- |
 | Registrations | 120 per application per hour (`REGISTRATION_MAX_PER_WINDOW`), plus idempotency keys against duplicates |
 | Manual rechecks | 1 per domain per minute, 60 per application per hour |
+| Domain Connect links | 10 per domain and 120 per application per hour; the return only makes DNS checks due, at most once per worker run |
 | DNS checks | Worker driven with bounded backoff; never triggered by unauthenticated traffic |
 | Certificate issuance | Only for authorized hostnames (verified claim, active application); Caddy asks per hostname and caches decisions per handshake; unknown SNI never reaches the CA |
 | Origin traffic | Only `ready` hostnames route, every request is re-checked at the assert step; origins should sit behind network rules that admit only the edge |

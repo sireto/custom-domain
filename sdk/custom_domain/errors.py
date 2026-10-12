@@ -36,6 +36,10 @@ class ConflictError(ApiError):
     """409: hostname already claimed, invalid status transition, request in progress."""
 
 
+class DomainConnectUnavailableError(ConflictError):
+    """409 ``domain_connect_unavailable``: no one-step setup for this domain; use the guide."""
+
+
 class ValidationError(ApiError):
     """422: invalid hostname, reference, body or idempotency key reuse."""
 
@@ -66,6 +70,8 @@ def error_for(status: int, code: str, message: str, details=None, retry_after: i
     if status == 404:
         return NotFoundError(status, code, message, details)
     if status == 409:
+        if code == "domain_connect_unavailable":
+            return DomainConnectUnavailableError(status, code, message, details)
         return ConflictError(status, code, message, details)
     if status == 422:
         return ValidationError(status, code, message, details)

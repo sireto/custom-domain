@@ -438,9 +438,10 @@ def _domain_connect_text(zone, settings) -> tuple[str, str | None]:
 
 def setup_view(domain: Domain) -> SetupView:
     from app.dns.providers import get_provider
-    from app.services.dns_setup import domain_setup, setup_settings
+    from app.services.dns_setup import domain_setup
+    from app.services.domain_connect import settings_for
 
-    settings = setup_settings()
+    settings = settings_for(domain)
     setup = domain_setup(domain, settings)
     zone = domain.dns_zone if domain.zone else None
     dc_text, problem = _domain_connect_text(zone, settings)
@@ -461,6 +462,35 @@ def setup_view(domain: Domain) -> SetupView:
         domain_connect=dc_text,
         problem=problem,
     )
+
+
+# What a v1 caller sees when one-step setup cannot be offered, in words.
+DOMAIN_CONNECT_ERRORS = {
+    "domain_connect_unavailable": "One-step setup is not available for this hostname: its DNS "
+    "provider does not support the template, no signer is configured, the hostname is not "
+    "live, or the signer refused it. The customer follows the setup guide instead.",
+    "domain_connect_signer_unavailable": "The signer could not be reached or answered badly. "
+    "The application can ask again shortly.",
+    "service_secret_key_missing": "SERVICE_SECRET_KEY is not set, so the signer's credential "
+    "cannot be stored encrypted. Add a random value of at least 32 characters to .env.",
+}
+
+
+def signer_state(view) -> State:
+    """The Domain Connect signer, in words."""
+    if view.problem:
+        return State("Misconfigured", "fail", view.problem)
+    if view.signer is None:
+        return State("Off", "muted", "No signer: one-step setup is never offered.")
+    if not view.enabled:
+        return State(
+            "Incomplete",
+            "warn",
+            "A signer is chosen but the template id (DOMAIN_CONNECT_PROVIDER_ID) or its key "
+            "or credential is missing.",
+        )
+    label = "Remote signing service" if view.signer == "remote" else "Local key"
+    return State(label, "ok", "Customers whose provider supports the template get a one-step link.")
 
 
 def setup_count_views(rows) -> list[tuple[str, State, int, int]]:
@@ -689,6 +719,7 @@ _EVENT_TEXT = {
     "domain.status_changed": "Status changed",
     "domain.deleted": "Hostname deleted",
     "domain.recheck_requested": "Recheck requested",
+    "domain.connect_url_issued": "One-step setup link issued (Domain Connect)",
 }
 
 

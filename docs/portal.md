@@ -103,7 +103,7 @@ following the browser's setting, and use no JavaScript.
 | Application → Webhooks | endpoints with their events, signing secrets (shown once), rotation, revocation, deletion, and each endpoint's deliveries with replay | the v1 API's webhook endpoints |
 | Application → Traffic | proxied requests and response bytes per UTC day, the last 30 days | `application traffic` |
 | Application → Settings | name, CNAME target (optionally moving existing hostnames), the domain limit, request limits, the readiness check, suspend or resume, delete | `application rename`, `application set-cname-target`, `application set-domain-limit`, `application set-rate-limit`, `application set-workspace-probe`, `application delete` |
-| Edge & DNS | every name the edge answers for, why, and what public DNS returns for it; **Verify reachability** connects to each address as a customer would; the routing summary; applying the configuration now | `edge reconcile` |
+| Edge & DNS | every name the edge answers for, why, and what public DNS returns for it; **Verify reachability** connects to each address as a customer would; the routing summary; applying the configuration now; the Domain Connect signer in effect (never its credential), setting a remote signing service and going back to the settings | `edge reconcile`, `domain-connect signer`, `domain-connect set-remote`, `domain-connect reset` |
 | Health checks | the doctor's findings, problems first | `doctor` |
 | Import | the legacy import, with a dry run first | `legacy import` |
 

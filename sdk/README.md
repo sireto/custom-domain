@@ -69,12 +69,21 @@ for d in client.iter_domains(reference="ws_8f3a1c"):
 client.delete_domain(domain.id)
 ```
 
+When `domain.setup.method` is `domain_connect`, the customer can approve the
+records at their DNS provider in one step:
+
+```python
+link = client.connect_url(domain.id, redirect_uri="https://app.example/done", state="s-42")
+# send the customer to link.url; the result arrives as usual (poll or webhook)
+```
+
 ## Errors
 
 Every API error raises a subclass of `custom_domain.ApiError` with `status`,
 the stable `code` from the API, `message` and `details`:
 `AuthenticationError` (401), `PermissionDeniedError` (403), `NotFoundError`
 (404), `ConflictError` (409, for example `hostname_already_claimed`),
+`DomainConnectUnavailableError` (a `ConflictError` for `domain_connect_unavailable`),
 `ValidationError` (422, for example `apex_not_supported`), `RateLimitedError`
 (429, with `retry_after`), `ServerError` (5xx). `TransportError` means no HTTP
 response was received.

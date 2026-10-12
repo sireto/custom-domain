@@ -49,6 +49,33 @@
   </section>
 </div>
 
+<section class="panel" aria-labelledby="dc-h">
+  <div class="panel-head"><div><h2 id="dc-h">Domain Connect signer</h2><p>Signs the one-step setup links customers open at their DNS provider. Without a signer set here, the <code>DOMAIN_CONNECT_SIGNER</code> settings apply.</p></div></div>
+  <div class="panel-body"><dl class="kv">
+    <dt>Signer</dt><dd>{{ ui.badge(signer_state) }} <span class="muted small">{{ 'set here' if signer.source == 'operator' else 'from the settings' }}</span></dd>
+    {% if signer.source == 'operator' %}
+    <dt>Signing service</dt><dd><code>{{ signer.url }}</code></dd>
+    <dt>Credential</dt><dd>{% if signer.credential_prefix %}<code>{{ signer.credential_prefix }}…</code>{% else %}<span class="badge t-fail">not readable</span>{% endif %}</dd>
+    <dt>Template</dt><dd><code>{{ signer.provider_id }}/{{ signer.service_id }}</code></dd>
+    <dt>Set</dt><dd>{{ ui.when(signer.updated_at) }}</dd>
+    {% endif %}
+    {% if signer.problem %}<dt>Problem</dt><dd>{{ signer.problem }}</dd>{% endif %}
+  </dl></div>
+  <form method="post" action="/portal/edge/domain-connect"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="panel-body">
+      <h3>Use a remote signing service</h3>
+      <div class="field"><label for="dc_url">Signing service URL</label><input type="url" id="dc_url" name="url" class="mono" required maxlength="512" value="{{ signer.url or '' }}" autocapitalize="off" spellcheck="false"></div>
+      <div class="field"><label for="dc_credential">Credential</label><input type="password" id="dc_credential" name="credential" class="mono" required maxlength="64" autocomplete="off" aria-describedby="dc-cred-hint"><p class="hint" id="dc-cred-hint">Stored encrypted and never shown again.</p></div>
+      <div class="form-row">
+        <div class="grow field"><label for="dc_provider">Template provider id</label><input type="text" id="dc_provider" name="provider_id" class="mono" required maxlength="64" value="{{ signer.provider_id or '' }}" autocapitalize="off" spellcheck="false"></div>
+        <div class="grow field"><label for="dc_service">Template service id</label><input type="text" id="dc_service" name="service_id" class="mono" required maxlength="64" value="{{ signer.service_id or 'hostname' }}" autocapitalize="off" spellcheck="false"></div>
+      </div>
+      <div class="form-foot start"><button type="submit">Save signer</button></div>
+    </div>
+  </form>
+  {% if signer.source == 'operator' %}<div class="panel-foot">{{ ui.confirm('/portal/edge/domain-connect/reset', csrf, 'Use the settings instead', 'Forget the signer set here? The DOMAIN_CONNECT_SIGNER settings apply again.', button='Forget signer') }}</div>{% endif %}
+</section>
+
 {% if hostnames %}
 <section class="panel" aria-labelledby="served-h">
   <details class="more">

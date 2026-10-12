@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -57,8 +58,10 @@ class SetupSettings:
     provider but never reports the template as supported.
 
     ``signing_enabled`` is whether the service can sign Domain Connect apply
-    requests; ``setup.method`` is ``domain_connect`` only when it can. No
-    signer is configurable yet, so it stays off.
+    requests (``SignerSettings.enabled``); ``setup.method`` is
+    ``domain_connect`` only when it can. A signer set through the operator API
+    overrides both the template and this flag
+    (app/services/domain_connect.py, ``effective_setup_settings``).
 
     ``guide_url`` is the address of a provider's setup guide, with
     ``{provider}`` replaced by the provider id (or ``generic``).
@@ -95,5 +98,92 @@ class SetupSettings:
         return cls(
             template_provider_id=provider_id,
             template_service_id=service_id,
+            signing_enabled=bool(provider_id) and SignerSettings.from_env(env).enabled,
             guide_url=guide_url,
         )
+
+
+SIGNERS = ("local", "remote")
+
+
+@dataclass(frozen=True)
+class SignerSettings:
+    """``DOMAIN_CONNECT_SIGNER`` and its companions (docs/domain-connect.md).
+
+    * unset or ``none``: Domain Connect is off;
+    * ``local``: sign with ``DOMAIN_CONNECT_PRIVATE_KEY`` (or the file named by
+      ``DOMAIN_CONNECT_PRIVATE_KEY_FILE``) and ``DOMAIN_CONNECT_KEY_HOST``;
+    * ``remote``: ask the signing service at ``DOMAIN_CONNECT_SIGNER_URL``
+      with ``DOMAIN_CONNECT_SIGNER_CREDENTIAL``.
+
+    ``DOMAIN_CONNECT_RETURN_URL`` is where providers send the customer back
+    (``/v1/domain-connect/return`` on a public address of this service).
+
+    The key and the credential are kept out of ``repr`` and never logged.
+    The key is parsed here so a bad value stops the service at start.
+    """
+
+    signer: str | None = None
+    private_key: str | None = field(default=None, repr=False)
+    key_host: str | None = None
+    url: str | None = None
+    credential: str | None = field(default=None, repr=False)
+    return_url: str | None = None
+
+    @property
+    def enabled(self) -> bool:
+        if self.signer == "local":
+            return bool(self.private_key)
+        if self.signer == "remote":
+            return bool(self.url and self.credential)
+        return False
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> SignerSettings:
+        from app.dns.signing import CREDENTIAL, https_url_problem, parse_private_keys
+
+        env = os.environ if environ is None else environ
+        signer = env.get("DOMAIN_CONNECT_SIGNER", "").strip().lower() or None
+        if signer == "none":
+            signer = None
+        if signer is not None and signer not in SIGNERS:
+            raise ValueError("DOMAIN_CONNECT_SIGNER must be local, remote or none")
+        return_url = env.get("DOMAIN_CONNECT_RETURN_URL", "").strip() or None
+        if return_url is not None and https_url_problem(return_url):
+            raise ValueError("DOMAIN_CONNECT_RETURN_URL must be an https URL")
+        if signer == "local":
+            key = env.get("DOMAIN_CONNECT_PRIVATE_KEY", "").strip()
+            key_file = env.get("DOMAIN_CONNECT_PRIVATE_KEY_FILE", "").strip()
+            if key and key_file:
+                raise ValueError(
+                    "Set DOMAIN_CONNECT_PRIVATE_KEY or DOMAIN_CONNECT_PRIVATE_KEY_FILE, not both"
+                )
+            if key_file:
+                try:
+                    key = Path(key_file).read_text().strip()
+                except OSError as exc:
+                    raise ValueError(
+                        f"DOMAIN_CONNECT_PRIVATE_KEY_FILE cannot be read ({exc.strerror})"
+                    ) from None
+            if not key:
+                raise ValueError(
+                    "DOMAIN_CONNECT_SIGNER=local needs DOMAIN_CONNECT_PRIVATE_KEY "
+                    "or DOMAIN_CONNECT_PRIVATE_KEY_FILE"
+                )
+            key_host = env.get("DOMAIN_CONNECT_KEY_HOST", "").strip() or None
+            parse_private_keys(key, key_host)  # InvalidSigningKey is a ValueError
+            return cls(signer, private_key=key, key_host=key_host, return_url=return_url)
+        if signer == "remote":
+            url = env.get("DOMAIN_CONNECT_SIGNER_URL", "").strip()
+            credential = env.get("DOMAIN_CONNECT_SIGNER_CREDENTIAL", "").strip()
+            if not url or https_url_problem(url):
+                raise ValueError(
+                    "DOMAIN_CONNECT_SIGNER=remote needs an https DOMAIN_CONNECT_SIGNER_URL"
+                )
+            if not CREDENTIAL.match(credential):
+                raise ValueError(
+                    "DOMAIN_CONNECT_SIGNER=remote needs DOMAIN_CONNECT_SIGNER_CREDENTIAL "
+                    "(dcs_ followed by 43 characters)"
+                )
+            return cls(signer, url=url, credential=credential, return_url=return_url)
+        return cls(None, return_url=return_url)

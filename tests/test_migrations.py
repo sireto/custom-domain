@@ -91,3 +91,18 @@ def test_existing_credentials_keep_full_access_across_0013(engine, database_url)
         with engine.begin() as conn:
             conn.execute(Base.metadata.tables["api_credentials"].delete())
             conn.execute(applications.delete())
+
+
+def test_0015_adds_the_signer_table_and_connect_start(engine, database_url):
+    """0015 is additive: the previous release's tables and columns are untouched."""
+    migrate.downgrade(database_url, "0014")
+    try:
+        inspector = inspect(engine)
+        assert "domain_connect_signers" not in inspector.get_table_names()
+        assert "connect_started_at" not in {c["name"] for c in inspector.get_columns("domains")}
+    finally:
+        migrate.upgrade(database_url)
+    inspector = inspect(engine)
+    assert "domain_connect_signers" in inspector.get_table_names()
+    column = next(c for c in inspector.get_columns("domains") if c["name"] == "connect_started_at")
+    assert column["nullable"]

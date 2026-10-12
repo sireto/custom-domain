@@ -104,7 +104,10 @@ class Setup:
 
 
 def domain_setup(domain: Domain, settings: SetupSettings | None = None) -> Setup:
-    settings = settings or setup_settings()
+    if settings is None:
+        from app.services.domain_connect import settings_for
+
+        settings = settings_for(domain)
     zone_name = domain.zone or default_zone(domain.hostname)
     try:
         host = host_in_zone(domain.hostname, zone_name)
@@ -157,8 +160,20 @@ class ZoneDetector:
     ) -> None:
         self.session_factory = session_factory
         self.resolver = resolver
-        self.settings = settings or setup_settings()
+        # Given settings are used as they are (tests); otherwise each refresh
+        # reads the effective ones, so a signer or template set through the
+        # operator API applies without a restart.
+        self._settings = settings
         self.fetch = fetch
+
+    @property
+    def settings(self) -> SetupSettings:
+        if self._settings is not None:
+            return self._settings
+        from app.services.domain_connect import effective_setup_settings
+
+        with self.session_factory() as session:
+            return effective_setup_settings(session)
 
     def refresh(
         self, hostname: str, known_zone: str | None, *, now: datetime | None = None
@@ -169,8 +184,9 @@ class ZoneDetector:
         Returns None if detection itself broke; that is logged, never raised.
         """
         now = now or utcnow()
-        template = self.settings.template_key
         try:
+            settings = self.settings
+            template = settings.template_key
             if known_zone is not None and self._is_fresh(known_zone, now, template):
                 return known_zone
             lookup = find_zone(self.resolver, hostname)
@@ -179,8 +195,8 @@ class ZoneDetector:
             discovery = discover(
                 self.resolver,
                 lookup.zone,
-                provider_id=self.settings.template_provider_id or None,
-                service_id=self.settings.template_service_id,
+                provider_id=settings.template_provider_id or None,
+                service_id=settings.template_service_id,
                 fetch=self.fetch,
             )
             self._store(lookup, discovery, template, now)
@@ -256,7 +272,10 @@ def setup_counts(
     application; ``since`` to domains registered at or after that time.
     Domains not yet looked at are counted with provider and method None.
     """
-    settings = settings or setup_settings()
+    if settings is None:
+        from app.services.domain_connect import effective_setup_settings
+
+        settings = effective_setup_settings(session)
     query = (
         select(
             DnsZone.provider,

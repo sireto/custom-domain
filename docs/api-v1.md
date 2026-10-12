@@ -116,6 +116,52 @@ answering a request, and a failed lookup leaves the previous answer (or
 sign Domain Connect requests; on others, a provider that supports the
 template is reported as `guided`.
 
+### One-step setup (Domain Connect)
+
+When `setup.method` is `domain_connect`, `POST /v1/domains/{id}/connect`
+returns a signed apply URL at the customer's DNS provider. Send the customer
+there; they approve the two records in one step.
+
+```bash
+curl -X POST https://edge.example.net/v1/domains/$DOMAIN_ID/connect \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"redirect_uri": "https://app.example/settings/domains?done=1", "state": "s-42"}'
+```
+
+```json
+{
+  "url": "https://dash.cloudflare.com/domainconnect/v2/domainTemplates/providers/example.com/services/hostname/apply?domain=customer.example&host=forms&target=edge.example.net&token=...&redirect_uri=...&state=...&key=_dcpubkeyv1&sig=...",
+  "provider": {"id": "cloudflare", "name": "Cloudflare"},
+  "expires_at": "2026-09-25T15:00:00Z"
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `redirect_uri` (request, optional) | Where the provider sends the customer when they are done: `https`, with a host, no user name and no fragment, at most 512 bytes. It is part of a signed URL, so it is your responsibility: point it at a page of your own. |
+| `state` (request, optional) | Returned to `redirect_uri` unchanged, at most 512 bytes without control characters. The customer arrives with `error=access_denied` as well if they declined. |
+| `url` | The signed apply URL; `sig` is its last parameter. |
+| `provider` | The DNS provider it goes to. |
+| `expires_at` | Ask for a new URL after this time (an hour). |
+
+The request is a `POST`, so a read-only key is refused, and it is limited to
+10 links per domain and 120 per application per hour (`429 rate_limited`).
+It returns `409 domain_connect_unavailable` when `setup.method` is not
+`domain_connect`, when the domain is suspended or deleting, or when the
+signer refuses the domain (`details.reason`), and
+`503 domain_connect_signer_unavailable` when the signer cannot be reached
+(retry shortly).
+
+**Never trust the return.** Whatever the provider's redirect says, the
+service checks DNS itself: for 30 minutes after a link is issued the DNS
+checks run every 30 seconds, and when the deployment has a public address
+the customer passes through the service on the way back, which checks at
+once. The outcome arrives as usual, by polling the domain or by the
+`domain.ready` webhook. An application that handles the return itself and
+wants a check at a moment of its choosing calls
+`POST /v1/domains/{id}/checks`. How the deployment signs, the return address
+and the key are in [domain-connect.md](domain-connect.md).
+
 ## Endpoints
 
 | Method and path | Purpose | Success |
@@ -124,6 +170,7 @@ template is reported as `guided`.
 | `GET /v1/domains` | List domains; filter by `reference`, `status`, `include_deleted`; paginate with `limit` and `offset`. | `200` page |
 | `GET /v1/domains/{id}` | One domain with current checks. | `200` domain |
 | `POST /v1/domains/{id}/checks` | Ask for all checks to run again. | `202` domain |
+| `POST /v1/domains/{id}/connect` | A signed Domain Connect apply URL ([one-step setup](#one-step-setup-domain-connect)). | `200` `{url, provider, expires_at}` |
 | `DELETE /v1/domains/{id}` | Stop serving, revoke ownership, tombstone. | `202` domain |
 
 ### Register
@@ -284,13 +331,15 @@ Every error has the same body:
 | 404 | `domain_not_found` | No such domain in the calling application, including domains of other applications and deleted domains without `include_deleted`. |
 | 409 | `hostname_already_claimed` | The hostname is live in this or another application. |
 | 409 | `domain_limit_reached` | The application or the whole deployment already has as many live domains as its limit allows. `details` gives `scope` (`application` or `deployment`), `limit` and `live`. Domains already registered keep working; delete one or ask the operator to raise the limit. |
+| 409 | `domain_connect_unavailable` | One-step setup cannot be offered for this domain: `setup.method` is not `domain_connect` (`details.method`), the domain is suspended or deleting (`details.status`), or the signer refused it (`details.reason`). Follow `setup.guide_url` instead. |
+| 503 | `domain_connect_signer_unavailable` | The Domain Connect signer could not be reached or answered badly (`details.reason`). Retry shortly. |
 | 409 | `invalid_status_transition` | The operation does not apply to the domain's current status (for example rechecking a deleted domain). |
 | 409 | `idempotency_request_in_progress` | The original request with this key has not finished. |
 | 422 | `validation_error` | Body or query does not match the schema. `details.errors` lists locations. Unknown fields such as `upstream` are rejected. |
 | 422 | `empty_hostname`, `wildcard_not_supported`, `ip_literal_not_supported`, `hostname_too_long`, `invalid_label`, `apex_not_supported`, `invalid_hostname` | The hostname cannot be registered. `details.field` is `hostname`. |
 | 422 | `invalid_reference` | The reference is empty or longer than 255 characters. |
 | 422 | `idempotency_key_reused` | The key was used with a different body within the last 24 hours. |
-| 429 | `rate_limited` | Too many manual rechecks for this domain or application, too many requests with an invalid credential from the client's address (`V1_AUTH_FAILURES_PER_MINUTE`, default 30 a minute), or more requests with this credential than the deployment allows (`V1_REQUESTS_PER_MINUTE`, off by default; counted per credential in any 60 seconds). `Retry-After` says how long to wait. |
+| 429 | `rate_limited` | Too many manual rechecks or Domain Connect links for this domain or application, too many requests with an invalid credential from the client's address (`V1_AUTH_FAILURES_PER_MINUTE`, default 30 a minute), or more requests with this credential than the deployment allows (`V1_REQUESTS_PER_MINUTE`, off by default; counted per credential in any 60 seconds). `Retry-After` says how long to wait. |
 | 403 | `application_suspended` | The application was suspended while the request ran. |
 | 403 | `credential_read_only` | The credential has the `read` scope and the request is not a `GET` or `HEAD`. Nothing was changed. `details` gives `scope` and `method`. Use a `full` credential for changes. |
 

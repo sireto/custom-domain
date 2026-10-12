@@ -475,6 +475,79 @@
         "title": "CheckType",
         "type": "string"
       },
+      "ConnectRequest": {
+        "additionalProperties": false,
+        "description": "Ask for a signed Domain Connect apply URL for one domain.",
+        "properties": {
+          "redirect_uri": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the DNS provider sends the customer when they are done: an https URL with a host, no user name and no fragment, at most 512 bytes. It ends up in the signed URL, so it is the application's responsibility; point it at a page of your own. The customer arrives there with your `state` (and `error=access_denied` if they declined).",
+            "examples": [
+              "https://app.example/settings/domains?done=1"
+            ],
+            "title": "Redirect Uri"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque value returned to `redirect_uri` unchanged, at most 512 bytes without control characters.",
+            "examples": [
+              "c2Vzc2lvbi00Mg"
+            ],
+            "title": "State"
+          }
+        },
+        "title": "ConnectRequest",
+        "type": "object"
+      },
+      "ConnectResource": {
+        "properties": {
+          "expires_at": {
+            "description": "Ask for a new URL after this time. The DNS records in it stay valid as long as the domain's records do.",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SetupProvider"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The DNS provider the URL goes to."
+          },
+          "url": {
+            "description": "The signed apply URL at the customer's DNS provider. Send the customer there (a link or a redirect); they approve the two records in one step.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "provider",
+          "expires_at"
+        ],
+        "title": "ConnectResource",
+        "type": "object"
+      },
       "CredentialCreate": {
         "additionalProperties": false,
         "properties": {
@@ -920,6 +993,138 @@
           "findings"
         ],
         "title": "DoctorReport",
+        "type": "object"
+      },
+      "DomainConnectSignerResource": {
+        "properties": {
+          "credential_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The first 12 characters of the credential set here; null when none is set here or it can no longer be decrypted.",
+            "title": "Credential Prefix"
+          },
+          "provider_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Id"
+          },
+          "service_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Id"
+          },
+          "signer": {
+            "anyOf": [
+              {
+                "enum": [
+                  "local",
+                  "remote"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The signer in effect; null when Domain Connect is off.",
+            "title": "Signer"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The remote signer set here; null otherwise.",
+            "title": "Url"
+          }
+        },
+        "required": [
+          "signer",
+          "url",
+          "credential_prefix",
+          "provider_id",
+          "service_id",
+          "updated_at"
+        ],
+        "title": "DomainConnectSignerResource",
+        "type": "object"
+      },
+      "DomainConnectSignerSet": {
+        "additionalProperties": false,
+        "properties": {
+          "credential": {
+            "description": "The credential the signing service issued, `dcs_` and 43 letters, digits, `-` or `_`. Stored encrypted and never returned.",
+            "maxLength": 64,
+            "title": "Credential",
+            "type": "string"
+          },
+          "provider_id": {
+            "description": "The template's `providerId`.",
+            "maxLength": 64,
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "service_id": {
+            "description": "The template's `serviceId`.",
+            "maxLength": 64,
+            "title": "Service Id",
+            "type": "string"
+          },
+          "signer": {
+            "const": "remote",
+            "description": "Only `remote` can be set here; a local key is a setting (`DOMAIN_CONNECT_SIGNER=local`).",
+            "title": "Signer",
+            "type": "string"
+          },
+          "url": {
+            "description": "The signing service: an https URL.",
+            "maxLength": 512,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signer",
+          "url",
+          "credential",
+          "provider_id",
+          "service_id"
+        ],
+        "title": "DomainConnectSignerSet",
         "type": "object"
       },
       "DomainCreate": {
@@ -4454,6 +4659,243 @@
         ]
       }
     },
+    "/operator/v1/domain-connect/signer": {
+      "delete": {
+        "description": "The `DOMAIN_CONNECT_SIGNER*` settings apply again. Answers the new state.",
+        "operationId": "delete_domain_connect_signer_operator_v1_domain_connect_signer_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainConnectSignerResource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or wrong operator token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client address may not use it."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or the operator API is off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many failed tokens from this client."
+          }
+        },
+        "security": [
+          {
+            "OperatorToken": []
+          }
+        ],
+        "summary": "Remove the Domain Connect signer set here",
+        "tags": [
+          "Operator"
+        ]
+      },
+      "get": {
+        "description": "The signer that signs Domain Connect apply URLs. Without one set here, `signer` is the deployment's own setting (`local`, `remote` or null) and the other fields are null. Never includes the credential: `credential_prefix` is its first 12 characters.",
+        "operationId": "get_domain_connect_signer_operator_v1_domain_connect_signer_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainConnectSignerResource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or wrong operator token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client address may not use it."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or the operator API is off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many failed tokens from this client."
+          }
+        },
+        "security": [
+          {
+            "OperatorToken": []
+          }
+        ],
+        "summary": "Show the Domain Connect signer",
+        "tags": [
+          "Operator"
+        ]
+      },
+      "put": {
+        "description": "Signs apply URLs with the signing service at `url`, overriding the `DOMAIN_CONNECT_SIGNER*` settings and the template ids until it is replaced or removed. The credential is stored encrypted with `SERVICE_SECRET_KEY` (`503 service_secret_key_missing` without it), never logged and never returned. The switch is atomic: every signing request after this answer uses the new values.",
+        "operationId": "put_domain_connect_signer_operator_v1_domain_connect_signer_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DomainConnectSignerSet"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainConnectSignerResource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or wrong operator token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client address may not use it."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or the operator API is off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many failed tokens from this client."
+          }
+        },
+        "security": [
+          {
+            "OperatorToken": []
+          }
+        ],
+        "summary": "Set a remote Domain Connect signer",
+        "tags": [
+          "Operator"
+        ]
+      }
+    },
     "/operator/v1/token": {
       "put": {
         "description": "Sets a new operator token, effective at once on every API instance. Only its SHA-256 is stored, and the previous token (including `OPERATOR_API_TOKEN`) stops working. Use it to retire a token that was handed out at install time. `custom-domain operator reset-token` on the host makes `OPERATOR_API_TOKEN` valid again.",
@@ -5764,6 +6206,201 @@
           }
         ],
         "summary": "Request a recheck",
+        "tags": [
+          "Domains"
+        ]
+      }
+    },
+    "/v1/domains/{domain_id}/connect": {
+      "post": {
+        "description": "Returns a signed Domain Connect apply URL for a domain whose `setup.method` is `domain_connect`. Send the customer to it: their DNS provider shows the two records and applies them when the customer approves. Otherwise the response is `409 domain_connect_unavailable`; follow `setup.guide_url` instead.\n\nNever trust the return: whatever the provider redirects with, the service checks DNS itself. For 30 minutes after the link is issued the DNS checks run every 30 seconds; when the customer comes back through this service's return address they run at once. The outcome arrives as usual, by polling the domain or by webhook. An application that wants a check at a moment of its choosing calls `POST /v1/domains/{domain_id}/checks`.\n\nLimited to 10 links per domain and 120 per application per hour (`429 rate_limited`). The signer may refuse a domain (`409 domain_connect_unavailable` with `details.reason`) or be unreachable (`503 domain_connect_signer_unavailable`; retry shortly).",
+        "operationId": "connect_domain_v1_domains__domain_id__connect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Domain Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "return": {
+                  "summary": "Come back to the application",
+                  "value": {
+                    "redirect_uri": "https://app.example/settings/domains?done=1",
+                    "state": "c2Vzc2lvbi00Mg"
+                  }
+                }
+              },
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "expires_at": "2026-09-25T15:00:00Z",
+                  "provider": {
+                    "id": "cloudflare",
+                    "name": "Cloudflare"
+                  },
+                  "url": "https://dash.cloudflare.com/domainconnect/v2/domainTemplates/providers/provider.example/services/hostname/apply?domain=customer.example&host=forms&target=edge.example.net&token=Qm9vayBvZiB0aGUgZGVhZA&redirect_uri=https%3A%2F%2Fedge.example.net%2Fv1%2Fdomain-connect%2Freturn&state=eyJkIjoi...&key=_dcpubkeyv1&sig=V2te9zWMU7G3plxBTsmYSJTvn2vz...%3D%3D"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectResource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "unauthorized",
+                    "details": {},
+                    "message": "A valid application credential is required"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid, revoked or expired credential."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The application is suspended, or a read-only credential (`credential_read_only`) made a request other than GET or HEAD."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "domain_connect_unavailable",
+                    "details": {
+                      "method": "guided"
+                    },
+                    "message": "One-step setup is not available for this domain; use setup.guide_url"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "One-step setup is not available for this domain."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "rate_limited",
+                    "details": {
+                      "retry_after_seconds": 42
+                    },
+                    "message": "This domain was rechecked less than 60 seconds ago"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many links; wait for `Retry-After` seconds.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "domain_connect_signer_unavailable",
+                    "details": {
+                      "reason": "signer_timeout"
+                    },
+                    "message": "The Domain Connect signer is unavailable; try again shortly"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The signer could not be reached; retry shortly."
+          }
+        },
+        "security": [
+          {
+            "ApplicationCredential": []
+          }
+        ],
+        "summary": "Get a one-step setup link (Domain Connect)",
         "tags": [
           "Domains"
         ]
