@@ -1,6 +1,6 @@
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 
 from app.db import migrate
 from app.db.base import Base
@@ -106,3 +106,25 @@ def test_0015_adds_the_signer_table_and_connect_start(engine, database_url):
     assert "domain_connect_signers" in inspector.get_table_names()
     column = next(c for c in inspector.get_columns("domains") if c["name"] == "connect_started_at")
     assert column["nullable"]
+
+
+def test_0016_adds_connect_sessions(engine, database_url):
+    """0016 only adds a table; downgrading removes it and nothing else."""
+    migrate.downgrade(database_url, "0015")
+    try:
+        inspector = inspect(engine)
+        assert "connect_sessions" not in inspector.get_table_names()
+        assert "domain_connect_signers" in inspector.get_table_names()
+    finally:
+        migrate.upgrade(database_url)
+    with engine.connect() as conn:
+        # A statement first, so a pooled SQLite connection reloads the schema
+        # (its PRAGMAs read the cached one).
+        assert conn.execute(text("SELECT COUNT(*) FROM connect_sessions")).scalar() == 0
+        inspector = inspect(conn)
+        assert "token_hash" in {c["name"] for c in inspector.get_columns("connect_sessions")}
+        foreign = {
+            fk["referred_table"]: fk["options"].get("ondelete")
+            for fk in inspector.get_foreign_keys("connect_sessions")
+        }
+    assert foreign == {"applications": "CASCADE", "domains": "CASCADE"}

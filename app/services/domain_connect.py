@@ -417,6 +417,7 @@ def prepare_connect(
     redirect_uri: str | None = None,
     state: str | None = None,
     return_url: str | None = None,
+    private_redirect: bool = False,
     now: datetime | None = None,
 ) -> ConnectPlan:
     """Check that the domain can be connected and build the query to sign. Reads only.
@@ -425,6 +426,10 @@ def prepare_connect(
     customer back to it with a sealed state naming the domain, the
     application's ``redirect_uri`` and ``state`` and an expiry; otherwise
     ``redirect_uri`` and ``state`` go to the provider as given.
+
+    ``private_redirect``: ``redirect_uri`` holds a secret (the setup page's
+    own address, with its token). It is then encrypted inside the sealed
+    state, which the provider sees, and never sent without a return address.
     """
     from app.services.dns_setup import DOMAIN_CONNECT, domain_setup
     from app.services.domains import get_domain
@@ -459,18 +464,15 @@ def prepare_connect(
         ("token", claim.token),
     ]
     if return_url and secret_box.available():
-        sealed = secret_box.seal(
-            {
-                "d": str(domain.id),
-                "e": int(expires_at.timestamp()),
-                "r": redirect_uri,
-                "s": state,
-            },
-            STATE_PURPOSE,
-        )
+        payload = {"d": str(domain.id), "e": int(expires_at.timestamp()), "s": state}
+        if private_redirect and redirect_uri is not None:
+            payload["x"] = secret_box.encrypt(redirect_uri, STATE_PURPOSE)
+        else:
+            payload["r"] = redirect_uri
+        sealed = secret_box.seal(payload, STATE_PURPOSE)
         params += [("redirect_uri", return_url), ("state", sealed)]
     else:
-        if redirect_uri is not None:
+        if redirect_uri is not None and not private_redirect:
             params.append(("redirect_uri", redirect_uri))
         if state is not None:
             params.append(("state", state))
@@ -602,6 +604,11 @@ def open_return_state(value: str, *, now: datetime | None = None) -> Return | No
     except (KeyError, TypeError, ValueError):
         return None
     redirect_uri = data.get("r") if isinstance(data.get("r"), str) else None
+    if isinstance(data.get("x"), str):
+        try:
+            redirect_uri = secret_box.decrypt(data["x"], STATE_PURPOSE)
+        except secret_box.Undecryptable:
+            redirect_uri = None
     state = data.get("s") if isinstance(data.get("s"), str) else None
     now = now or utcnow()
     return Return(domain_id, redirect_uri, state, now.timestamp() > expires)

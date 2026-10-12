@@ -1,6 +1,7 @@
 """ORM models. Importing this package registers every table on ``Base.metadata``."""
 
 from app.models.application import ApiCredential, Application, AssertionKey, VerifiedOrigin
+from app.models.connect_session import ConnectSession
 from app.models.domain import DnsZone, Domain, DomainCheck, DomainEvent, OwnershipClaim
 from app.models.domain_connect import DomainConnectSigner
 from app.models.edge import EdgeLock
@@ -29,6 +30,7 @@ __all__ = [
     "CheckStatus",
     "CheckType",
     "ClaimStatus",
+    "ConnectSession",
     "CredentialScope",
     "DnsZone",
     "Domain",

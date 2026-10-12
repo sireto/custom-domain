@@ -77,6 +77,16 @@ link = client.connect_url(domain.id, redirect_uri="https://app.example/done", st
 # send the customer to link.url; the result arrives as usual (poll or webhook)
 ```
 
+Or send the customer to the service's own setup page for the domain, which
+shows the records, the live checks and the one-step button when there is one:
+
+```python
+page = client.connect_session(domain.id, app_name="Acme Forms",
+                              return_url="https://app.example/settings/domains")
+# send the customer to page.url (valid 24 hours by default, for this domain only)
+client.revoke_connect_session(domain.id, page.id)  # to end it early
+```
+
 ## Errors
 
 Every API error raises a subclass of `custom_domain.ApiError` with `status`,

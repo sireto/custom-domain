@@ -212,6 +212,21 @@ ERRORS = {
             "details": {"reason": "signer_timeout"},
         }
     },
+    "connect_page_unavailable": {
+        "error": {
+            "code": "connect_page_unavailable",
+            "message": "This deployment serves no setup page: it needs PUBLIC_API=true and "
+            "EDGE_HOSTNAME",
+            "details": {},
+        }
+    },
+    "connect_session_not_found": {
+        "error": {
+            "code": "connect_session_not_found",
+            "message": "No such connect session for this domain",
+            "details": {},
+        }
+    },
     "idempotency_key_reused": {
         "error": {
             "code": "idempotency_key_reused",
@@ -234,6 +249,19 @@ CONNECT = {
     "&state=eyJkIjoi...&key=_dcpubkeyv1&sig=V2te9zWMU7G3plxBTsmYSJTvn2vz...%3D%3D",
     "provider": {"id": "cloudflare", "name": "Cloudflare"},
     "expires_at": "2026-09-25T15:00:00Z",
+}
+
+CONNECT_SESSION_REQUEST = {
+    "ttl_seconds": 3600,
+    "app_name": "Acme Forms",
+    "return_url": "https://app.example/settings/domains",
+}
+
+CONNECT_SESSION = {
+    "id": "3d9e8f71-2c4b-4a5d-9e6f-7a8b9c0d1e2f",
+    "url": "https://edge.example.net/connect/q3Zl0bS8n1cJ2xVvYw4R6tE9uI7oP5aSdFgHjKlZxC0",
+    "expires_at": "2026-09-25T15:00:00Z",
+    "created_at": "2026-09-25T14:00:00Z",
 }
 
 WEBHOOK_READY = {

@@ -279,7 +279,9 @@ With `PUBLIC_API=true` (the installer's default for new installations), the
 edge serves the v1 API at `https://<edge name>/v1` on each of its own names,
 so an application's backend anywhere on the internet calls
 `https://edge.example.net/v1/...` with its credential and needs no reverse
-proxy of your own. Nothing else of the management API is routed: `/internal`
+proxy of your own. The same route serves the customers' setup pages,
+`https://<edge name>/connect/<token>` ([api-v1.md](api-v1.md#setup-page)); each
+needs the token of a connect session. Nothing else of the management API is routed: `/internal`
 (the edge-only endpoints), `/portal` (which has its own allowlisted route),
 `/metrics` and the legacy `/domains` API stay unreachable from outside, and
 customer hostnames never expose the API. Every v1 call requires an

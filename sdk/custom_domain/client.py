@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 
 from custom_domain.errors import RateLimitedError, TransportError, error_for
-from custom_domain.models import ConnectUrl, Delivery, Domain, Page, Webhook
+from custom_domain.models import ConnectSession, ConnectUrl, Delivery, Domain, Page, Webhook
 
 DEFAULT_TIMEOUT = 10.0
 DEFAULT_MAX_RETRIES = 2
@@ -213,6 +213,41 @@ class Client:
             "POST", f"/v1/domains/{domain_id}/connect", json=body, retryable=False
         )
         return ConnectUrl.from_dict(response.json())
+
+    def connect_session(
+        self,
+        domain_id: str | uuid.UUID,
+        *,
+        ttl_seconds: int | None = None,
+        app_name: str | None = None,
+        return_url: str | None = None,
+    ) -> ConnectSession:
+        """A link to the setup page for one domain, to send to the customer.
+
+        The page shows the DNS records, the live checks and, when the provider
+        supports it, one-step setup. ``ttl_seconds`` is 300 to 86400 (default
+        24 hours); ``app_name`` and ``return_url`` add "Back to <app_name>".
+        Not retried: links are rate limited server side.
+        """
+        body: dict[str, Any] = {}
+        if ttl_seconds is not None:
+            body["ttl_seconds"] = ttl_seconds
+        if app_name is not None:
+            body["app_name"] = app_name
+        if return_url is not None:
+            body["return_url"] = return_url
+        response = self._request(
+            "POST", f"/v1/domains/{domain_id}/connect-session", json=body, retryable=False
+        )
+        return ConnectSession.from_dict(response.json())
+
+    def revoke_connect_session(
+        self, domain_id: str | uuid.UUID, session_id: str | uuid.UUID
+    ) -> None:
+        """End a setup page link now. Revoking it again is a no-op."""
+        self._request(
+            "DELETE", f"/v1/domains/{domain_id}/connect-session/{session_id}", retryable=True
+        )
 
     def delete_domain(self, domain_id: str | uuid.UUID) -> Domain:
         response = self._request("DELETE", f"/v1/domains/{domain_id}", retryable=True)

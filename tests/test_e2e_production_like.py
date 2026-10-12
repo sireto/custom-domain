@@ -398,10 +398,24 @@ def test_two_applications_serve_the_right_workspaces_over_https(
             "/v1/..%2finternal/tls/ask?domain=x",
             "/v1%2f..%2finternal/tls/ask?domain=x",
             "/V1/../internal/edge/origins",
+            # Nor through the setup page's route.
+            "/connect/../internal/tls/ask?domain=x",
+            "/connect/x/../../internal/edge/origins",
+            "/connect/%2e%2e/internal/tls/ask?domain=x",
+            "/connect/..%2finternal/edge/origins",
         ):
             status, body = https_get("bc.edge.localtest.me", https_port, path, str(ca_file))
             assert status == 404, path
             assert "approved" not in body and "upstreams" not in body, path
+        # The setup page is served by the API on the edge's names, and nowhere else.
+        status, body = https_get(
+            "bc.edge.localtest.me", https_port, "/connect/" + "A" * 43, str(ca_file)
+        )
+        assert status == 404 and "Link not valid" in body
+        status, body = https_get(
+            "alpha.customer.example", https_port, "/connect/" + "A" * 43, str(ca_file)
+        )
+        assert "Link not valid" not in body
         # Customer hostnames do not expose the API.
         status, body = https_get(
             "one.other-customer.example", https_port, "/v1/domains", str(ca_file), headers=auth

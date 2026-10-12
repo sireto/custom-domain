@@ -214,6 +214,63 @@ class ConnectResource(BaseModel):
     )
 
 
+class ConnectSessionRequest(BaseModel):
+    """Ask for a link to the setup page for one domain."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ttl_seconds: int | None = Field(
+        default=None,
+        ge=300,
+        le=86400,
+        description="How long the link works, in seconds: 300 to 86400. Default 86400 (24 hours).",
+        examples=[3600],
+    )
+    app_name: str | None = Field(
+        default=None,
+        max_length=64,
+        description='Your application\'s name, shown on the page as "Back to <app_name>" '
+        "when `return_url` is set. At most 64 characters without control characters.",
+        examples=["Acme Forms"],
+    )
+    return_url: str | None = Field(
+        default=None,
+        max_length=512,
+        description='Where "Back to <app_name>" goes: an https URL with a host, no user name '
+        "and no fragment, at most 512 bytes.",
+        examples=["https://app.example/settings/domains"],
+    )
+
+    @field_validator("app_name")
+    @classmethod
+    def _name(cls, value: str | None) -> str | None:
+        from app.services.connect_sessions import app_name_problem
+
+        if value is not None and (problem := app_name_problem(value)):
+            raise ValueError(f"app_name {problem}")
+        return value
+
+    @field_validator("return_url")
+    @classmethod
+    def _https(cls, value: str | None) -> str | None:
+        from app.services.domain_connect import redirect_uri_problem
+
+        if value is not None and (problem := redirect_uri_problem(value)):
+            raise ValueError(f"return_url {problem}")
+        return value
+
+
+class ConnectSessionResource(BaseModel):
+    id: uuid.UUID = Field(description="The session's id, to revoke it.")
+    url: str = Field(
+        description="The setup page for the customer: `https://<edge hostname>/connect/<token>`. "
+        "Anyone with it can see the domain's setup and status, ask for a check and start "
+        "one-step setup, so send it only to the customer. It is shown only in this response."
+    )
+    expires_at: datetime = Field(description="The link stops working after this time.")
+    created_at: datetime
+
+
 class ErrorBody(BaseModel):
     code: str = Field(examples=["hostname_already_claimed"])
     message: str

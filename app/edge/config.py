@@ -370,15 +370,18 @@ def allowlisted_routes_for(
 
 
 API_PATHS = ["/v1", "/v1/*"]
+# The customer's setup page (app/connect/page.py): its token is its credential.
+CONNECT_PATHS = ["/connect/*"]
 
 
 def api_route(settings: EdgeSettings, hosts: list[str]) -> list[dict[str, Any]]:
-    """The v1 API on the edge's own names, when ``PUBLIC_API`` is on.
+    """The v1 API and the setup page on the edge's own names, when ``PUBLIC_API`` is on.
 
-    Only ``/v1`` is routed: the internal endpoints, the portal (which has its
-    own allowlisted routes) and the legacy API stay unreachable through the
-    edge. Every v1 call needs an application credential; the edge-only
-    headers are stripped so a client cannot pass them to the API.
+    Only ``/v1`` and ``/connect/*`` are routed: the internal endpoints, the
+    portal (which has its own allowlisted routes) and the legacy API stay
+    unreachable through the edge. Every v1 call needs an application
+    credential and every setup page a connect token; the edge-only headers
+    are stripped so a client cannot pass them to the API.
     """
     return api_route_for(hosts, settings.assert_upstream) if settings.public_api else []
 
@@ -390,7 +393,7 @@ def api_route_for(hosts: list[str], upstream: str) -> list[dict[str, Any]]:
     return [
         {
             "@id": "api",
-            "match": [{"host": list(hosts), "path": list(API_PATHS)}],
+            "match": [{"host": list(hosts), "path": [*API_PATHS, *CONNECT_PATHS]}],
             "handle": [
                 {"handler": "headers", "request": {"delete": list(STRIPPED_REQUEST_HEADERS)}},
                 {

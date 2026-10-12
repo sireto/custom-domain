@@ -129,6 +129,18 @@ class InvalidSignerConfig(ServiceError):
     code = "invalid_signer_config"
 
 
+class ConnectPageUnavailable(ServiceError):
+    """The deployment serves no setup page: it needs ``PUBLIC_API`` and ``EDGE_HOSTNAME``."""
+
+    code = "connect_page_unavailable"
+
+
+class ConnectSessionNotFound(ServiceError):
+    """No such connect session for this domain of the calling application."""
+
+    code = "connect_session_not_found"
+
+
 class RateLimited(ServiceError):
     code = "rate_limited"
 

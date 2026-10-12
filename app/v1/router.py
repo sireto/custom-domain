@@ -15,6 +15,8 @@ from app.v1.deps import CurrentApplication, DbSession
 from app.v1.schemas import (
     ConnectRequest,
     ConnectResource,
+    ConnectSessionRequest,
+    ConnectSessionResource,
     DomainCreate,
     DomainPage,
     DomainResource,
@@ -414,6 +416,118 @@ def connect_domain(
         ),
         expires_at=issued.expires_at,
     )
+
+
+@router.post(
+    "/domains/{domain_id}/connect-session",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ConnectSessionResource,
+    summary="Get a link to the setup page",
+    description=(
+        "Returns a link to a page, served by this service on its edge hostname, where the "
+        "customer sets up the domain: its two DNS records with values ready to copy, the "
+        "detected DNS provider and its guide, the live state of every check, a **Check now** "
+        "button and, when `setup.method` is `domain_connect`, a button that applies the "
+        "records at the provider in one step. Send the customer the link; your application "
+        "needs no setup screen of its own and the customer's browser never sees your API "
+        "key.\n\n"
+        "The link holds a random token that works for this domain only. It expires after "
+        "`ttl_seconds` (24 hours by default) or when it is revoked with "
+        "`DELETE /v1/domains/{domain_id}/connect-session/{session_id}`. It is shown only in "
+        "this response: the service stores a hash of the token.\n\n"
+        "Limited to 20 links per domain and 600 per application per hour "
+        "(`429 rate_limited`). The deployment must serve its public paths on the edge "
+        "(`PUBLIC_API=true` and `EDGE_HOSTNAME`); otherwise the response is "
+        "`409 connect_page_unavailable`."
+    ),
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": examples.example(
+                        "named", examples.CONNECT_SESSION_REQUEST, "With a way back to the app"
+                    )
+                }
+            },
+            "required": False,
+        }
+    },
+    responses={
+        201: {"content": {"application/json": {"example": examples.CONNECT_SESSION}}},
+        404: {"model": ErrorResponse},
+        409: {
+            "model": ErrorResponse,
+            "description": "This deployment does not serve the setup page.",
+            "content": {
+                "application/json": {"example": examples.ERRORS["connect_page_unavailable"]}
+            },
+        },
+        429: {
+            "model": ErrorResponse,
+            "description": "Too many links; wait for `Retry-After` seconds.",
+            "headers": {"Retry-After": {"schema": {"type": "integer"}}},
+            "content": {"application/json": {"example": examples.ERRORS["rate_limited"]}},
+        },
+    },
+)
+def create_connect_session(
+    domain_id: uuid.UUID,
+    application: CurrentApplication,
+    db: DbSession,
+    request: Request,
+    payload: ConnectSessionRequest | None = None,
+) -> ConnectSessionResource:
+    from app.services import connect_sessions
+
+    payload = payload or ConnectSessionRequest()
+    created = connect_sessions.create_session(
+        db,
+        application,
+        domain_id,
+        base_url=connect_sessions.page_base_url(getattr(request.app.state, "edge_settings", None)),
+        ttl_seconds=payload.ttl_seconds,
+        app_name=payload.app_name,
+        return_url=payload.return_url,
+    )
+    db.commit()
+    return ConnectSessionResource(
+        id=created.session.id,
+        url=created.url,
+        expires_at=created.session.expires_at,
+        created_at=created.session.created_at,
+    )
+
+
+@router.delete(
+    "/domains/{domain_id}/connect-session/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke a setup page link",
+    description=(
+        "Ends a connect session at once: its link shows the same not-found page as a link "
+        "that never existed. Revoking a session that was already revoked or has expired "
+        "succeeds and changes nothing."
+    ),
+    responses={
+        404: {
+            "model": ErrorResponse,
+            "description": "No such domain, or no such session for this domain.",
+            "content": {
+                "application/json": {"example": examples.ERRORS["connect_session_not_found"]}
+            },
+        },
+    },
+)
+def revoke_connect_session(
+    domain_id: uuid.UUID,
+    session_id: uuid.UUID,
+    application: CurrentApplication,
+    db: DbSession,
+) -> Response:
+    from app.services import connect_sessions
+
+    connect_sessions.revoke_session(db, application, domain_id, session_id)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete(

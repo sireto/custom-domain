@@ -548,6 +548,97 @@
         "title": "ConnectResource",
         "type": "object"
       },
+      "ConnectSessionRequest": {
+        "additionalProperties": false,
+        "description": "Ask for a link to the setup page for one domain.",
+        "properties": {
+          "app_name": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Your application's name, shown on the page as \"Back to <app_name>\" when `return_url` is set. At most 64 characters without control characters.",
+            "examples": [
+              "Acme Forms"
+            ],
+            "title": "App Name"
+          },
+          "return_url": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where \"Back to <app_name>\" goes: an https URL with a host, no user name and no fragment, at most 512 bytes.",
+            "examples": [
+              "https://app.example/settings/domains"
+            ],
+            "title": "Return Url"
+          },
+          "ttl_seconds": {
+            "anyOf": [
+              {
+                "maximum": 86400.0,
+                "minimum": 300.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How long the link works, in seconds: 300 to 86400. Default 86400 (24 hours).",
+            "examples": [
+              3600
+            ],
+            "title": "Ttl Seconds"
+          }
+        },
+        "title": "ConnectSessionRequest",
+        "type": "object"
+      },
+      "ConnectSessionResource": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "The link stops working after this time.",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The session's id, to revoke it.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "url": {
+            "description": "The setup page for the customer: `https://<edge hostname>/connect/<token>`. Anyone with it can see the domain's setup and status, ask for a check and start one-step setup, so send it only to the customer. It is shown only in this response.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "expires_at",
+          "created_at"
+        ],
+        "title": "ConnectSessionResource",
+        "type": "object"
+      },
       "CredentialCreate": {
         "additionalProperties": false,
         "properties": {
@@ -6401,6 +6492,302 @@
           }
         ],
         "summary": "Get a one-step setup link (Domain Connect)",
+        "tags": [
+          "Domains"
+        ]
+      }
+    },
+    "/v1/domains/{domain_id}/connect-session": {
+      "post": {
+        "description": "Returns a link to a page, served by this service on its edge hostname, where the customer sets up the domain: its two DNS records with values ready to copy, the detected DNS provider and its guide, the live state of every check, a **Check now** button and, when `setup.method` is `domain_connect`, a button that applies the records at the provider in one step. Send the customer the link; your application needs no setup screen of its own and the customer's browser never sees your API key.\n\nThe link holds a random token that works for this domain only. It expires after `ttl_seconds` (24 hours by default) or when it is revoked with `DELETE /v1/domains/{domain_id}/connect-session/{session_id}`. It is shown only in this response: the service stores a hash of the token.\n\nLimited to 20 links per domain and 600 per application per hour (`429 rate_limited`). The deployment must serve its public paths on the edge (`PUBLIC_API=true` and `EDGE_HOSTNAME`); otherwise the response is `409 connect_page_unavailable`.",
+        "operationId": "create_connect_session_v1_domains__domain_id__connect_session_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Domain Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "named": {
+                  "summary": "With a way back to the app",
+                  "value": {
+                    "app_name": "Acme Forms",
+                    "return_url": "https://app.example/settings/domains",
+                    "ttl_seconds": 3600
+                  }
+                }
+              },
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectSessionRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "created_at": "2026-09-25T14:00:00Z",
+                  "expires_at": "2026-09-25T15:00:00Z",
+                  "id": "3d9e8f71-2c4b-4a5d-9e6f-7a8b9c0d1e2f",
+                  "url": "https://edge.example.net/connect/q3Zl0bS8n1cJ2xVvYw4R6tE9uI7oP5aSdFgHjKlZxC0"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectSessionResource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "unauthorized",
+                    "details": {},
+                    "message": "A valid application credential is required"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid, revoked or expired credential."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The application is suspended, or a read-only credential (`credential_read_only`) made a request other than GET or HEAD."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "connect_page_unavailable",
+                    "details": {},
+                    "message": "This deployment serves no setup page: it needs PUBLIC_API=true and EDGE_HOSTNAME"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "This deployment does not serve the setup page."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "rate_limited",
+                    "details": {
+                      "retry_after_seconds": 42
+                    },
+                    "message": "This domain was rechecked less than 60 seconds ago"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many links; wait for `Retry-After` seconds.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApplicationCredential": []
+          }
+        ],
+        "summary": "Get a link to the setup page",
+        "tags": [
+          "Domains"
+        ]
+      }
+    },
+    "/v1/domains/{domain_id}/connect-session/{session_id}": {
+      "delete": {
+        "description": "Ends a connect session at once: its link shows the same not-found page as a link that never existed. Revoking a session that was already revoked or has expired succeeds and changes nothing.",
+        "operationId": "revoke_connect_session_v1_domains__domain_id__connect_session__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Domain Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "unauthorized",
+                    "details": {},
+                    "message": "A valid application credential is required"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid, revoked or expired credential."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "credential_read_only",
+                    "details": {
+                      "method": "POST",
+                      "scope": "read"
+                    },
+                    "message": "This credential is read-only; it can only make GET and HEAD requests"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The application is suspended, or a read-only credential (`credential_read_only`) made a request other than GET or HEAD."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "connect_session_not_found",
+                    "details": {},
+                    "message": "No such connect session for this domain"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such domain, or no such session for this domain."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many requests with an invalid credential from this client address (`V1_AUTH_FAILURES_PER_MINUTE`); retry after `Retry-After` seconds.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApplicationCredential": []
+          }
+        ],
+        "summary": "Revoke a setup page link",
         "tags": [
           "Domains"
         ]

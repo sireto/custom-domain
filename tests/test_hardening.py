@@ -399,7 +399,9 @@ def test_gateway_accepts_only_the_reconcilers_api_route(session, make_applicatio
     routes = apps["http"]["servers"]["edge"]["routes"]
     assert [r["@id"] for r in routes[:3]] == ["edge-health", "api", "app-acme"]
     api = routes[1]
-    assert api["match"] == [{"host": ["acme.edge.example.net"], "path": ["/v1", "/v1/*"]}]
+    assert api["match"] == [
+        {"host": ["acme.edge.example.net"], "path": ["/v1", "/v1/*", "/connect/*"]}
+    ]
     assert api["handle"][0]["request"]["delete"] == list(edge_config.STRIPPED_REQUEST_HEADERS)
     assert api["handle"][1]["upstreams"] == [{"dial": SETTINGS.assert_upstream}]
 
@@ -413,6 +415,9 @@ def test_gateway_accepts_only_the_reconcilers_api_route(session, make_applicatio
         validate_apps(apps, SETTINGS, EdgeFacts(upstreams=ALLOWED, public_api=True))
     for mutate in (
         lambda r: r[1]["match"][0].__setitem__("path", ["/*"]),  # the whole API, /internal too
+        lambda r: r[1]["match"][0]["path"].append("/portal/*"),  # past the portal allowlist
+        lambda r: r[1]["match"][0].__setitem__("path", ["/v1", "/v1/*", "/connect*"]),
+        lambda r: r[1]["match"][0].__setitem__("path", ["/v1", "/v1/*", "/*"]),
         lambda r: r[1]["match"][0]["host"].append("forms.customer.example"),
         lambda r: r[1]["handle"][1]["upstreams"].__setitem__(0, {"dial": "evil:1"}),
         lambda r: r[1]["handle"].pop(0),  # no longer strips the edge-only headers
