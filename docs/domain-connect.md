@@ -162,6 +162,14 @@ Content-Type: application/json
 - The signer may check the domain by calling this deployment's
   `GET /v1/domains/{domain_id}` with a key of its own for that application
   while it answers: the service holds no lock or transaction while it waits.
+- **A signer may only sign links that point at this edge.** A remote signer
+  can refuse any `target` other than the deployment's own hostname, as a
+  signer that serves several edges should, so that a compromised edge can't
+  get links pointing domains elsewhere. With such a signer, keep applications
+  on the default CNAME target (`EDGE_HOSTNAME`). An application given a
+  custom `cname_target` is refused by that signer as `wrong_target`, and the
+  API reports it as `409 domain_connect_unavailable` with
+  `details.reason: "wrong_target"`.
 
 Instead of the settings, the remote signer can be set at run time, through
 the operator API (`PUT /operator/v1/domain-connect/signer`,
