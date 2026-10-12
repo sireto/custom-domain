@@ -581,3 +581,32 @@ def test_edge_hostname_is_an_edge_name_from_the_first_start(session, make_applic
     with pytest.raises(EdgeConfigurationError):
         EdgeSettings.from_env({"EDGE_HOSTNAME": "*.example.net"})
     assert EdgeSettings.from_env({"EDGE_HOSTNAME": "  "}).edge_hostname is None
+
+
+def test_rotating_dns_answers_do_not_change_the_config(session, fleet, monkeypatch):
+    """Origins behind a CDN answer with the same addresses in a rotating order.
+    The pinned address is chosen from the whole answer, so the derived config
+    (and its digest) stays the same and the edge is not reloaded on every pass."""
+    from app.edge import config as edge_config
+    from app.services import origin_verification
+
+    answer = {"order": ["203.0.113.97:443", "203.0.113.96:443"]}
+
+    def rotating(host, port, *, allow_private=False):
+        if host == "app.acme.example":
+            return list(answer["order"])
+        return [f"198.51.100.7:{port}"]
+
+    monkeypatch.setattr(origin_verification, "resolve_dials", rotating)
+    monkeypatch.setattr(edge_config, "pinned_dial", origin_verification.pinned_dial)
+    first = build_caddy_config(session, SETTINGS)
+    answer["order"] = list(reversed(answer["order"]))  # the next answer comes rotated
+    second = build_caddy_config(session, SETTINGS)
+    assert config_digest(first) == config_digest(second)
+    dials = {
+        upstream["dial"]
+        for route in first["apps"]["http"]["servers"]["edge"]["routes"]
+        for handler in route.get("handle", [])
+        for upstream in handler.get("upstreams", [])
+    }
+    assert "203.0.113.96:443" in dials and "203.0.113.97:443" not in dials

@@ -279,5 +279,19 @@ def pinned_dial(host: str, port: int, *, allow_private: bool = False) -> tuple[s
     presenting ``host`` as SNI and Host. A later DNS change of the origin to
     a private or metadata address therefore cannot redirect live traffic; the
     next reconciliation resolves again and drops the origin instead.
+
+    The address is chosen from the whole answer, not the resolver's first:
+    origins behind a CDN or round-robin DNS return the same addresses in a
+    rotating order, and following that order would change the edge
+    configuration on every reconciliation (and reload the edge each time).
+    IPv4 comes first, then the lowest address, so the choice only changes
+    when the set of addresses does.
     """
-    return resolve_dials(host, port, allow_private=allow_private)[0], host
+    dials = resolve_dials(host, port, allow_private=allow_private)
+    return min(dials, key=_dial_order), host
+
+
+def _dial_order(dial: str) -> tuple[int, int]:
+    """Sort key for ``address:port`` / ``[address]:port``: IPv4 first, then numerically."""
+    address = ipaddress.ip_address(dial.rsplit(":", 1)[0].strip("[]"))
+    return address.version, int(address)

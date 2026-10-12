@@ -207,3 +207,36 @@ def test_active_origin_is_dropped_when_reverification_fails(session, origin, ori
         verify_origin(session, origin, allow_private=True, timeout=3)
     session.commit()
     assert get_active_origin(session, origin.application) is None
+
+
+def test_pinned_dial_is_stable_across_resolver_order(monkeypatch):
+    """IPv4 before IPv6, then the numerically lowest address, whatever order DNS returns."""
+    from app.services import origin_verification
+
+    orders = [
+        ["[2001:db8::2]:443", "203.0.113.97:443", "203.0.113.96:443"],
+        ["203.0.113.96:443", "[2001:db8::2]:443", "203.0.113.97:443"],
+        ["203.0.113.97:443", "203.0.113.96:443", "[2001:db8::2]:443"],
+    ]
+    for order in orders:
+        monkeypatch.setattr(
+            origin_verification, "resolve_dials", lambda host, port, allow_private=False, o=order: o
+        )
+        assert origin_verification.pinned_dial("app.example", 443) == (
+            "203.0.113.96:443",
+            "app.example",
+        )
+    # Numeric, not textual: 9 sorts before 10.
+    monkeypatch.setattr(
+        origin_verification,
+        "resolve_dials",
+        lambda host, port, allow_private=False: ["203.0.113.10:443", "203.0.113.9:443"],
+    )
+    assert origin_verification.pinned_dial("app.example", 443)[0] == "203.0.113.9:443"
+    # IPv6-only answers still work.
+    monkeypatch.setattr(
+        origin_verification,
+        "resolve_dials",
+        lambda host, port, allow_private=False: ["[2001:db8::2]:443", "[2001:db8::1]:443"],
+    )
+    assert origin_verification.pinned_dial("app.example", 443)[0] == "[2001:db8::1]:443"
