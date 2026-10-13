@@ -282,8 +282,8 @@ Give the installer that digest with the version and it pins the image by
 content:
 
 ```
-CUSTOM_DOMAIN_VERSION=0.12.0 CUSTOM_DOMAIN_IMAGE_DIGEST=sha256:<64 hex digits> bash install.sh
-custom-domain upgrade 0.13.0 --digest sha256:<64 hex digits>
+CUSTOM_DOMAIN_VERSION=<version> CUSTOM_DOMAIN_IMAGE_DIGEST=sha256:<64 hex digits> bash install.sh
+custom-domain upgrade <version> --digest sha256:<64 hex digits>
 ```
 
 `CUSTOM_DOMAIN_IMAGE_DIGEST` (also accepted in
@@ -309,7 +309,7 @@ A pin belongs to one release:
 
 The option needs an installer that knows it: `custom-domain upgrade` runs the
 installer of the release it moves to, so `--digest` works when that release
-has it (from the release after 0.12.0).
+has it: the first release after 0.13.0 (0.13.0 itself does not).
 
 ## The edge's own name
 
