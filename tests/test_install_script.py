@@ -418,3 +418,123 @@ def test_installer_clears_every_name_the_compose_file_substitutes():
         f"missing: {sorted(substituted - cleared)}, extra: {sorted(cleared - substituted)}"
     )
     assert script.index("unset ${COMPOSE_SUBSTITUTED}") < script.index("${COMPOSE} pull")
+
+
+DIGEST = "sha256:" + "0123456789abcdef" * 4
+OTHER_DIGEST = "sha256:" + "fedcba9876543210" * 4
+REPOSITORY = "ghcr.io/sireto/custom-domain"
+
+
+def test_digest_pins_the_image_by_content(tmp_path):
+    result = run_install(tmp_path, "0.9.9", CUSTOM_DOMAIN_IMAGE_DIGEST=DIGEST)
+    assert result.returncode == 0, result.stderr + result.stdout
+    # name:tag@digest: Compose and `docker pull` fetch by the digest, the tag
+    # only says which release it is.
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == f"{REPOSITORY}:0.9.9@{DIGEST}"
+    assert f"Image:              {REPOSITORY}:0.9.9@{DIGEST}" in result.stdout
+
+
+def test_digest_pin_follows_the_version_across_upgrades(tmp_path):
+    assert run_install(tmp_path, "0.9.8", CUSTOM_DOMAIN_IMAGE_DIGEST=DIGEST).returncode == 0
+    pinned = f"{REPOSITORY}:0.9.8@{DIGEST}"
+
+    # A rerun without a version, or with the same version, keeps the pin.
+    assert run_install(tmp_path, None).returncode == 0
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == pinned
+    same = run_install(tmp_path, "0.9.8")
+    assert same.returncode == 0, same.stderr
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == pinned
+    assert "Keeping the digest pin of 0.9.8" in same.stdout
+
+    # Another version without a digest: the old digest would run the old
+    # image under the new tag, so the pin is dropped, and the installer says so.
+    moved = run_install(tmp_path, "0.9.9")
+    assert moved.returncode == 0, moved.stderr
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == f"{REPOSITORY}:0.9.9"
+    assert "Dropped the digest pin" in moved.stderr and "--digest" in moved.stderr
+
+    # Another version with its own digest pins that one.
+    repinned = run_install(tmp_path, "0.9.10", CUSTOM_DOMAIN_IMAGE_DIGEST=OTHER_DIGEST)
+    assert repinned.returncode == 0, repinned.stderr
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == f"{REPOSITORY}:0.9.10@{OTHER_DIGEST}"
+    assert "Dropped" not in repinned.stderr
+
+
+def test_digest_in_the_config_file_never_pins_an_explicit_version(tmp_path):
+    """cloud-init writes the version and its digest; `custom-domain upgrade X`
+    later gives only the version."""
+    config = tmp_path / "install.env"
+    config.write_text(f"CUSTOM_DOMAIN_VERSION=0.9.8\nCUSTOM_DOMAIN_IMAGE_DIGEST={DIGEST}\n")
+    first = run_install(tmp_path, None, CUSTOM_DOMAIN_INSTALL_ENV=str(config))
+    assert first.returncode == 0, first.stderr
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == f"{REPOSITORY}:0.9.8@{DIGEST}"
+    upgraded = run_install(tmp_path, "0.9.9", CUSTOM_DOMAIN_INSTALL_ENV=str(config))
+    assert upgraded.returncode == 0, upgraded.stderr
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == f"{REPOSITORY}:0.9.9"
+    assert "Dropped the digest pin" in upgraded.stderr
+
+
+@pytest.mark.parametrize(
+    ("version", "digest"),
+    [
+        ("0.9.9", "0123456789abcdef" * 4),  # no algorithm
+        ("0.9.9", "sha512:" + "0123456789abcdef" * 4),
+        ("0.9.9", "sha256:" + "0123456789ABCDEF" * 4),  # Docker digests are lowercase
+        ("0.9.9", DIGEST[:-1]),
+        ("0.9.9", DIGEST + "0"),
+        ("0.9.9", DIGEST + "\nsha256:" + "0" * 64),
+        ("0.9.9", DIGEST[:-4] + "|x;y"),
+        ("0.9.9", "sha256:" + "g" * 64),
+        (None, DIGEST),  # a digest pins one release: latest is not one
+        ("latest", DIGEST),
+    ],
+)
+def test_unusable_digest_stops_before_anything_changes(tmp_path, version, digest):
+    result = run_install(tmp_path, version, CUSTOM_DOMAIN_IMAGE_DIGEST=digest)
+    assert result.returncode == 1 and "CUSTOM_DOMAIN_IMAGE_DIGEST" in result.stderr
+    assert not (tmp_path / "opt").exists()
+
+
+def test_host_command_passes_the_digest_to_the_upgrade(tmp_path):
+    """`custom-domain upgrade <version> --digest <digest>` reaches the installer,
+    and an upgrade without --digest never takes one from the config file."""
+    config = tmp_path / "install.env"
+    config.write_text(f"CUSTOM_DOMAIN_VERSION=0.9.8\nCUSTOM_DOMAIN_IMAGE_DIGEST={DIGEST}\n")
+    assert run_install(tmp_path, None, CUSTOM_DOMAIN_INSTALL_ENV=str(config)).returncode == 0
+    stubs = tmp_path / "stubs"
+    # The host command downloads the release's installer; serve this one.
+    (stubs / "curl").write_text(
+        '#!/usr/bin/env bash\nwhile [ "$#" -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done\n'
+        f'cp "{SCRIPT}" "$out"\n'
+    )
+    (stubs / "curl").chmod(0o755)
+    environment = {
+        "PATH": f"{stubs}:{os.environ['PATH']}",
+        "HOME": str(tmp_path),
+        "CUSTOM_DOMAIN_BIN_DIR": str(tmp_path / "bin"),
+        "CUSTOM_DOMAIN_SOURCE": str(ROOT),
+        "CUSTOM_DOMAIN_SKIP_ROOT_CHECK": "1",
+        "CUSTOM_DOMAIN_INSTALL_ENV": str(config),
+        "SKIP_DOCKER_INSTALL": "1",
+        "SKIP_FIREWALL": "1",
+    }
+
+    def upgrade(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["bash", str(tmp_path / "bin" / "custom-domain"), "upgrade", *args],
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+    pinned = upgrade("0.9.9", "--digest", OTHER_DIGEST)
+    assert pinned.returncode == 0, pinned.stderr + pinned.stdout
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == f"{REPOSITORY}:0.9.9@{OTHER_DIGEST}"
+    unpinned = upgrade("0.9.10")
+    assert unpinned.returncode == 0, unpinned.stderr + unpinned.stdout
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == f"{REPOSITORY}:0.9.10"
+    assert "Dropped the digest pin" in unpinned.stderr
+    refused = upgrade("0.9.11", f"--digest={DIGEST[:-1]}")
+    assert refused.returncode == 1 and "CUSTOM_DOMAIN_IMAGE_DIGEST" in refused.stderr
+    assert env_of(tmp_path)["CUSTOM_DOMAIN_IMAGE"] == f"{REPOSITORY}:0.9.10"

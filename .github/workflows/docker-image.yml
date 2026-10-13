@@ -77,6 +77,30 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
+      # The digest is what an installation pins (CUSTOM_DOMAIN_IMAGE_DIGEST,
+      # docs/deployment.md); copy it from the run's summary into the release notes.
+      - name: Record the image digest
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          case "${DIGEST}" in
+            sha256:*) ;;
+            *) echo "unexpected digest: ${DIGEST}"; exit 1 ;;
+          esac
+          echo "Pushed ${IMAGE}@${DIGEST}"
+          {
+            echo "### Image digest"
+            echo
+            echo "\`${IMAGE}@${DIGEST}\`"
+            echo
+            echo "Tags: $(echo "${TAGS}" | tr '\n' ' ')"
+            if [ "${GITHUB_REF_TYPE}" = tag ]; then
+              echo
+              echo "Pin this release: \`custom-domain upgrade ${GITHUB_REF_NAME} --digest ${DIGEST}\`"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
       - name: Attest the build provenance
         if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@v2
