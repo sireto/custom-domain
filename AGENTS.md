@@ -200,11 +200,9 @@ together:
    `mcp-server/pyproject.toml` and `sdk/typescript/package.json`, `VERSION` in
    `sdk/typescript/src/version.ts` (then `npm install --package-lock-only` in
    `sdk/typescript/`; `tests/test_mcp_server.py` fails until all of them agree),
-   both versions in `mcp-server/server.json`, and the default version of every cloud template (`deploy/cloud-init.yaml`,
-   `deploy/aws/custom-domain.yaml`, `deploy/azure/main.bicep` then rebuild
-   `azuredeploy.json`, `deploy/gcp/deploy.sh`). Run `uv lock` and open a PR.
-   `tests/test_cloud_templates.py` fails until every template names the
-   release.
+   and both versions in `mcp-server/server.json`. Do not touch the cloud
+   templates: they name the latest *released* version (step 4). Run
+   `uv lock` and open a PR.
 2. After it merges, tag the merge commit (`git tag -a X.Y.Z <sha>`), push
    the tag, then run `gh release create X.Y.Z --verify-tag`.
 3. The workflows publish `ghcr.io/sireto/custom-domain:X.Y.Z`, and
@@ -215,6 +213,16 @@ together:
    publishing setup"). The Docker image run's summary shows the pushed
    digest; add it to the release notes (`gh release edit X.Y.Z`) so
    operators can pin it with `custom-domain upgrade X.Y.Z --digest ...`.
+4. Once the image is published, open a second, small PR that moves the
+   cloud templates to X.Y.Z: `deploy/LATEST_RELEASE`,
+   `deploy/cloud-init.yaml`, `deploy/aws/custom-domain.yaml`,
+   `deploy/azure/main.bicep` (then rebuild `azuredeploy.json`),
+   `deploy/gcp/deploy.sh` and the pre-0.4.0 upgrade commands in
+   `docs/deployment.md`. The Azure and Cloud Shell buttons load `main`, so
+   moving them before the tag and image exist would install a release that
+   is not published. `tests/test_cloud_templates.py` requires every template
+   to equal `deploy/LATEST_RELEASE`, and that version to be at most
+   `pyproject.toml`'s.
 
 Tag and publish only when asked; a release reaches every self-hosted
 deployment through `custom-domain upgrade`.
