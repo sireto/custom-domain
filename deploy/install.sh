@@ -17,6 +17,15 @@
 #                           git tag the deploy files are fetched from (default: latest, which
 #                           follows main; production pins a version such as 0.3.1). On an
 #                           upgrade, only an explicitly given version changes the image.
+#   CUSTOM_DOMAIN_IMAGE_DIGEST
+#                           pins the image by content: sha256:<64 lowercase hex digits>,
+#                           the digest the release's image was published with. The image
+#                           becomes ghcr.io/sireto/custom-domain:<version>@<digest>, so a
+#                           moved tag cannot change what runs. Needs a version (not
+#                           latest). On an upgrade to the same version the pin is kept;
+#                           an upgrade to another version without a new digest drops it.
+#                           A digest in the config file applies only with the config
+#                           file's version.
 #   CUSTOM_DOMAIN_REF       git ref to fetch deploy files from instead (default: the
 #                           version, or main when the version is latest)
 #   CUSTOM_DOMAIN_DIR       install directory (default: /opt/custom-domain)
@@ -57,7 +66,8 @@ set -euo pipefail
 CONFIG_FILE="${CUSTOM_DOMAIN_INSTALL_ENV:-/etc/custom-domain-install.env}"
 SETTINGS="CUSTOM_DOMAIN_VERSION CUSTOM_DOMAIN_REF CUSTOM_DOMAIN_DIR CUSTOM_DOMAIN_SOURCE \
 ACME_EMAIL EDGE_HOSTNAME PUBLIC_API PORTAL_ALLOWED_IPS SKIP_FIREWALL SKIP_DOCKER_INSTALL \
-CUSTOM_DOMAIN_ACCEPT_COMPOSE OPERATOR_API_TOKEN OPERATOR_ALLOWED_IPS MAX_DOMAINS OPERATOR_BACKUP"
+CUSTOM_DOMAIN_ACCEPT_COMPOSE OPERATOR_API_TOKEN OPERATOR_ALLOWED_IPS MAX_DOMAINS OPERATOR_BACKUP \
+CUSTOM_DOMAIN_IMAGE_DIGEST"
 if [ -f "${CONFIG_FILE}" ]; then
     # Remember what the caller set explicitly, load the file, then put the
     # explicit values back: the file is the default, never an override.
@@ -76,6 +86,11 @@ if [ -f "${CONFIG_FILE}" ]; then
             eval "${name}=\"\${_explicit_${name}}\""
         fi
     done
+    # A digest names the image of one release: one from the file belongs to
+    # the file's version and must not pin a version given explicitly.
+    if [ -n "${_given_CUSTOM_DOMAIN_VERSION:-}" ] && [ -z "${_given_CUSTOM_DOMAIN_IMAGE_DIGEST:-}" ]; then
+        CUSTOM_DOMAIN_IMAGE_DIGEST=""
+    fi
 fi
 
 VERSION_GIVEN="${CUSTOM_DOMAIN_VERSION:-}"
@@ -91,7 +106,9 @@ DIR="${CUSTOM_DOMAIN_DIR:-/opt/custom-domain}"
 BIN_DIR="${CUSTOM_DOMAIN_BIN_DIR:-/usr/local/bin}"
 SOURCE="${CUSTOM_DOMAIN_SOURCE:-}"
 RAW="https://raw.githubusercontent.com/sireto/custom-domain/${REF}"
-IMAGE="ghcr.io/sireto/custom-domain:${VERSION}"
+REPOSITORY="ghcr.io/sireto/custom-domain"
+DIGEST="${CUSTOM_DOMAIN_IMAGE_DIGEST:-}"
+IMAGE="${REPOSITORY}:${VERSION}${DIGEST:+@${DIGEST}}"
 COMPOSE_FILE="${DIR}/deploy/compose.production.yml"
 COMPOSE="docker compose -f ${COMPOSE_FILE}"
 ENV_FILE="${DIR}/deploy/.env"
@@ -120,6 +137,21 @@ fi
 if [ -n "${MAX_DOMAINS:-}" ] && ! printf '%s' "${MAX_DOMAINS}" | grep -Eq '^[1-9][0-9]*$'; then
     echo "MAX_DOMAINS must be a whole number of at least 1" >&2
     exit 1
+fi
+if [ -n "${DIGEST}" ]; then
+    # Matched as a whole string (grep would accept any one matching line).
+    case "${DIGEST}" in
+        sha256:*) digest_hex="${DIGEST#sha256:}" ;;
+        *) digest_hex="" ;;
+    esac
+    if [ "${#digest_hex}" -ne 64 ] || [ -n "$(printf '%s' "${digest_hex}" | tr -d '0-9a-f')" ]; then
+        echo "CUSTOM_DOMAIN_IMAGE_DIGEST must be sha256: followed by 64 lowercase hex digits" >&2
+        exit 1
+    fi
+    if [ "${VERSION}" = "latest" ]; then
+        echo "CUSTOM_DOMAIN_IMAGE_DIGEST pins one release: give CUSTOM_DOMAIN_VERSION too (not latest)" >&2
+        exit 1
+    fi
 fi
 
 if [ "$(id -u)" -ne 0 ] && [ "${CUSTOM_DOMAIN_SKIP_ROOT_CHECK:-0}" != "1" ]; then
@@ -280,6 +312,18 @@ else
         env_set PUBLIC_API "${PUBLIC_API}"
     fi
     if [ -n "${VERSION_GIVEN}" ]; then
+        current="$(env_get CUSTOM_DOMAIN_IMAGE)"
+        current_digest=""
+        case "${current}" in *@sha256:*) current_digest="${current##*@}" ;; esac
+        if [ -z "${DIGEST}" ] && [ -n "${current_digest}" ]; then
+            if [ "${current}" = "${REPOSITORY}:${VERSION}@${current_digest}" ]; then
+                # Same release: the digest pinned for it still names it.
+                IMAGE="${current}"
+                log "Keeping the digest pin of ${VERSION}"
+            else
+                warn "Dropped the digest pin (${current_digest}): it named the image of ${current%@*}, not ${VERSION}. Give CUSTOM_DOMAIN_IMAGE_DIGEST (custom-domain upgrade ${VERSION} --digest sha256:...) to pin this release."
+            fi
+        fi
         env_set CUSTOM_DOMAIN_IMAGE "${IMAGE}"
         log "Image set to ${IMAGE}"
     else
@@ -309,20 +353,25 @@ cat >"${BIN_DIR}/custom-domain" <<EOF
 #!/usr/bin/env bash
 # Custom Domain on this host. Written by deploy/install.sh.
 if [ "\${1:-}" = "upgrade" ]; then
-    # custom-domain upgrade [version] [--accept-compose]
+    # custom-domain upgrade [version] [--digest sha256:...] [--accept-compose]
     shift
-    version=""; accept=""
-    for arg in "\$@"; do
-        case "\$arg" in
+    version=""; accept=""; digest="\${CUSTOM_DOMAIN_IMAGE_DIGEST:-}"
+    while [ "\$#" -gt 0 ]; do
+        case "\$1" in
             --accept-compose) accept=1 ;;
-            *) version="\$arg" ;;
+            --digest) digest="\${2:-}"; shift ;;
+            --digest=*) digest="\${1#--digest=}" ;;
+            *) version="\$1" ;;
         esac
+        shift
     done
     ref="\${version:-main}"; [ "\$ref" = latest ] && ref=main
     tmp="\$(mktemp)"
     curl -fsSL "https://raw.githubusercontent.com/sireto/custom-domain/\${ref}/deploy/install.sh" -o "\$tmp"
-    CUSTOM_DOMAIN_VERSION="\$version" CUSTOM_DOMAIN_DIR="${DIR}" \
-        CUSTOM_DOMAIN_ACCEPT_COMPOSE="\${accept:-0}" exec bash "\$tmp"
+    # The digest is always passed (empty when not given), so one left in
+    # /etc/custom-domain-install.env never pins the version given here.
+    CUSTOM_DOMAIN_VERSION="\$version" CUSTOM_DOMAIN_IMAGE_DIGEST="\$digest" \
+        CUSTOM_DOMAIN_DIR="${DIR}" CUSTOM_DOMAIN_ACCEPT_COMPOSE="\${accept:-0}" exec bash "\$tmp"
 fi
 exec ${COMPOSE} exec api custom-domain "\$@"
 EOF

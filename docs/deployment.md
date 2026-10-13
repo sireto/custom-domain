@@ -103,6 +103,9 @@ upgrading is one number. To release:
    workflow then publishes the image, and the SDK workflow both packages
    (Trusted Publishing, see below) and the MCP Registry listing. The
    TypeScript SDK workflow publishes to npm once it is enabled (see below).
+   The image workflow's run summary shows the pushed digest; put it in the
+   release notes so operators can pin it
+   ([Pinning the image by digest](#pinning-the-image-by-digest)).
 
 `deploy/cloud-init.yaml` fetches the installer and the Compose file at the
 tag named by `CUSTOM_DOMAIN_VERSION`, so a user-data document only ever
@@ -195,6 +198,8 @@ introduced to `.env` (with generated values where they are secrets), moves
 Existing data and secrets are never touched. Values given on the command
 line or in the environment win over `/etc/custom-domain-install.env`, so
 the version cloud-init wrote at creation does not hold an upgrade back.
+`custom-domain upgrade <version> --digest sha256:...` also pins the image
+by digest ([below](#pinning-the-image-by-digest)).
 
 The Compose file is part of a release (a published port, a setting the
 three containers must share), so the installer treats it carefully. It
@@ -242,7 +247,7 @@ with the workflow's own token: `ghcr.io/sireto/custom-domain:latest` and
 `<major>.<minor>` for a release tag `<version>` (a bare version number,
 which also releases the SDK at that version). Pin a deployment to a
 version or a `sha-` tag through `CUSTOM_DOMAIN_IMAGE` rather than following
-`latest`. Each published image carries a build provenance attestation;
+`latest`, and by digest for a reference that cannot move (below). Each published image carries a build provenance attestation;
 `gh attestation verify oci://ghcr.io/sireto/custom-domain:<tag> --owner sireto`
 checks that it was built by this repository's workflow.
 
@@ -251,6 +256,48 @@ the package's settings on GitHub: change visibility to public, and link it
 to this repository if the `org.opencontainers.image.source` label has not
 done so). Compose does not re-pull an existing tag: run
 `docker compose -f compose.production.yml pull` before `up` to upgrade.
+
+### Pinning the image by digest
+
+A tag can move; a digest cannot. The `Docker image` workflow writes the
+digest it pushed to the run's summary (`ghcr.io/sireto/custom-domain@sha256:...`,
+with the matching `custom-domain upgrade <version> --digest sha256:...`
+line on a release tag), so the release notes can carry it. Anyone can also
+read it from the registry:
+`docker buildx imagetools inspect ghcr.io/sireto/custom-domain:<version>`.
+
+Give the installer that digest with the version and it pins the image by
+content:
+
+```
+CUSTOM_DOMAIN_VERSION=0.12.0 CUSTOM_DOMAIN_IMAGE_DIGEST=sha256:<64 hex digits> bash install.sh
+custom-domain upgrade 0.13.0 --digest sha256:<64 hex digits>
+```
+
+`CUSTOM_DOMAIN_IMAGE_DIGEST` (also accepted in
+`/etc/custom-domain-install.env`) must be exactly `sha256:` and 64 lowercase
+hex digits, and needs a version other than `latest`; anything else stops the
+installer before it changes anything. `.env` then holds
+`CUSTOM_DOMAIN_IMAGE=ghcr.io/sireto/custom-domain:<version>@sha256:<digest>`.
+Compose and `docker pull` fetch that reference by its digest (the tag only
+names the release for people reading it), and a digest the registry does
+not have fails the pull with `manifest unknown` instead of running
+something else.
+
+A pin belongs to one release:
+
+- **The same version again** (`custom-domain upgrade` with no version, or
+  with the installed one) keeps the pin.
+- **Another version without a digest** drops the pin, with a warning that
+  names the dropped digest: the old digest would run the old image under
+  the new tag. Give `--digest` to pin the new release.
+- **A digest in `/etc/custom-domain-install.env`** applies only with the
+  version in the same file, so the digest cloud-init wrote at creation never
+  pins the version given to `custom-domain upgrade`.
+
+The option needs an installer that knows it: `custom-domain upgrade` runs the
+installer of the release it moves to, so `--digest` works when that release
+has it (from the release after 0.12.0).
 
 ## The edge's own name
 

@@ -212,7 +212,9 @@ together:
    MCP server on the MCP Registry. They fail if the tag and the versions
    differ. `@customdomainapi/sdk` X.Y.Z goes to npm as well once the owner
    has enabled `publish-sdk-ts.yml` (`docs/deployment.md`, "TypeScript SDK
-   publishing setup").
+   publishing setup"). The Docker image run's summary shows the pushed
+   digest; add it to the release notes (`gh release edit X.Y.Z`) so
+   operators can pin it with `custom-domain upgrade X.Y.Z --digest ...`.
 
 Tag and publish only when asked; a release reaches every self-hosted
 deployment through `custom-domain upgrade`.
