@@ -88,14 +88,9 @@ upgrading is one number. To release:
    `sdk/typescript/src/version.ts`, and both versions in `mcp-server/server.json`,
    to the same value (then `npm install --package-lock-only` in `sdk/typescript/`
    so its lockfile names it too; `tests/test_mcp_server.py` fails until they
-   all agree), and set the same version as the default of the cloud templates:
-   `CUSTOM_DOMAIN_VERSION` in `deploy/cloud-init.yaml`, `Version` in
-   `deploy/aws/custom-domain.yaml`, `version` in `deploy/azure/main.bicep`
-   (then rebuild `deploy/azure/azuredeploy.json` with
-   `az bicep build --file deploy/azure/main.bicep --outfile deploy/azure/azuredeploy.json`)
-   and the default in `deploy/gcp/deploy.sh`. Refresh `uv.lock` and merge
-   that through a pull request; `tests/test_cloud_templates.py` fails until
-   every template names the release.
+   all agree). Leave the cloud templates alone: they name the latest
+   *released* version (step 4). Refresh `uv.lock` and merge that through a
+   pull request.
 2. Tag the merge commit with the bare version and push the tag:
    `git tag 0.3.1 <merge commit> && git push origin 0.3.1`.
 3. The tag runs the publish workflows. Each first checks that the tag
@@ -106,12 +101,28 @@ upgrading is one number. To release:
    The image workflow's run summary shows the pushed digest; put it in the
    release notes so operators can pin it
    ([Pinning the image by digest](#pinning-the-image-by-digest)).
+4. Once the image is published, move the cloud templates to the release in
+   a second, small pull request: the version in `deploy/LATEST_RELEASE`,
+   `CUSTOM_DOMAIN_VERSION` in `deploy/cloud-init.yaml`, `Version` in
+   `deploy/aws/custom-domain.yaml`, `version` in `deploy/azure/main.bicep`
+   (then rebuild `deploy/azure/azuredeploy.json` with
+   `az bicep build --file deploy/azure/main.bicep --outfile deploy/azure/azuredeploy.json`)
+   and the default in `deploy/gcp/deploy.sh`, plus the version in the
+   pre-0.4.0 upgrade commands under [Upgrading](#upgrading).
+   `tests/test_cloud_templates.py` fails until every template names the
+   version in `deploy/LATEST_RELEASE`, and fails if that version is newer
+   than `pyproject.toml`'s (or, in a clone with tags, is not a tag).
 
 `deploy/cloud-init.yaml` fetches the installer and the Compose file at the
 tag named by `CUSTOM_DOMAIN_VERSION`, so a user-data document only ever
 runs the release it names. The AWS, Azure and Google Cloud templates do the
-same. The Azure and Google Cloud buttons load their files from `main`, where
-the defaults always name the latest release.
+same. The Azure and Google Cloud buttons load their files from `main`. On
+`main`, `pyproject.toml` names the next release as soon as its pull request
+merges, before the tag and the image exist, so the template defaults follow
+`deploy/LATEST_RELEASE` instead and a button never installs a release that
+is not published yet. The AWS Launch Stack link opens the copy the
+publishing workflow uploads from the release tag (below); that copy's
+default is set to the tag itself.
 
 ### Cloud template publishing setup
 
@@ -119,7 +130,8 @@ CloudFormation opens templates only from S3, so the AWS Launch Stack link
 needs the template there. `.github/workflows/publish-templates.yml` uploads
 it on every release tag to `s3://<bucket>/custom-domain/<version>/` and
 `.../latest/` once two repository variables are set (it does nothing until
-then):
+then). The uploaded copy's `Version` default is set to the tag, since the
+template on `main` still names the previous release at that moment:
 
 - `AWS_TEMPLATES_BUCKET`: a bucket whose objects under `custom-domain/` are
   publicly readable (a bucket policy granting `s3:GetObject` on

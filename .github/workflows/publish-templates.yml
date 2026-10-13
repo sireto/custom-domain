@@ -1,7 +1,9 @@
 # Publishes the AWS CloudFormation template to S3 on every release tag, so
 # the "Launch Stack" link in docs/hosting-aws.md can open it (CloudFormation
 # only loads templates from S3). The Azure and Google Cloud buttons load
-# their files from GitHub directly and need nothing here.
+# their files from GitHub directly and need nothing here. The templates on
+# main default to the latest released tag (deploy/LATEST_RELEASE), so the
+# uploaded copy's Version default is set to the tag being published.
 #
 # Configure once (repository Settings > Secrets and variables > Actions >
 # Variables); until both are set this workflow does nothing:
@@ -42,7 +44,18 @@ jobs:
             echo "only a release tag equal to pyproject.toml (${version}) publishes" >&2
             exit 1
           fi
-          aws s3 cp "${template}" "s3://${BUCKET}/custom-domain/${version}/custom-domain.yaml" \
+          # On main the template defaults to the latest released tag
+          # (deploy/LATEST_RELEASE), which a release tag is about to succeed:
+          # the uploaded copy defaults to the release that publishes it.
+          published="$(mktemp)"
+          awk -v v="${version}" '
+            /^  Version:$/ { in_version = 1; print; next }
+            /^  [^ ]/ { in_version = 0 }
+            in_version && /^    Default: / { print "    Default: \"" v "\""; n++; next }
+            { print }
+            END { if (n != 1) exit 1 }
+          ' "${template}" >"${published}"
+          aws s3 cp "${published}" "s3://${BUCKET}/custom-domain/${version}/custom-domain.yaml" \
             --content-type text/yaml
-          aws s3 cp "${template}" "s3://${BUCKET}/custom-domain/latest/custom-domain.yaml" \
+          aws s3 cp "${published}" "s3://${BUCKET}/custom-domain/latest/custom-domain.yaml" \
             --content-type text/yaml --cache-control max-age=300

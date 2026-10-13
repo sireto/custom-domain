@@ -2,7 +2,7 @@
 
 None of them is deployed here. Each is checked for what reaches the server
 (the cloud-init that runs deploy/install.sh), for the network it opens, and
-for staying pinned to the current release.
+for staying pinned to the latest released tag (deploy/LATEST_RELEASE).
 """
 
 from __future__ import annotations
@@ -23,7 +23,13 @@ AWS = ROOT / "deploy" / "aws" / "custom-domain.yaml"
 AZURE_BICEP = ROOT / "deploy" / "azure" / "main.bicep"
 AZURE_JSON = ROOT / "deploy" / "azure" / "azuredeploy.json"
 GCP = ROOT / "deploy" / "gcp" / "deploy.sh"
-VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+CLOUD_INIT = ROOT / "deploy" / "cloud-init.yaml"
+PUBLISH_TEMPLATES = ROOT / ".github" / "workflows" / "publish-templates.yml"
+PYPROJECT_VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+# The buttons load the templates from main, which carries the next release's
+# version before its tag and image exist: the defaults name the latest release
+# that does exist, recorded here and moved by a small PR after each release.
+VERSION = (ROOT / "deploy" / "LATEST_RELEASE").read_text().strip()
 
 SAMPLE = {
     "EdgeHostname": "edge.example.net",
@@ -468,3 +474,90 @@ def test_gcp_script_refuses_bad_input_before_creating_anything(tmp_path, env, me
 
 def test_gcp_script_is_pinned_to_the_release():
     assert f'VERSION="${{CUSTOM_DOMAIN_VERSION:-{VERSION}}}"' in GCP.read_text()
+
+
+# --- The release the defaults name ------------------------------------------------------
+
+
+def _release(version: str) -> tuple[int, ...]:
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
+    return tuple(int(part) for part in version.split("."))
+
+
+def test_latest_release_is_at_most_the_version_in_development():
+    """Between the release PR merging and its tag, pyproject.toml is ahead of the
+    latest release; the file never is (it moves only after the tag is published)."""
+    assert (ROOT / "deploy" / "LATEST_RELEASE").read_text() == f"{VERSION}\n"
+    assert _release(VERSION) <= _release(PYPROJECT_VERSION)
+
+
+def test_cloud_init_and_manual_upgrade_name_the_latest_release():
+    content = yaml.safe_load(CLOUD_INIT.read_text())["write_files"][0]["content"]
+    assert env_lines(content)["CUSTOM_DOMAIN_VERSION"] == VERSION
+    # The commands that upgrade a pre-0.4.0 installation by hand.
+    deployment = (ROOT / "docs" / "deployment.md").read_text()
+    assert f"sireto/custom-domain/{VERSION}/deploy/install.sh" in deployment
+    assert f"CUSTOM_DOMAIN_VERSION={VERSION} bash" in deployment
+
+
+def test_latest_release_is_a_tag_when_the_checkout_has_tags():
+    """CI checkouts are shallow and carry no tags; a full clone checks the file
+    against the tags themselves."""
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "tag", "--list"], capture_output=True, text=True, check=False
+    )
+    releases = {t for t in result.stdout.split() if re.fullmatch(r"\d+\.\d+\.\d+", t)}
+    if result.returncode != 0 or not releases:
+        pytest.skip("no release tags in this checkout")
+    if VERSION not in releases and max(map(_release, releases)) < _release(VERSION):
+        pytest.skip("the checkout's tags predate the latest release (git fetch --tags)")
+    assert VERSION in releases
+
+
+def test_published_aws_template_defaults_to_the_tag_that_publishes_it(tmp_path):
+    """The Launch Stack link opens the S3 copy, uploaded on each release tag
+    while main still names the previous release."""
+    workflow = yaml.safe_load(PUBLISH_TEMPLATES.read_text())
+    (step,) = [s for s in workflow["jobs"]["aws"]["steps"] if "run" in s]
+    # A checkout of a release tag one past the latest release.
+    tag = "99.0.0"
+    checkout = tmp_path / "checkout"
+    (checkout / "deploy" / "aws").mkdir(parents=True)
+    (checkout / "deploy" / "aws" / "custom-domain.yaml").write_text(AWS.read_text())
+    (checkout / "pyproject.toml").write_text(f'[project]\nname = "x"\nversion = "{tag}"\n')
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    (stubs / "aws").write_text(
+        "#!/usr/bin/env bash\n# aws s3 cp <file> s3://bucket/<key> ...\n"
+        'key="${4#s3://bucket/}"; mkdir -p "$OUT/$(dirname "$key")"; cp "$3" "$OUT/$key"\n'
+    )
+    (stubs / "aws").chmod(0o755)
+    environment = {
+        "PATH": f"{stubs}:{os.environ['PATH']}",
+        "OUT": str(tmp_path / "s3"),
+        "BUCKET": "bucket",
+        "REF": tag,
+        "GITHUB_REF_TYPE": "tag",
+    }
+
+    def publish(**env: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["bash", "-c", step["run"]],
+            cwd=checkout,
+            env={**environment, **env},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    result = publish()
+    assert result.returncode == 0, result.stderr
+    for prefix in (tag, "latest"):
+        published = (tmp_path / "s3" / "custom-domain" / prefix / "custom-domain.yaml").read_text()
+        template = yaml.load(published, Loader=CfnLoader)  # noqa: S506 (a SafeLoader subclass)
+        assert template["Parameters"]["Version"]["Default"] == tag
+        # Nothing else changes.
+        assert published.replace(f'"{tag}"', f'"{VERSION}"') == AWS.read_text()
+
+    refused = publish(REF="98.0.0")
+    assert refused.returncode != 0 and "only a release tag" in refused.stderr
