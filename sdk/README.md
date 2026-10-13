@@ -94,6 +94,8 @@ the stable `code` from the API, `message` and `details`:
 `AuthenticationError` (401), `PermissionDeniedError` (403), `NotFoundError`
 (404), `ConflictError` (409, for example `hostname_already_claimed`),
 `DomainConnectUnavailableError` (a `ConflictError` for `domain_connect_unavailable`),
+`ConnectPageUnavailableError` (a `ConflictError` for `connect_page_unavailable`:
+the deployment serves no setup page),
 `ValidationError` (422, for example `apex_not_supported`), `RateLimitedError`
 (429, with `retry_after`), `ServerError` (5xx). `TransportError` means no HTTP
 response was received.

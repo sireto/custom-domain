@@ -5,11 +5,14 @@
 // with an idempotency key, and the webhook replays) are retried up to
 // `maxRetries` times on connection errors, timeouts, 429 (honouring
 // Retry-After) and 5xx, with exponential backoff. A create without an
-// idempotency key, a recheck, a webhook create and a secret rotation are never
-// retried automatically: the caller decides. The same rules as the Python SDK.
+// idempotency key, a recheck, a Domain Connect link, a setup page link, a
+// webhook create and a secret rotation are never retried automatically: the
+// caller decides. The same rules as the Python SDK.
 
 import { errorFor, RateLimitedError, TransportError } from "./errors.js";
 import type {
+  ConnectSession,
+  ConnectUrl,
   Delivery,
   DeliveryState,
   Domain,
@@ -76,6 +79,26 @@ export interface IterDomainsParams extends RequestOptions {
   status?: DomainStatus;
   includeDeleted?: boolean;
   pageSize?: number;
+}
+
+export interface ConnectUrlOptions extends RequestOptions {
+  /**
+   * Where the DNS provider sends the customer when they are done: `https`,
+   * with a host, no user name and no fragment, at most 512 bytes. It ends up
+   * in a signed URL, so point it at a page of your own.
+   */
+  redirectUri?: string;
+  /** Returned to `redirectUri` unchanged, at most 512 bytes without control characters. */
+  state?: string;
+}
+
+export interface ConnectSessionOptions extends RequestOptions {
+  /** How long the link works, in seconds: 300 to 86 400. Default 86 400 (24 hours). */
+  ttlSeconds?: number;
+  /** Your application's name, for "Back to <appName>" on the page. At most 64 characters. */
+  appName?: string;
+  /** Where "Back to <appName>" goes: `https`, with a host, no user name and no fragment. */
+  returnUrl?: string;
 }
 
 export interface CreateWebhookInput {
@@ -312,6 +335,58 @@ export class CustomDomainClient {
       method: "POST",
       path: `/v1/domains/${segment(id)}/checks`,
       retryable: false,
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * A signed Domain Connect apply URL for a domain whose `setup.method` is
+   * `domain_connect`: send the customer to `url` to approve the records at
+   * their DNS provider in one step. Otherwise throws
+   * `DomainConnectUnavailableError`. Not retried: links are rate limited
+   * server side.
+   */
+  connectUrl(id: string, options: ConnectUrlOptions = {}): Promise<ConnectUrl> {
+    const body: { redirect_uri?: string; state?: string } = {};
+    if (options.redirectUri !== undefined) body.redirect_uri = options.redirectUri;
+    if (options.state !== undefined) body.state = options.state;
+    return this.#request<ConnectUrl>({
+      method: "POST",
+      path: `/v1/domains/${segment(id)}/connect`,
+      body,
+      retryable: false,
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * A link to the service's setup page for one domain, to send to the
+   * customer: the DNS records, the live checks and, when the provider supports
+   * it, one-step setup. `url` holds a token for this domain only and is
+   * returned only once. Throws `ConnectPageUnavailableError` when the
+   * deployment serves no setup page. Not retried: links are rate limited
+   * server side.
+   */
+  connectSession(id: string, options: ConnectSessionOptions = {}): Promise<ConnectSession> {
+    const body: { ttl_seconds?: number; app_name?: string; return_url?: string } = {};
+    if (options.ttlSeconds !== undefined) body.ttl_seconds = options.ttlSeconds;
+    if (options.appName !== undefined) body.app_name = options.appName;
+    if (options.returnUrl !== undefined) body.return_url = options.returnUrl;
+    return this.#request<ConnectSession>({
+      method: "POST",
+      path: `/v1/domains/${segment(id)}/connect-session`,
+      body,
+      retryable: false,
+      signal: options.signal,
+    });
+  }
+
+  /** End a setup page link now. Revoking it again, or after it expired, is a no-op. */
+  async revokeConnectSession(id: string, sessionId: string, options: RequestOptions = {}): Promise<void> {
+    await this.#request<undefined>({
+      method: "DELETE",
+      path: `/v1/domains/${segment(id)}/connect-session/${segment(sessionId)}`,
+      retryable: true,
       signal: options.signal,
     });
   }
